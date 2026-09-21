@@ -1,12 +1,10 @@
-<div align="center">
-
 # BRZ Garage
 
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地行程管家**
 
 ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
-<img src="preview/rpm_states/rpm-6500.png" width="360" alt="BRZ Garage 转速页面">
+![BRZ Garage 转速页面](preview/rpm_states/rpm-6500.png)
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-3.2.14-00C853)](CHANGELOG.md)
@@ -16,8 +14,6 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 [下载 Android App](https://github.com/sisi4376/BRZ-Garage/releases/download/v3.2.20/BRZ-Garage-v3.2.20-debug.apk) ·
 [查看更新日志](CHANGELOG.md)
-
-</div>
 
 ## 早期测试版说明
 
@@ -83,30 +79,22 @@ flowchart LR
 
 ## 仪表界面
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/gauge-gear.png" width="220" alt="挡位与转速页面"><br><b>挡位与转速</b><br><sub>转速提醒、挡位推算</sub></td>
-    <td align="center"><img src="docs/images/gauge-temp.png" width="220" alt="温度页面"><br><b>关键温度</b><br><sub>水温、进气温、机油温</sub></td>
-    <td align="center"><img src="docs/images/gauge-fuel.png" width="220" alt="油耗页面"><br><b>油耗信息</b><br><sub>瞬时、本次与累计油耗</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/gauge-trip.png" width="220" alt="行程总览页面"><br><b>行程总览</b><br><sub>里程、时间、累计燃油</sub></td>
-    <td align="center"><img src="docs/images/gauge-history.png" width="220" alt="历史行程页面"><br><b>历史行程</b><br><sub>本地保存，断点同步到手机</sub></td>
-    <td align="center"><img src="preview/rpm_states/rpm-7000.png" width="220" alt="高转速提醒页面"><br><b>转速提醒</b><br><sub>超过阈值时醒目闪烁</sub></td>
-  </tr>
-</table>
+| 挡位与转速 | 关键温度 | 油耗信息 |
+|:---:|:---:|:---:|
+| ![挡位与转速页面](docs/images/gauge-gear.png) | ![温度页面](docs/images/gauge-temp.png) | ![油耗页面](docs/images/gauge-fuel.png) |
+| 转速提醒、挡位推算 | 水温、进气温、机油温 | 瞬时、本次与累计油耗 |
+| **行程总览** | **历史行程** | **转速提醒** |
+| ![行程总览页面](docs/images/gauge-trip.png) | ![历史行程页面](docs/images/gauge-history.png) | ![高转速提醒页面](preview/rpm_states/rpm-7000.png) |
+| 里程、时间、累计燃油 | 本地保存，断点同步到手机 | 超过阈值时醒目闪烁 |
 
 > 上图由项目自己的 LVGL 模拟器渲染，使用的页面代码和字体资源与固件相同；数值为演示数据。
 
 ## App 界面预览
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/images/app-home-preview.svg" width="240" alt="BRZ Garage 车辆首页预览"><br><b>车辆首页</b><br><sub>续航、油量与当前行程</sub></td>
-    <td align="center"><img src="docs/images/app-trips-preview.svg" width="240" alt="BRZ Garage 驾驶足迹预览"><br><b>驾驶足迹</b><br><sub>历史行程与驾驶极值</sub></td>
-    <td align="center"><img src="docs/images/app-settings-preview.svg" width="240" alt="BRZ Garage 设置页面预览"><br><b>连接与设置</b><br><sub>车辆、仪表与 OTA 管理</sub></td>
-  </tr>
-</table>
+| 车辆首页 | 驾驶足迹 | 连接与设置 |
+|:---:|:---:|:---:|
+| ![BRZ Garage 车辆首页预览](docs/images/app-home-preview.svg) | ![BRZ Garage 驾驶足迹预览](docs/images/app-trips-preview.svg) | ![BRZ Garage 设置页面预览](docs/images/app-settings-preview.svg) |
+| 续航、油量与当前行程 | 历史行程与驾驶极值 | 车辆、仪表与 OTA 管理 |
 
 > App 预览依据当前 Android 页面结构绘制，使用演示车辆与行程数据；不同系统版本、屏幕尺寸和连接状态下的实际布局与内容可能略有差异。
 
