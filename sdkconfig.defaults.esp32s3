@@ -1,0 +1,34 @@
+# This file was generated using idf.py save-defconfig. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) Project Minimal Configuration
+# Default target: Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B
+#
+CONFIG_OBD_BOARD_AMOLED_175=y
+# CONFIG_OBD_BOARD_LCD_185 is not set
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# Flash 16MB (Waveshare board)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# Bluetooth (BLE GATT Client for ELM327 OBD)
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=y
+CONFIG_BT_BLE_ENABLED=y
+CONFIG_BT_BTU_TASK_STACK_SIZE=4096
+# BTC task runs ALL GAP/GATTC/GATTS app callbacks (ELM327 client + gauge-pair client +
+# RaceChrono GATTS + OTA GATTS whose handlers call esp_ota_write/SHA256/SPIFFS inline).
+# IDF default is 3072, which overflows with WiFi/BT coexist enabled.
+CONFIG_BT_BTC_TASK_STACK_SIZE=8192
+CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
+
+# SPIRAM
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+# Allow WiFi LWIP allocations to use PSRAM when internal DRAM is exhausted.
+# Without this, SoftAP beacon buffers (752 bytes) can fail to allocate from
+# fragmented internal RAM in BLE+WiFi coexistence, causing a NULL-deref panic.
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y

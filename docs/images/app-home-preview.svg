@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="780" viewBox="0 0 390 780" role="img" aria-labelledby="title desc">
+  <title id="title">BRZ Garage 车辆首页预览</title>
+  <desc id="desc">显示车辆、预估续航、剩余油量、本次行程以及仪表连接状态。</desc>
+  <defs>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#253246"/>
+      <stop offset="1" stop-color="#0f1520"/>
+    </linearGradient>
+    <style>
+      text { font-family: Arial, "Microsoft YaHei", sans-serif; fill: #181d27; }
+      .muted { fill: #6d7784; }
+      .soft { fill: #adbed1; }
+      .white { fill: #fff; }
+      .accent { fill: #dc3156; }
+      .small { font-size: 11px; }
+      .caption { font-size: 13px; font-weight: 600; }
+      .body { font-size: 14px; }
+      .value { font-size: 18px; font-weight: 600; }
+      .nav { font-size: 12px; text-anchor: middle; }
+    </style>
+  </defs>
+  <rect width="390" height="780" rx="30" fill="#f4f5f7"/>
+  <rect x="142" y="9" width="106" height="5" rx="3" fill="#d5d9df"/>
+  <text x="22" y="49" font-size="29" font-weight="600">我的 BRZ STI</text>
+  <text x="22" y="70" class="muted" font-size="12">BRZ ZD8 6MT · 已连接</text>
+  <text x="22" y="92" font-size="14" font-weight="600">5,488 km</text>
+
+  <rect x="22" y="110" width="346" height="264" rx="24" fill="url(#hero)"/>
+  <g aria-hidden="true">
+    <path d="M82 218 L101 188 Q108 176 129 174 L211 168 Q234 168 252 183 L274 199 L310 204 Q321 206 326 218 L330 232 L314 240 L76 240 L68 229 Z" fill="#1574df"/>
+    <path d="M131 178 L207 173 Q226 173 242 187 L251 198 L111 198 Z" fill="#27394f"/>
+    <path d="M166 176 L163 198 M212 174 L225 197" stroke="#83bfff" stroke-width="2"/>
+    <path d="M75 218 L112 214 M282 207 L319 212" stroke="#8ac4ff" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="119" cy="235" r="22" fill="#121923"/><circle cx="119" cy="235" r="12" fill="#a8b4c2"/><circle cx="280" cy="235" r="22" fill="#121923"/><circle cx="280" cy="235" r="12" fill="#a8b4c2"/>
+    <text x="199" y="227" style="fill:#d9ecff" font-size="13" text-anchor="middle" font-weight="600">BRZ</text>
+  </g>
+  <image href="../../android_app/app/src/main/res/drawable-nodpi/brz_zd8_hero.png" x="39" y="121" width="312" height="142" preserveAspectRatio="xMidYMid meet"/>
+  <text x="43" y="284" class="soft caption">预估剩余续航</text>
+  <text x="43" y="330" class="white" font-size="44" font-weight="600">426 km</text>
+  <text x="43" y="352" style="fill:#d1ddea" font-size="13">剩余油量 68% · 约 34.0 L</text>
+  <rect x="43" y="361" width="304" height="6" rx="3" fill="#3c4c60"/>
+  <rect x="43" y="361" width="207" height="6" rx="3" fill="#ee597e"/>
+
+  <rect x="22" y="392" width="346" height="112" rx="22" fill="#fff"/>
+  <text x="42" y="422" class="muted caption">本次行程 · 仪表统计</text>
+  <text x="42" y="454" class="value">24.4 km   ·   00:23</text>
+  <text x="42" y="478" class="body">消耗燃油 1.98 L   ·   平均 8.1 L/100km</text>
+  <text x="344" y="456" class="accent" font-size="22" text-anchor="end">›</text>
+
+  <rect x="22" y="520" width="346" height="112" rx="22" fill="#fff"/>
+  <text x="42" y="550" class="muted caption">上次加油以来 · 仪表自动判断</text>
+  <text x="42" y="582" class="value">286.7 km   ·   05:42</text>
+  <text x="42" y="606" class="body">消耗燃油 23.31 L   ·   平均 8.1 L/100km</text>
+
+  <rect x="22" y="648" width="346" height="58" rx="22" fill="#fff"/>
+  <circle cx="45" cy="677" r="6" fill="#24b56b"/>
+  <text x="60" y="682" class="body" font-weight="600">SkyGauge 已连接 · 数据同步完成</text>
+
+  <rect x="0" y="718" width="390" height="62" fill="#fff"/>
+  <rect x="13" y="726" width="82" height="46" rx="15" fill="#fdebf0"/>
+  <text x="54" y="744" class="accent nav">◉</text><text x="54" y="762" class="accent nav">车辆</text>
+  <text x="148" y="744" class="muted nav">≡</text><text x="148" y="762" class="muted nav">行程</text>
+  <text x="242" y="744" class="muted nav">＋</text><text x="242" y="762" class="muted nav">加油</text>
+  <text x="336" y="744" class="muted nav">◎</text><text x="336" y="762" class="muted nav">设置</text>
+</svg>

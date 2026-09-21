@@ -1,0 +1,3 @@
+<resources>
+    <bool name="supports_companion_presence">true</bool>
+</resources>

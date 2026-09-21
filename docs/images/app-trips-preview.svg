@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="780" viewBox="0 0 390 780" role="img" aria-labelledby="title desc">
+  <title id="title">BRZ Garage 驾驶足迹预览</title>
+  <desc id="desc">显示历史行程列表、日期、里程、油耗和驾驶极值。</desc>
+  <style>
+    text { font-family: Arial, "Microsoft YaHei", sans-serif; fill: #181d27; }
+    .muted { fill: #6d7784; }
+    .accent { fill: #dc3156; }
+    .small { font-size: 11px; }
+    .caption { font-size: 13px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .value { font-size: 17px; font-weight: 600; }
+    .nav { font-size: 12px; text-anchor: middle; }
+  </style>
+  <rect width="390" height="780" rx="30" fill="#f4f5f7"/>
+  <rect x="142" y="9" width="106" height="5" rx="3" fill="#d5d9df"/>
+  <text x="22" y="52" font-size="29" font-weight="600">驾驶足迹</text>
+  <rect x="295" y="27" width="73" height="32" rx="16" fill="#fdebf0"/>
+  <circle cx="312" cy="43" r="11" fill="#dc3156"/>
+  <text x="329" y="48" class="accent" font-size="12">修订</text>
+  <text x="22" y="76" class="muted" font-size="12">18 次行程 · 18 次时间完整 · 记录仅保存在本机</text>
+
+  <g transform="translate(22 100)">
+    <rect width="346" height="150" rx="22" fill="#fff"/>
+    <text x="20" y="31" class="muted caption">2026-09-21  08:12 → 08:58</text>
+    <text x="20" y="62" class="value">47.2 km   ·   00:46</text>
+    <text x="20" y="88" class="body">平均油耗 8.1 L/100km   ·   燃油 3.82 L</text>
+    <line x1="20" y1="104" x2="326" y2="104" stroke="#e7e9ed"/>
+    <text x="20" y="129" class="small muted">最高 126 km/h</text>
+    <text x="128" y="129" class="small muted">最高 6,480 rpm</text>
+    <text x="252" y="129" class="small accent">查看详情 ›</text>
+  </g>
+  <g transform="translate(22 266)">
+    <rect width="346" height="150" rx="22" fill="#fff"/>
+    <text x="20" y="31" class="muted caption">2026-09-20  19:04 → 19:28</text>
+    <text x="20" y="62" class="value">18.6 km   ·   00:24</text>
+    <text x="20" y="88" class="body">平均油耗 8.9 L/100km   ·   燃油 1.66 L</text>
+    <line x1="20" y1="104" x2="326" y2="104" stroke="#e7e9ed"/>
+    <text x="20" y="129" class="small muted">最高 82 km/h</text>
+    <text x="128" y="129" class="small muted">最高 4,920 rpm</text>
+    <text x="252" y="129" class="small accent">查看详情 ›</text>
+  </g>
+  <g transform="translate(22 432)">
+    <rect width="346" height="150" rx="22" fill="#fff"/>
+    <text x="20" y="31" class="muted caption">2026-09-20  14:20 → 15:26</text>
+    <text x="20" y="62" class="value">73.1 km   ·   01:06</text>
+    <text x="20" y="88" class="body">平均油耗 7.9 L/100km   ·   燃油 5.79 L</text>
+    <line x1="20" y1="104" x2="326" y2="104" stroke="#e7e9ed"/>
+    <text x="20" y="129" class="small muted">最高 108 km/h</text>
+    <text x="128" y="129" class="small muted">最高 5,760 rpm</text>
+    <text x="252" y="129" class="small accent">查看详情 ›</text>
+  </g>
+
+  <rect x="22" y="601" width="346" height="88" rx="22" fill="#253246"/>
+  <text x="42" y="632" style="fill:#adbed1" class="caption">行程详情还会记录</text>
+  <text x="42" y="659" style="fill:#fff" class="body">最大加速 / 减速 · 平均时速 · 起止时间</text>
+  <text x="42" y="679" style="fill:#adbed1" class="small">旧记录缺少极值时会明确标注，不补造数据</text>
+
+  <rect x="0" y="718" width="390" height="62" fill="#fff"/>
+  <text x="54" y="744" class="muted nav">◉</text><text x="54" y="762" class="muted nav">车辆</text>
+  <rect x="107" y="726" width="82" height="46" rx="15" fill="#fdebf0"/>
+  <text x="148" y="744" class="accent nav">≡</text><text x="148" y="762" class="accent nav">行程</text>
+  <text x="242" y="744" class="muted nav">＋</text><text x="242" y="762" class="muted nav">加油</text>
+  <text x="336" y="744" class="muted nav">◎</text><text x="336" y="762" class="muted nav">设置</text>
+</svg>

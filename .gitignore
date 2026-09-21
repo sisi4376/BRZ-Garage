@@ -1,0 +1,72 @@
+# Local toolchains, downloaded dependencies and compiler caches
+/.toolchains/
+/.ccache/
+/managed_components/
+/tools/.cache/
+
+# Firmware build output and generated release packages
+/build/
+/build_fix/
+/simulator/build/
+/firmware/release/
+/bootmedia.bin
+
+# Android/Gradle generated files
+/android_app/.gradle/
+/android_app/.kotlin/
+/android_app/build/
+/android_app/app/build/
+/android_app/local.properties
+*.apk
+*.aab
+*.idsig
+/android_app/*.zip
+
+# Never commit the private Android update-signing material. Keep the public
+# certificate fingerprint/instructions in signing/README.md.
+/android_app/signing/*
+!/android_app/signing/README.md
+
+# Local analysis workspaces, backups, diagnostics and device-state dumps
+/.analysis/
+/.publish/
+/backups/
+/logs/
+/nvs_*.bin
+*.core
+
+# ESP-IDF machine-local configuration; sdkconfig.defaults remains tracked
+/sdkconfig
+/sdkconfig.old
+
+# IDE and operating-system metadata
+/.vscode/
+/.idea/
+/.qwen/
+*.iml
+.DS_Store
+**/.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python caches and local virtual environments
+__pycache__/
+*.py[cod]
+/.venv/
+/venv/
+
+# Private hardware reference document
+/main/SAX0AC BC CC.pdf
+
+# Generated PID probe artifacts (from tools/analyze_proble.py)
+/pid_can_summary.csv
+/tools/probe_log/
+/tools/elm_pids/
+/tools/pids_full.csv
+
+# Generated live-preview transport files; checked-in preview source/assets stay
+/preview/lvgl_frame.bmp
+/preview/lvgl_frame.tmp
+/preview/lvgl_status.json
+/preview/lvgl_status.tmp
+/preview/lvgl_command.txt

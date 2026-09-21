@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="780" viewBox="0 0 390 780" role="img" aria-labelledby="title desc">
+  <title id="title">BRZ Garage 连接与设置预览</title>
+  <desc id="desc">显示车辆设置、里程估算、仪表绑定和固件更新。</desc>
+  <style>
+    text { font-family: Arial, "Microsoft YaHei", sans-serif; fill: #181d27; }
+    .muted { fill: #6d7784; }
+    .accent { fill: #dc3156; }
+    .small { font-size: 11px; }
+    .caption { font-size: 13px; font-weight: 600; }
+    .body { font-size: 14px; }
+    .value { font-size: 17px; font-weight: 600; }
+    .nav { font-size: 12px; text-anchor: middle; }
+  </style>
+  <rect width="390" height="780" rx="30" fill="#f4f5f7"/>
+  <rect x="142" y="9" width="106" height="5" rx="3" fill="#d5d9df"/>
+  <text x="22" y="52" font-size="29" font-weight="600">设置</text>
+  <text x="22" y="75" class="muted" font-size="12">连接、显示与仪表功能</text>
+
+  <g transform="translate(22 96)">
+    <rect width="346" height="105" rx="22" fill="#fff"/>
+    <text x="20" y="29" class="muted caption">车辆显示</text>
+    <text x="20" y="58" class="value">我的 BRZ STI</text>
+    <text x="20" y="82" class="muted body">BRZ ZD8 6MT</text>
+    <rect x="250" y="43" width="76" height="34" rx="17" fill="#e9edf2"/>
+    <text x="288" y="65" class="body" text-anchor="middle">修改</text>
+  </g>
+
+  <g transform="translate(22 217)">
+    <rect width="346" height="118" rx="22" fill="#fff"/>
+    <text x="20" y="29" class="muted caption">里程估算</text>
+    <text x="20" y="59" class="value">5,488.6 km · 已校准</text>
+    <text x="20" y="89" class="body">在仪表信息页和 App 首页显示里程</text>
+    <rect x="290" y="72" width="36" height="20" rx="10" fill="#dc3156"/>
+    <circle cx="316" cy="82" r="8" fill="#fff"/>
+  </g>
+
+  <g transform="translate(22 351)">
+    <rect width="346" height="106" rx="22" fill="#fff"/>
+    <text x="20" y="29" class="muted caption">我的仪表</text>
+    <circle cx="26" cy="57" r="6" fill="#24b56b"/>
+    <text x="41" y="62" class="value">SkyGauge-A81C</text>
+    <text x="20" y="87" class="muted body">已绑定 · BLE 自动连接已启用</text>
+  </g>
+
+  <g transform="translate(22 473)">
+    <rect width="346" height="135" rx="22" fill="#fff"/>
+    <text x="20" y="29" class="muted caption">仪表固件更新</text>
+    <text x="20" y="59" class="value">仪表 3.2.12 · 已是最新版本</text>
+    <text x="20" y="83" class="muted small">停车确认后才会进入 OTA，不会因扫描自动更新</text>
+    <rect x="20" y="94" width="142" height="32" rx="16" fill="#e9edf2"/>
+    <text x="91" y="115" class="body" text-anchor="middle">扫描是否需要更新</text>
+  </g>
+
+  <g transform="translate(22 624)">
+    <rect width="346" height="66" rx="22" fill="#fff"/>
+    <text x="20" y="28" class="muted caption">仪表设置</text>
+    <text x="20" y="51" class="body">车型 · 日间亮度 · 自动加油识别阈值</text>
+    <text x="326" y="47" class="accent" font-size="22" text-anchor="end">›</text>
+  </g>
+
+  <rect x="0" y="718" width="390" height="62" fill="#fff"/>
+  <text x="54" y="744" class="muted nav">◉</text><text x="54" y="762" class="muted nav">车辆</text>
+  <text x="148" y="744" class="muted nav">≡</text><text x="148" y="762" class="muted nav">行程</text>
+  <text x="242" y="744" class="muted nav">＋</text><text x="242" y="762" class="muted nav">加油</text>
+  <rect x="295" y="726" width="82" height="46" rx="15" fill="#fdebf0"/>
+  <text x="336" y="744" class="accent nav">◎</text><text x="336" y="762" class="accent nav">设置</text>
+</svg>

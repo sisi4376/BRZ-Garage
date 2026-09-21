@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BRZ ZD8 — Native LVGL Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="workspace">
+    <section class="stage">
+      <div class="device-shell">
+        <div class="display-frame" id="display-frame">
+          <img id="lvgl-frame" src="/lvgl_frame.bmp" alt="原项目 LVGL 466×466 实时帧缓冲" draggable="false">
+          <div class="offline" id="offline">等待原生 LVGL 渲染器…</div>
+        </div>
+      </div>
+      <p>在表盘上向四个方向拖动；页面像素均由项目中的 LVGL C 页面实时生成。</p>
+    </section>
+
+    <aside class="panel">
+      <p class="kicker">NATIVE LVGL 8.4.0</p>
+      <h1>实际界面<br>无烧录运行</h1>
+      <p class="description">浏览器不再绘制仪表，只显示原生模拟器输出的 466×466 RGB565 帧缓冲。页面 C 文件、Conthrax 字库和 BlackEar 图片都直接参与编译。</p>
+
+      <dl>
+        <div><dt>渲染器</dt><dd id="renderer">正在连接…</dd></div>
+        <div><dt>数据源</dt><dd id="source">--</dd></div>
+        <div><dt>当前页面</dt><dd id="page-name">TEMP</dd></div>
+        <div><dt>ELM327</dt><dd>127.0.0.1:35000</dd></div>
+      </dl>
+
+      <p class="button-label">主仪表页</p>
+      <div class="page-buttons" id="page-buttons" aria-label="主仪表页面选择">
+        <button data-page="0">GEAR + RPM</button>
+        <button data-page="2">SPEED</button>
+        <button data-page="3" class="active">TEMP</button>
+        <button data-page="4">INFO</button>
+        <button data-page="5">NEEDLE</button>
+        <button data-page="6">CHART</button>
+        <button data-page="19">FUEL</button>
+        <button data-page="20">TRIP HISTORY</button>
+        <button data-page="7">DEVICE</button>
+      </div>
+
+      <p class="button-label">设置与调试页</p>
+      <div class="page-buttons debug-pages" aria-label="设置页面选择">
+        <button data-page="8">BLE SCAN</button>
+        <button data-page="9">SETTINGS</button>
+        <button data-page="10">MULTI</button>
+        <button data-page="11">OBD PROTOCOL</button>
+        <button data-page="12">LOGO</button>
+        <button data-page="13">YELLOWLINE</button>
+        <button data-page="14">TEMP SOURCE</button>
+        <button data-page="15">INFO SOURCE</button>
+        <button data-page="16">NEEDLE SOURCE</button>
+        <button data-page="17">CHART SOURCE</button>
+        <button data-page="18">CHART ALARM</button>
+      </div>
+
+      <p class="note">GEAR + RPM 页下滑设置黄线转速；红线固定 7000 RPM、表底固定 9000 RPM。TRIP HISTORY 左右切换主页面、上下翻阅历史；DEVICE 页上滑进入 BLE SCAN、下滑进入 SETTINGS。</p>
+    </aside>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+version: "0.1.0"
+dependencies:
+  idf: ">=5.5"
+  waveshare/esp32_s3_touch_amoled_1_75:
+    version: "^3.0.1"
+    public: true
+  espressif/knob: "^1.0.0"
+  espressif/esp_lcd_touch:
+    public: true
+    version: "^1"
+  lvgl/lvgl:
+    public: true
+    version: "^8"
