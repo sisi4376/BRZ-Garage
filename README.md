@@ -177,7 +177,7 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-下载并安装 **[BRZ Garage 3.2.20](https://github.com/sisi4376/BRZ-Garage/releases/download/v3.2.20/BRZ-Garage-v3.2.20-debug.apk)**。当前 APK 内置仪表固件 **3.2.14**，后续升级可以直接在 App 内完成。
+前往Release页面下载并安装最新版本的 **[BRZ Garage](https://github.com/sisi4376/BRZ-Garage/releases)**。经过第一次烧录后，APP以及仪表固件的后续升级可以直接在 App 内完成。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 授予“附近设备”、通知，以及 Android 13+ 的附近 Wi-Fi 权限；
