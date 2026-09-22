@@ -11,7 +11,9 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
 [下载 Android App](https://github.com/sisi4376/BRZ-Garage/releases) ·
+<!---
 # [查看更新日志](CHANGELOG.md)
+-->
 
 ## 早期测试版说明
 
