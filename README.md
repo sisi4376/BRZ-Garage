@@ -89,11 +89,11 @@ flowchart LR
 
 | 挡位与转速 | 关键温度 | 油耗信息 |
 |:---:|:---:|:---:|
-| ![挡位与转速页面(仅模拟示意，挡位关系有错误)](docs/images/gauge-gear.png) | ![温度页面](docs/images/gauge-temp.png) | ![油耗页面](docs/images/gauge-fuel.png) |
-| 转速提醒、挡位推算 | 水温、进气温、机油温 | 瞬时、本次与累计油耗 |
+| ![挡位与转速页面](docs/images/gauge-gear.png) | ![温度页面](docs/images/gauge-temp.png) | ![油耗页面](docs/images/gauge-fuel.png) |
+| 转速提醒、挡位推算(仅模拟示意，挡位关系有错误) | 水温、进气温、机油温 | 瞬时、本次与累计油耗 |
 | **行程总览** | **历史行程** | **转速提醒** |
-| ![行程总览页面](docs/images/gauge-trip.png) | ![历史行程页面](docs/images/gauge-history.png) | ![高转速提醒页面(仅模拟示意，挡位关系有错误)](preview/rpm_states/rpm-7000.png) |
-| 里程、时间、累计燃油 | 本地保存，断点同步到手机 | 超过阈值时醒目闪烁 |
+| ![行程总览页面](docs/images/gauge-trip.png) | ![历史行程页面](docs/images/gauge-history.png) | ![高转速提醒页面](preview/rpm_states/rpm-7000.png) |
+| 里程、时间、累计燃油 | 本地保存，断点同步到手机 | 超过阈值时醒目闪烁(仅模拟示意，挡位关系有错误) |
 
 > 上图由项目自己的 LVGL 模拟器渲染，使用的页面代码和字体资源与固件相同；数值为演示数据。
 
