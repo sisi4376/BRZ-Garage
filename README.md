@@ -106,11 +106,12 @@ flowchart LR
 | 车辆首页 | 当前驾驶 | 驾驶足迹 |
 |:---:|:---:|:---:|
 | ![BRZ Garage 车辆首页预览](docs/images/app-home-preview.jpg) | ![BRZ Garage 当前驾驶预览](docs/images/app-current-drive-preview.jpg) | ![BRZ Garage 驾驶足迹预览](docs/images/app-trips-preview.jpg) |
-| 续航、油量与当前行程 | 历史行程与驾驶极值 | 车辆、仪表与 OTA 管理 |
+| 主页：里程与续航 | 主页：当前行程 | 历史行程 |
+
 | 驾驶详情 | 加油记录 | 设置 |
 |:---:|:---:|:---:|
 | ![BRZ Garage 驾驶详情预览](docs/images/app-trip-detail-preview.jpg) | ![BRZ Garage 加油记录预览](docs/images/app-oil-preview.jpg) | ![BRZ Garage 设置页面预览](docs/images/app-settings-preview.jpg) |
-| 续航、油量与当前行程 | 历史行程与驾驶极值 | 车辆、仪表与 OTA 管理 |
+| 历史行程详情 | 加油记录 | 车辆、仪表与 OTA 管理 |
 
 > App 预览依据当前 Android 页面结构绘制，使用演示车辆与行程数据；不同系统版本、屏幕尺寸和连接状态下的实际布局与内容可能略有差异。
 
