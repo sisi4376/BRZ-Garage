@@ -42,7 +42,7 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 
 <details>
-<summary>架构图（暂时隐藏）</summary>
+<summary>架构图（点击查看详情）</summary>
     
 ```mermaid
 flowchart LR
