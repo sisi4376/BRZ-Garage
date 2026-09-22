@@ -36,13 +36,14 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 **BRZ Garage** 是一套由圆形 AMOLED 仪表和 Android App 组成的开源 BRZ 车载数据方案。仪表通过 BLE 连接 ELM327，从车辆读取转速、车速和温度等 OBD-II 数据；手机负责自动授时、车型和亮度设置、行程同步、加油记录以及无线固件更新。
 
-![BRZ Garage 概念图](docs/images/Concept_image_2.png)
+<img src="docs/images/Concept_image_2.png" width="50%">
 
 (概念图由AI生成)
 
 
-<!-- 暂时隐藏：更多文档
-
+<details>
+<summary>架构图（暂时隐藏）</summary>
+    
 ```mermaid
 flowchart LR
     subgraph CAR["🚗 车辆端"]
@@ -80,7 +81,7 @@ flowchart LR
     class NVS,DB storage
 ```
 
--->
+</details>
 
 > [!IMPORTANT]
 > 手机 App 连接的是**仪表**，不是 ELM327。普通 BLE ELM327 通常只允许一个客户端，使用仪表时不要再让 Car Scanner 等 App 同时直连同一个适配器。
