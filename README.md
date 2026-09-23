@@ -28,7 +28,7 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 >
 > ❌**本项目无远程访问连接车辆的能力，请详细了解功能后再安装**
 >
-> ❌**目前尚未开发GPS功能，如果希望保留GPS拓展，购买ESP32-S3-Touch-1.75-AMOLED-G版本**
+> ❌**目前尚未开发GPS功能，如果希望保留GPS拓展，购买ESP32-S3-Touch-AMOLED-1.75-G版本**
 >
 > ❌**为保证仪表安全，目前暂未考虑外接锂电系统。为防止车辆蓄电池异常掉电，目前暂未采用保险盒供电方案**
 > 
@@ -100,7 +100,7 @@ flowchart LR
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
 | 车辆 | Subaru BRZ ZC6 6MT | 🧪 已接入，等待更多实车验证 |
-| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B，466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
+| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G （**如果希望保留GPS拓展，购买1.75-G版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
 | 自动挡、其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
