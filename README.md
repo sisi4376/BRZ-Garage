@@ -29,6 +29,8 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 > ❌**本项目无远程访问连接车辆的能力，请详细了解功能后再安装**
 >
 > ❌**目前尚未开发GPS功能，如果希望保留GPS拓展，购买ESP32-S3-Touch-1.75-AMOLED-G版本**
+>
+> ❌**为保证仪表安全，目前暂未考虑外接锂电系统。为防止车辆蓄电池异常掉电，目前暂未采用保险盒供电方案**
 > 
 > APP开发过程中仅在鸿蒙6系统进行过测试，安卓兼容性尚且未知（应该不会有大问题）。❌ **暂不支持IOS。**
 
@@ -159,6 +161,8 @@ flowchart LR
 ## 第一次安装
 
 ### 1. 烧录仪表
+
+如果电脑尚未安装该环境，请先按照乐鑫官方的 [ESP-IDF 5.5.2 Windows 工具链安装说明](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/windows-setup.html) 完成安装，并在安装结束时选择 **Run ESP-IDF PowerShell Environment**。**ESP-IDF PowerShell** 不是需要单独下载的软件，而是安装器创建的、已经配置好 ESP-IDF 环境变量的 PowerShell 入口。
 
 从开始菜单打开 **ESP-IDF PowerShell**。不要使用普通 PowerShell，因为其中通常没有配置 `idf.py` 和 `esptool.py`。
 
