@@ -299,17 +299,22 @@ cd C:\path\to\BRZ_OBD
 
 -->
 
-## 致谢与许可
+## 版权、致谢与许可
 
 本项目基于 [steveEcode/obd_brz_gauge](https://github.com/steveEcode/obd_brz_gauge) 二次开发，该项目为本项目的仪表实现和硬件适配提供了重要基础与参考。
 
 同时感谢 [zhaizhaitao/open_obd_dsp](https://github.com/zhaizhaitao/open_obd_dsp) 开源的原始仪表方案、[timurrrr/ft86](https://github.com/timurrrr/ft86) 整理的 FT86/BRZ CAN 资料，以及 [Hokori23](https://github.com/Hokori23) 提供的 NVS、页面刷新和 OBD 轮询性能建议。
 
-本项目采用 [GNU General Public License v3.0](LICENSE)。允许使用、修改和分发；分发修改版本时必须继续按照 GPLv3 提供对应源代码。
+本仓库当前采用 [GNU General Public License v3.0](LICENSE) 发布。允许使用、修改和分发；分发修改版本时必须继续按照 GPLv3 提供对应源代码。版权归属按组件区分：
 
 ```text
-Copyright (C) 2024-2026 steveEcode and contributors
-Modifications Copyright (C) 2026 sisi4376
+上游仪表代码：Copyright (C) 2024-2026 steveEcode and contributors
+仪表修改部分：Copyright (C) 2026 sisi4376
+Android App：Copyright (C) 2026 sisi4376
 ```
 
-本仓库包含 sisi4376 于 2026 年对上述上游项目所作的修改；原作者版权声明以及第三方组件各自的许可证声明均予以保留。
+本仓库包含 sisi4376 于 2026 年对上游仪表项目所作的修改，以及独立新增的 BRZ Garage Android App。原作者对上游代码的版权不会因本项目的修改而转移；sisi4376 对自行完成的仪表修改和 Android App 代码分别主张版权。
+
+App 内置的 `android_app/app/src/main/assets/firmware/obd_brz_gauge.bin` 是由本仓库仪表源码构建的定制 OTA 固件，不是从上游项目或其他作者的发布渠道取得的程序，也不代表上游作者发布、审核或认可的官方固件。该二进制文件仍随其对应的仪表源码适用 GPLv3；对应源代码可在本仓库中取得。
+
+第三方组件和素材继续适用其各自的许可证与版权声明。更完整的组件归属、内置固件说明和非官方声明请参阅 [NOTICE](NOTICE.md)。

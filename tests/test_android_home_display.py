@@ -97,6 +97,41 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("record.maxSpeedKmh != null && record.maxSpeedKmh !in 0..500", database)
         self.assertIn('putNull("max_speed_kmh")', database)
 
+    def test_app_update_download_has_visible_percentage_progress(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"下载进度：${download.progress}%"', source)
+        self.assertIn("LinearLayout.LayoutParams(-1, dp(8))", source)
+        self.assertIn("progressTintList = android.content.res.ColorStateList.valueOf(accent)", source)
+        self.assertIn("handler.postDelayed(appUpdatePoll, 1000L)", source)
+
+    def test_vehicle_settings_page_owns_name_model_and_refuel_threshold(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        vehicle_page = source.split("private fun vehicleSettingsPage()", 1)[1].split(
+            "private fun showVehicleDisplayNameDialog()", 1
+        )[0]
+        gauge_page = source.split("private fun gaugeSettingsPage()", 1)[1].split(
+            "private fun editableVehicleModel", 1
+        )[0]
+        self.assertIn('button("车辆设置") { vehicleSettingsPage() }', source)
+        self.assertIn('page("车辆设置"', vehicle_page)
+        self.assertIn('button("修改首页车辆名称")', vehicle_page)
+        self.assertIn("editableVehicleModel(model, settings?.vehicleProfile)", vehicle_page)
+        self.assertIn("editableRefuelThreshold(refuel, settings?.refuelThresholdMl)", vehicle_page)
+        self.assertNotIn("editableVehicleModel", gauge_page)
+        self.assertNotIn("editableRefuelThreshold", gauge_page)
+
+    def test_since_refuel_explanation_uses_current_threshold(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("state.gaugeSettings()?.refuelThresholdMl", source)
+        self.assertIn("两次独立油位样本均确认", source)
+        self.assertNotIn("按 50 L 标称油箱折算达到 5 L", source)
+
 
 if __name__ == "__main__":
     unittest.main()

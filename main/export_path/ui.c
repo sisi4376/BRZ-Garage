@@ -464,6 +464,65 @@ static bool ui_screen_updates_live_data(lv_obj_t *scr)
            scr == ui_ScreenPageTripOverview || scr == ui_ScreenPageTripIntervals;
 }
 
+/*
+ * Display-only low-pass filter for the driver-facing RPM/speed widgets.
+ *
+ * Raw OBD samples remain untouched in obd_data_cache, so polling, fuel/trip
+ * calculations, max-value tracking and gear inference all keep using the
+ * newest ECU value.  Advancing this filter from the LVGL timer merely fills
+ * the visual gaps between comparatively slow ELM327 samples.
+ */
+typedef struct {
+    int32_t value_q8;
+    uint32_t last_tick;
+    bool initialized;
+} ui_motion_filter_t;
+
+static uint16_t ui_motion_filter_step(ui_motion_filter_t *filter,
+                                      uint16_t target,
+                                      uint32_t time_constant_ms,
+                                      uint16_t snap_units)
+{
+    uint32_t now = lv_tick_get();
+    int32_t target_q8 = (int32_t)target << 8;
+
+    /* A zero sample is semantically important (engine stopped / vehicle
+     * stopped), and a long gap means the page was not being rendered.  Snap
+     * in both cases rather than displaying a stale, slowly decaying value. */
+    if (!filter->initialized || target == 0U ||
+        (uint32_t)(now - filter->last_tick) > 250U) {
+        filter->value_q8 = target_q8;
+        filter->last_tick = now;
+        filter->initialized = true;
+        return target;
+    }
+
+    uint32_t dt_ms = (uint32_t)(now - filter->last_tick);
+    filter->last_tick = now;
+    if (dt_ms == 0U) {
+        return (uint16_t)((filter->value_q8 + 128) >> 8);
+    }
+    if (dt_ms > 100U) dt_ms = 100U;
+
+    int32_t delta_q8 = target_q8 - filter->value_q8;
+    int32_t snap_q8 = (int32_t)snap_units << 8;
+    if (delta_q8 >= -snap_q8 && delta_q8 <= snap_q8) {
+        filter->value_q8 = target_q8;
+    } else {
+        int32_t step_q8 = (int32_t)(((int64_t)delta_q8 * dt_ms) /
+                                    (time_constant_ms + dt_ms));
+        if (step_q8 == 0) step_q8 = delta_q8 > 0 ? 1 : -1;
+        filter->value_q8 += step_q8;
+    }
+
+    return (uint16_t)((filter->value_q8 + 128) >> 8);
+}
+
+static void ui_motion_filter_reset(ui_motion_filter_t *filter)
+{
+    filter->initialized = false;
+}
+
 void my_timerMain(lv_timer_t * timer)
 {
     // ---- Process the event queue (ESP-NOW / BLE cross-task events) ----
@@ -615,6 +674,10 @@ void my_timerMain(lv_timer_t * timer)
 
     static uint16_t usRpm = 0;
     static uint16_t ucSpeed = 0;  // uint16_t so sweep can reach 999
+    static uint16_t rawRpm = 0;
+    static uint16_t rawSpeed = 0;
+    static ui_motion_filter_t rpmDisplayFilter = {0};
+    static ui_motion_filter_t speedDisplayFilter = {0};
     static enGear eGear = GEAR_NEUTRAL;
     static bool  s_gear_unknown = false;
     // rpm flash state (red/black toggle, strobing flag, linked ramp) moved to ui_ext.c
@@ -663,8 +726,8 @@ void my_timerMain(lv_timer_t * timer)
         bat_mv    = obd.bat_mv;
         boost_x10 = obd.boost_x10; // boost gauge pressure 0.1bar, -32768=invalid
         afr_x100  = obd.afr_x100;   // air-fuel ratio ×100, -1=invalid
-        usRpm     = obd.rpm;
-        ucSpeed   = obd.speed;
+        rawRpm    = obd.rpm;
+        rawSpeed  = obd.speed;
         int8_t decoded_gear = obd.gear;
         if (decoded_gear >= 0 && decoded_gear <= GEAR_8) {
             eGear = (enGear)decoded_gear;
@@ -681,10 +744,18 @@ void my_timerMain(lv_timer_t * timer)
     /* ---- Data source: sweep or real OBD (sweep state machine moved to ui_ext.c) ---- */
     float sweep_ratio = ui_ext_sweep_tick(is_slave, user_cfg->brightness_day);
     if (sweep_ratio >= 0.0f) {
+        ui_motion_filter_reset(&rpmDisplayFilter);
+        ui_motion_filter_reset(&speedDisplayFilter);
         usRpm   = (uint16_t)(SWEEP_RPM_PEAK * sweep_ratio);
         ucSpeed = (uint16_t)(SWEEP_SPEED_PEAK * sweep_ratio); // uint16_t so it can hold 999
         eGear   = (enGear)((int)(6.0f * sweep_ratio + 0.5f)); // up to 6th gear
         s_gear_unknown = false;
+    } else if (live_data_screen || rpm_warn_possible ||
+               ui_ext_rpm_is_flashing() || ui_ext_rpm_link_ramp_active()) {
+        /* About 55 ms for RPM and 90 ms for speed removes the staircase look
+         * while settling well before the next ~5 Hz ELM327 sample. */
+        usRpm = ui_motion_filter_step(&rpmDisplayFilter, rawRpm, 55U, 4U);
+        ucSpeed = ui_motion_filter_step(&speedDisplayFilter, rawSpeed, 90U, 1U);
     }
     /*Gear page: refresh only while this page is actually shown, no idle background updates*/
     if (scr == ui_ScreenPageGear) {
@@ -703,9 +774,9 @@ void my_timerMain(lv_timer_t * timer)
                 lv_label_set_text(ui_GearPageArcLabelGearNumText, pGearNum[g]);
             }
         }
-        uint8_t rpm_zone = usRpm >= RPM_REDLINE ? 2U :
-                           (usRpm >= user_cfg->rpm_warn_threshold ? 1U : 0U);
-        ui_gear_page_update_visuals(usRpm, ucSpeed,
+        uint8_t rpm_zone = rawRpm >= RPM_REDLINE ? 2U :
+                           (rawRpm >= user_cfg->rpm_warn_threshold ? 1U : 0U);
+        ui_gear_page_update_visuals(usRpm, rawRpm, ucSpeed,
                                     s_gear_unknown ? 0U : (uint8_t)g,
                                     user_cfg->rpm_warn_threshold);
         if ((int32_t)usRpm != s_last_combined_rpm || rpm_zone != s_last_rpm_zone || IN_SWEEP) {
@@ -714,7 +785,7 @@ void my_timerMain(lv_timer_t * timer)
             lv_label_set_text_fmt(ui_GearPageRpmText, "%d", (int)usRpm);
         }
     }
-    /*RPM page: direct output, no animation delay (CAN 100Hz data is already clean)*/
+    /* RPM page: render the display-only filtered value; raw sampling remains untouched. */
     if (scr == ui_ScreenPageRpm) {
         static int32_t s_last_rpm = -1;
         if ((int32_t)usRpm != s_last_rpm) {
@@ -723,7 +794,7 @@ void my_timerMain(lv_timer_t * timer)
             lv_arc_set_value(ui_RpmPageArcRpmBack, (uint32_t)usRpm*100/SWEEP_RPM_PEAK);
         }
     }
-    /*Speed page: same as above, refresh only while the page is active*/
+    /* Speed page: render the display-only filtered value while this page is active. */
     if (scr == ui_ScreenPageSpeed) {
         static int32_t s_disp_spd = 0;
         static int32_t s_last_spd = -1;
@@ -953,7 +1024,9 @@ void my_timerMain(lv_timer_t * timer)
     ui_ext_intro_tick(is_slave);
 
     /* ---- RPM over-limit flash warning (migrated to ui_ext.c) ---- */
-    ui_ext_rpm_flash_tick(usRpm, IN_SWEEP);
+    /* Warning detection uses the unsmoothed ECU sample so the cosmetic filter
+     * cannot delay a yellow/red threshold transition. */
+    ui_ext_rpm_flash_tick(rawRpm, IN_SWEEP);
 
     if (!ui_ext_showroom_is_active()) {
         ui_ext_status_indicators_update(ble_now, racechrono_ble_diy_is_connected(),

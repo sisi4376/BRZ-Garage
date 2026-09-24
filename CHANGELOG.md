@@ -8,6 +8,48 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-09-24 — App 3.2.30 model-specific final plate calibration
+
+- Applies the final manually calibrated four-corner plate planes independently for ZD8 and ZC6, correcting the home vehicle plate's position, scale and perspective relationship.
+- Retains the two-stage runtime pipeline: generate one complete GA 36-2018 flat plate bitmap first, then perspective-install that bitmap on the selected vehicle's front bumper.
+
+### 2026-09-23 — App 3.2.29 corrected plate-to-vehicle scale
+
+- Reduces both model-specific plate planes by roughly 12-15% after comparing plate width against the visible grille width in registered-car references; the plate now occupies about 35% instead of roughly 41%.
+- Retains the corrected approximately 2.6:1 projected shape, emblem centreline alignment, grille-edge height and near/far perspective relationship.
+
+### 2026-09-23 — App 3.2.28 corrected projected plate proportions
+
+- Fixes the previous calibration guard, which kept the three-quarter projection too close to the flat plate's 3.14:1 ratio and therefore made the plate look vertically compressed.
+- Accounts for the home artwork's roughly 30-35 degree bumper yaw: both ZD8 and ZC6 now render near 2.5-2.7:1, while retaining the calibrated centre, grille-edge placement and shorter/higher far edge.
+
+### 2026-09-23 — App 3.2.27 second ZD8 plate-plane calibration
+
+- Cross-checks official model material and multiple front/three-quarter photos of road-registered ZD8 cars, then moves the plate upward to straddle the grille's upper edge and narrows it to roughly one quarter of the visible front fascia.
+- Keeps the plate centred along the emblem/grille centreline while preserving the shorter, higher far edge required by the home artwork's three-quarter perspective; the separately calibrated ZC6 plane is unchanged.
+
+### 2026-09-23 — App 3.2.26 corrected home-vehicle plate projection
+
+- Recalibrates the ZD8 and ZC6 plate quadrilaterals from real front and three-quarter vehicle references, correcting the previously over-wide and vertically compressed projection.
+- Aligns the plate with the bumper centreline and grille plane, preserves the real 440 x 140 mm plate's projected proportions and near/far edge relationship, and adds a narrow dark mounting carrier so the plate no longer appears to float.
+
+### 2026-09-23 — App 3.2.25 update progress and consolidated vehicle settings
+
+- Shows a visible percentage progress bar while Android downloads an App update from GitHub Releases.
+- Adds a second-level `Vehicle settings` page under `My vehicle` and moves the home vehicle name, ZD8/ZC6 model selector, and automatic refuel-detection threshold into it without changing their storage or gauge-sync behavior.
+- Updates the `Since refuel` explanation to display the current gauge threshold and removes the obsolete fixed 5 L / nominal 50 L wording.
+
+### 2026-09-23 — App 3.2.24 installed custom plate on the home vehicle
+
+- Renames the settings `Vehicle display` card to `My vehicle`, moves the plate tool into it, and renames the feature `Custom plate`.
+- Requires a complete seven-character conventional-car plate; incomplete input now reports an error without producing artwork.
+- Adds an in-feature visibility switch and perspective-installs the generated flat plate artwork on model-specific front-bumper mounting planes for both ZD8 and ZC6 home vehicles.
+
+### 2026-09-23 — App 3.2.23 GA 36-2018 plate-glyph correction
+
+- Replaces the Android condensed system font in the small conventional-car plate preview with bundled, MIT-licensed Chinese number-plate glyph templates.
+- Draws each glyph in the 45 mm x 90 mm slots and at the fixed positions from GA 36-2018 Figure 1; the templates remain an on-screen reconstruction, not official anti-counterfeit production dies.
+
 ### 2026-09-21 — App 3.2.20 visible trip-revision save action
 
 - Moves the historical trip data editor's Cancel and Save actions into a fixed footer while only the fields scroll, so long forms cannot push the system dialog buttons off-screen on compact or vendor-customized Android layouts.
@@ -445,6 +487,48 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-09-24 — App 3.2.30 分车型最终校准车牌安装面
+
+- 分别采用本地可视化微调后确认的 ZD8、ZC6 四角坐标，修正首页车辆车牌的位置、大小和透视关系。
+- 保持两阶段运行流程：先按 GA 36-2018 版式生成完整平面车牌位图，再将该位图透视安装到所选车型的前保险杠。
+
+### 2026-09-23 — App 3.2.29 修正车牌与车辆大小比例
+
+- 按带牌实车中“车牌宽度 ÷ 可见中网宽度”重新校准，两款车型车牌整体缩小约 12%～15%，由此前约占中网 41% 调整到约 35%。
+- 保留约 2.6:1 的正确投影形状、车标中心线对齐、中网上沿高度以及近远边关系。
+
+### 2026-09-23 — App 3.2.28 修正车牌投影比例
+
+- 修复上一版把斜前方投影限制得过于接近平面号牌 3.14:1 原始比例、导致牌面纵向压扁的问题。
+- 按车辆底图约 30°～35°的保险杠偏航计算，ZD8、ZC6 投影调整为约 2.5～2.7:1，并保留已校准的中心位置、中网上沿位置及远侧边略短略高的关系。
+
+### 2026-09-23 — App 3.2.27 ZD8 车牌安装平面二次校准
+
+- 结合官方车型资料及多组带牌 ZD8 正面、斜前方实车照片，把首页车牌上移到中网上沿并收窄到可见前脸约四分之一。
+- 车牌中心继续对齐车标—中网中心线，远侧边保持略短、略高；已独立匹配较高格栅平面的 ZC6 参数不变。
+
+### 2026-09-23 — App 3.2.26 修正首页车辆车牌投影
+
+- 依据实车正面和斜前方参考照片重新标定 ZD8、ZC6 的车牌四角点，修复此前横向过宽、纵向过度压扁的问题。
+- 车牌现在与保险杠中心线和中网平面一致，保持 440 × 140 mm 号牌合理的投影比例及近远边关系，并增加窄幅深色安装座，消除悬浮感。
+
+### 2026-09-23 — App 3.2.25 下载进度与车辆设置归并
+
+- Android 从 GitHub Release 下载 App 更新时显示清晰的实时百分比进度条。
+- “我的车辆”新增“车辆设置”二级页面，首页车辆名称、ZD8/ZC6 车型和自动加油识别阈值统一移动到该页，原保存、仪表同步和回读功能不变。
+- “上次加油以来”说明改为显示仪表当前阈值，删除已过时的固定 5 L / 50 L 标称油箱描述。
+
+### 2026-09-23 — App 3.2.24 首页车辆安装自定义车牌
+
+- 设置页“车辆显示”更名为“我的车辆”，车牌功能移入该栏并更名为“自定义车牌”。
+- 小型燃油汽车号牌必须输入完整 7 位；位数不足时直接报错且不生成图像。
+- 自定义车牌页增加首页显示开关；先生成标准平面车牌，再按 ZD8、ZC6 各自前保险杠牌照位进行四点透视变换，使车牌安装在车身正确位置。
+
+### 2026-09-23 — App 3.2.23 GA 36-2018 号牌字形修正
+
+- 小型燃油汽车号牌预览不再使用 Android 系统压缩字体，改为内置 MIT 授权的中国号牌专用字形复刻资源。
+- 按 GA 36-2018 图 1 的 45 mm × 90 mm 字符槽位和固定位置逐字绘制；该资源仅供屏幕模拟，并非公安机关防伪专用生产模具。
 
 ### 2026-09-21 — App 3.2.20 行程修订保存键可见性修复
 

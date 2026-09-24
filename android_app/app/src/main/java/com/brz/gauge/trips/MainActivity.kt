@@ -53,6 +53,7 @@ class MainActivity : Activity() {
     private var customStats: TextView? = null
     private lateinit var clockText: TextView
     private lateinit var countText: TextView
+    private var homeVehicleHero: VehicleHeroView? = null
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var trips = emptyList<TripRecord>()
@@ -71,6 +72,7 @@ class MainActivity : Activity() {
     private var historyLoading = false
     private var historyRevisionMode = false
     private var showingGaugeSettings = false
+    private var showingVehicleSettings = false
     private var showingTripDetail = false
     private var showingRefuelDetail = false
     private var showingCustomTripDetail = false
@@ -82,6 +84,14 @@ class MainActivity : Activity() {
     private var renderedHomeVehicleProfile: Int? = null
     private var homeRebuildPosted = false
     private var statusReceiverRegistered = false
+    private var appUpdateChecking = false
+    private var appUpdateCheck: AppUpdateCheck? = null
+    private var appUpdateCheckError: String? = null
+    private var appUpdateInstallAfterPermission = false
+    private var appUpdatePromptedDownloadId = -1L
+    private var appUpdatePollScheduled = false
+    private var appUpdateLastStatus: AppDownloadStatus? = null
+    private var appUpdateLastProgress = -1
     // Keep the two small decoded hero bitmaps for the Activity lifetime.  Do not
     // manually recycle the previous one while replacing the page: a settings
     // snapshot can change ZD8 -> ZC6 during an active draw traversal, and some
@@ -104,6 +114,12 @@ class MainActivity : Activity() {
     }
     private val refresh = object : Runnable {
         override fun run() { refreshHome(); handler.postDelayed(this, 5000) }
+    }
+    private val appUpdatePoll = object : Runnable {
+        override fun run() {
+            appUpdatePollScheduled = false
+            refreshAppUpdateDownload()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -134,7 +150,12 @@ class MainActivity : Activity() {
         tab = savedInstanceState?.getInt("tab") ?: 0
         historyRevisionMode = savedInstanceState?.getBoolean("history_revision_mode") ?: false
         showingGaugeSettings = savedInstanceState?.getBoolean("gauge_settings_page") ?: false
-        if (showingGaugeSettings) gaugeSettingsPage() else showTab(tab)
+        showingVehicleSettings = savedInstanceState?.getBoolean("vehicle_settings_page") ?: false
+        when {
+            showingVehicleSettings -> vehicleSettingsPage()
+            showingGaugeSettings -> gaugeSettingsPage()
+            else -> showTab(tab)
+        }
         permissions(false)
         loadTrips()
         loadFuelRecords()
@@ -153,6 +174,7 @@ class MainActivity : Activity() {
         outState.putInt("tab", tab)
         outState.putBoolean("history_revision_mode", historyRevisionMode)
         outState.putBoolean("gauge_settings_page", showingGaugeSettings)
+        outState.putBoolean("vehicle_settings_page", showingVehicleSettings)
         super.onSaveInstanceState(outState)
     }
     @Deprecated("Android framework callback retained for Android 8+ compatibility")
@@ -162,6 +184,7 @@ class MainActivity : Activity() {
             showingTripDetail -> showTab(tripDetailReturnTab)
             showingRefuelDetail -> showTab(0)
             showingCustomTripDetail -> showTab(0)
+            showingVehicleSettings -> showTab(3)
             showingGaugeSettings -> showTab(3)
             else -> super.onBackPressed()
         }
@@ -183,6 +206,15 @@ class MainActivity : Activity() {
         try { BackgroundBleWake.register(this) } catch (_: RuntimeException) { }
         try { ServiceWatchdogReceiver.schedule(this) } catch (_: RuntimeException) { }
         TripSyncService.start(this)
+        resumeAppUpdateDownloadPolling()
+    }
+    override fun onResume() {
+        super.onResume()
+        if (appUpdateInstallAfterPermission &&
+            (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
+            appUpdateInstallAfterPermission = false
+            handler.post { requestInstallDownloadedUpdate() }
+        }
     }
     override fun onStop() {
         TripSyncService.foregroundUi = false
@@ -191,6 +223,8 @@ class MainActivity : Activity() {
             statusReceiverRegistered = false
         }
         handler.removeCallbacks(refresh)
+        handler.removeCallbacks(appUpdatePoll)
+        appUpdatePollScheduled = false
         super.onStop()
     }
     override fun onDestroy() {
@@ -266,6 +300,7 @@ class MainActivity : Activity() {
         showingTripDetail -> 5
         showingRefuelDetail -> 6
         showingCustomTripDetail -> 7
+        showingVehicleSettings -> 8
         showingGaugeSettings -> 4
         else -> tab
     }
@@ -285,6 +320,7 @@ class MainActivity : Activity() {
     private fun showTab(index: Int) {
         rememberCurrentScroll()
         showingGaugeSettings = false
+        showingVehicleSettings = false
         showingTripDetail = false
         showingRefuelDetail = false
         showingCustomTripDetail = false
@@ -315,15 +351,21 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(20), dp(22), dp(20))
         }
         add(body, hero, 22)
-        hero.addView(ImageView(this).apply {
-            loadVehicleHero(this, when (model) {
+        val heroView = VehicleHeroView(this).apply {
+            loadVehicleHero(this, model, when (model) {
                 SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
                 SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
             })
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-            contentDescription = model.heroDescription
-        }, LinearLayout.LayoutParams(-1, dp(190)).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            showInstalledPlate(
+                state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
+                state.showCustomLicensePlate,
+            )
+        }
+        homeVehicleHero = heroView
+        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(190)).apply {
+            topMargin = dp(4)
+            bottomMargin = dp(4)
+        })
         add(hero, label("预估剩余续航", 13f, Color.rgb(173, 190, 209)))
         rangeText = label("— km", 48f, Color.WHITE, true)
         add(hero, rangeText, 2)
@@ -369,7 +411,11 @@ class MainActivity : Activity() {
     }
 
     /** Decode the large source artwork at half resolution for the 190 dp card. */
-    private fun loadVehicleHero(view: ImageView, resourceId: Int) {
+    private fun loadVehicleHero(
+        view: VehicleHeroView,
+        model: SupportedVehicleModel,
+        resourceId: Int,
+    ) {
         val decoded = vehicleHeroBitmaps[resourceId] ?: try {
             BitmapFactory.decodeResource(resources, resourceId, BitmapFactory.Options().apply {
                 inSampleSize = 2
@@ -382,7 +428,7 @@ class MainActivity : Activity() {
             null
         }
         try {
-            view.setImageBitmap(decoded)
+            view.setVehicleArtwork(decoded, model)
         } catch (error: RuntimeException) {
             vehicleHeroBitmaps.remove(resourceId)
             Log.w("BRZ-MainActivity", "Vehicle artwork rejected by renderer", error)
@@ -396,7 +442,8 @@ class MainActivity : Activity() {
         try {
             if (!state.firmwareUpdateActive) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (updated) { loadTrips(); loadRefuelIntervals() }
-            if (updated && showingGaugeSettings) gaugeSettingsPage()
+            if (updated && showingVehicleSettings) vehicleSettingsPage()
+            else if (updated && showingGaugeSettings) gaugeSettingsPage()
             else if (updated && tab == 3) showTab(3)
             else refreshHome()
         } catch (error: RuntimeException) {
@@ -432,6 +479,10 @@ class MainActivity : Activity() {
             return
         }
         val v = state.vehicle()
+        homeVehicleHero?.showInstalledPlate(
+            state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
+            state.showCustomLicensePlate,
+        )
         val mileage = currentMileageEstimate()
         odometerText.text = homeMileageLabel(mileage)
         odometerText.visibility = if (state.odometerDisplayEnabled) View.VISIBLE else View.GONE
@@ -562,6 +613,7 @@ class MainActivity : Activity() {
     private fun showTripDetails(trip: TripRecord, current: Boolean = false) {
         rememberCurrentScroll()
         showingGaugeSettings = false
+        showingVehicleSettings = false
         showingTripDetail = true
         showingRefuelDetail = false
         showingCustomTripDetail = false
@@ -629,6 +681,7 @@ class MainActivity : Activity() {
     private fun showCustomTripDetails() {
         rememberCurrentScroll()
         showingGaugeSettings = false
+        showingVehicleSettings = false
         showingTripDetail = false
         showingRefuelDetail = false
         showingCustomTripDetail = true
@@ -793,13 +846,14 @@ class MainActivity : Activity() {
     private fun showRefuelDetails() {
         rememberCurrentScroll()
         showingGaugeSettings = false
+        showingVehicleSettings = false
         showingTripDetail = false
         showingRefuelDetail = true
         showingCustomTripDetail = false
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("上次加油以来", "由仪表识别显著油量增加并独立记录")
+        val body = page("上次加油以来", "按当前识别阈值连续确认并独立记录")
         add(body, button("‹ 返回首页") { showTab(0) }, 18)
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         controls.addView(Switch(this).apply {
@@ -810,7 +864,14 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         controls.addView(button("手动重置") { confirmManualRefuelReset() }, LinearLayout.LayoutParams(dp(120), -2))
         add(body, controls, 12)
-        add(body, label("仪表连续两次检测到按 50 L 标称油箱折算达到 5 L 的油量增加时，自动建立新重置点。这里的记录与手动加油记录完全独立。", 11f, muted), 8)
+        val refuelThresholdText = state.gaugeSettings()?.refuelThresholdMl?.let {
+            "当前设置为 ${it / 1000} L"
+        } ?: "默认值为 10 L；连接仪表后显示实际设置"
+        add(body, label(
+            "仪表需要两次独立油位样本均确认油量上升达到自动加油识别阈值，才会建立新重置点；$refuelThresholdText，可在“设置 → 我的车辆 → 车辆设置”中调整。这里的记录与手动加油记录完全独立。",
+            11f,
+            muted,
+        ), 8)
 
         refuelIntervals.minByOrNull { it.id }?.let { oldest ->
             add(body, button("删除第一个节点以前的数据") {
@@ -1376,26 +1437,19 @@ class MainActivity : Activity() {
     }
     private fun settings() {
         val body = page("设置", "连接、显示与仪表功能")
-        val vehicleDisplay = card(body, "车辆显示")
+        val vehicleDisplay = card(body, "我的车辆")
         add(vehicleDisplay, label(state.vehicleDisplayName, 18f, ink, true), 10)
         add(vehicleDisplay, label(state.selectedVehicleModel.title, 13f, muted), 5)
-        add(vehicleDisplay, button("修改首页车辆名称") {
-            val entry = EditText(this).apply {
-                setText(state.vehicleDisplayName)
-                selectAll()
-                isSingleLine = true
-                maxLines = 1
-                filters = arrayOf(InputFilter.LengthFilter(MAX_VEHICLE_DISPLAY_NAME_LENGTH))
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            }
-            AlertDialog.Builder(this).setTitle("首页车辆名称").setView(entry)
-                .setMessage("最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地；换行会自动移除。")
-                .setPositiveButton("保存") { _, _ ->
-                    state.vehicleDisplayName = entry.text.toString()
-                    showTab(3)
-                }.setNegativeButton("取消", null).show()
-        }, 8)
-        add(vehicleDisplay, label("默认名称：$DEFAULT_VEHICLE_DISPLAY_NAME。字符数限制用于避免首页标题换行。", 12f, muted), 8)
+        add(vehicleDisplay, button("车辆设置") { vehicleSettingsPage() }, 8)
+        add(vehicleDisplay, label("在车辆设置中修改首页名称、车型和自动加油识别阈值。", 12f, muted), 8)
+        add(vehicleDisplay, button("自定义车牌") {
+            startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
+        }, 10)
+        add(vehicleDisplay, label(
+            "输入完整 7 位车牌号后，可将生成的蓝牌透视安装在首页当前车型的前保险杠牌照位。",
+            12f,
+            muted,
+        ), 8)
         val mileage = currentMileageEstimate()
         val mileageCard = card(body, "里程估算")
         add(mileageCard, label("${fmt("%.1f", mileage.distanceM / 1000.0)} km" +
@@ -1456,6 +1510,7 @@ class MainActivity : Activity() {
         val binding = card(body, "我的仪表")
         add(binding, label(state.address.ifEmpty { "尚未绑定" }, 18f, ink, true), 10)
         add(binding, button(if (state.address.isEmpty()) "搜索并绑定仪表" else "更换 / 重新绑定") { permissions(true) }, 10)
+        appUpdateCard(body)
         firmwareUpdateCard(body)
         val gaugeSettings = card(body, "仪表设置")
         val settingsAt = state.gaugeSettingsAt
@@ -1469,7 +1524,7 @@ class MainActivity : Activity() {
                 "已收到仪表设置 · ${date(settingsAt)}"
             else "尚未收到仪表设置",
             14f, ink, true), 10)
-        add(gaugeSettings, label("连接仪表后自动读取当前参数。目前允许切换 BRZ ZD8 / ZC6 车型，并调整亮度和自动加油识别阈值，其余仪表设置保持冻结。", 12f, muted), 8)
+        add(gaugeSettings, label("连接仪表后自动读取当前参数。目前可调整日间亮度，其余仪表参数保持冻结；车型与自动加油识别阈值已移至“我的车辆 → 车辆设置”。", 12f, muted), 8)
         add(gaugeSettings, button("查看仪表设置") { gaugeSettingsPage() }, 10)
         val auto = card(body, "开机自启与自动连接")
         add(auto, Switch(this).apply {
@@ -1619,6 +1674,220 @@ class MainActivity : Activity() {
         }, 6)
         add(estimate, label("优先读取车辆 PID 01 2F；若车型不输出油箱液位，可人工校准一次，之后按累计耗油量递减。", 12f, muted), 10)
         add(body, label("BRZ Garage ${BuildConfig.VERSION_NAME} · 本地优先\n保留原有历史数据库。不将车辆数据上传云端，不控制车锁或发动机。", 12f, muted), 20)
+        resumeAppUpdateDownloadPolling()
+    }
+    private fun vehicleSettingsPage() {
+        rememberCurrentScroll()
+        showingTripDetail = false
+        showingRefuelDetail = false
+        showingCustomTripDetail = false
+        showingGaugeSettings = false
+        showingVehicleSettings = true
+        tab = 3
+        content.removeAllViews()
+        navigation.removeAllViews()
+        navigation.visibility = View.GONE
+        val body = page("车辆设置", "首页名称、车型与自动加油识别")
+        add(body, button("‹ 返回设置") { showTab(3) }, 18)
+
+        val name = card(body, "首页车辆名称")
+        add(name, label(state.vehicleDisplayName, 18f, ink, true), 10)
+        add(name, button("修改首页车辆名称") { showVehicleDisplayNameDialog() }, 8)
+        add(name, label(
+            "默认名称：$DEFAULT_VEHICLE_DISPLAY_NAME。最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地。",
+            12f,
+            muted,
+        ), 8)
+
+        val settings = state.gaugeSettings()
+        val model = card(body, "车型设置")
+        editableVehicleModel(model, settings?.vehicleProfile)
+
+        val refuel = card(body, "自动加油识别")
+        editableRefuelThreshold(refuel, settings?.refuelThresholdMl)
+        add(refuel, label(
+            if (settings == null) "等待仪表设置数据；车型仍可先保存在手机，识别阈值需连接支持该功能的仪表后调整。"
+            else "仪表设置读取时间：${date(state.gaugeSettingsAt)}",
+            11f,
+            muted,
+        ), 5)
+    }
+    private fun showVehicleDisplayNameDialog() {
+        val entry = EditText(this).apply {
+            setText(state.vehicleDisplayName)
+            selectAll()
+            isSingleLine = true
+            maxLines = 1
+            filters = arrayOf(InputFilter.LengthFilter(MAX_VEHICLE_DISPLAY_NAME_LENGTH))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        AlertDialog.Builder(this).setTitle("首页车辆名称").setView(entry)
+            .setMessage("最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地；换行会自动移除。")
+            .setPositiveButton("保存") { _, _ ->
+                state.vehicleDisplayName = entry.text.toString()
+                vehicleSettingsPage()
+            }.setNegativeButton("取消", null).show()
+    }
+    private fun appUpdateCard(body: LinearLayout) {
+        val update = card(body, "手机 App 更新")
+        val download = AppUpdater.downloadState(this)
+        val statusMessage = when {
+            appUpdateChecking -> "正在连接 GitHub 检查最新版本…"
+            appUpdateCheckError != null -> appUpdateCheckError!!
+            download.status in setOf(AppDownloadStatus.DOWNLOADING,
+                AppDownloadStatus.READY, AppDownloadStatus.FAILED) -> download.message
+            appUpdateCheck != null -> appUpdateCheck!!.message
+            download.status != AppDownloadStatus.NONE -> download.message
+            else -> "尚未检查更新"
+        }
+        add(update, label(
+            "当前版本：v${BuildConfig.VERSION_NAME}\n$statusMessage",
+            15f,
+            if (download.status == AppDownloadStatus.FAILED || appUpdateCheckError != null) accent else ink,
+            true
+        ), 8)
+        if (download.status == AppDownloadStatus.DOWNLOADING) {
+            add(update, label(
+                if (download.progress > 0) "下载进度：${download.progress}%"
+                else "下载进度：正在获取安装包大小…",
+                13f,
+                ink,
+                true,
+            ), 8)
+            update.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = download.progress
+                isIndeterminate = download.progress <= 0
+                progressTintList = android.content.res.ColorStateList.valueOf(accent)
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(
+                    Color.rgb(224, 227, 232))
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(accent)
+            }, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(6) })
+        }
+        add(update, button(if (appUpdateChecking) "正在检查…" else "检查 App 最新版本") {
+            checkAppUpdate()
+        }.apply {
+            isEnabled = !appUpdateChecking && download.status != AppDownloadStatus.DOWNLOADING
+        }, 10)
+        val downloadable = when {
+            appUpdateCheck?.release?.apkUrl != null -> appUpdateCheck?.release
+            download.status == AppDownloadStatus.FAILED -> download.release
+            else -> null
+        }
+        if (downloadable?.apkUrl != null && download.status != AppDownloadStatus.READY) {
+            add(update, button(if (download.status == AppDownloadStatus.FAILED)
+                "重新下载 v${downloadable.version}" else "下载并安装 v${downloadable.version}") {
+                confirmAppUpdateDownload(downloadable)
+            }.apply { isEnabled = download.status != AppDownloadStatus.DOWNLOADING }, 5)
+        }
+        if (download.status == AppDownloadStatus.READY) {
+            add(update, button("安装已下载的 v${download.release?.version ?: "新版本"}") {
+                requestInstallDownloadedUpdate()
+            }, 5)
+        }
+        val release = appUpdateCheck?.release ?: download.release
+        if (release != null && release.htmlUrl.isNotBlank()) {
+            add(update, button("查看 GitHub Release") {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(release.htmlUrl)))
+            }, 5)
+        }
+        add(update, label(
+            "从本项目 GitHub Release 检查更新（包含测试版）。下载完成后会校验包名、版本以及与当前 App 相同的签名，再交给 Android 系统安装；覆盖安装会保留行程和加油记录。",
+            12f, muted), 9)
+    }
+    private fun checkAppUpdate() {
+        if (appUpdateChecking) return
+        appUpdateChecking = true
+        appUpdateCheckError = null
+        if (tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+        AppUpdater.checkAsync(this) { result ->
+            if (isFinishing || isDestroyed) return@checkAsync
+            appUpdateChecking = false
+            result.onSuccess {
+                appUpdateCheck = it
+                appUpdateCheckError = null
+            }.onFailure {
+                appUpdateCheck = null
+                appUpdateCheckError = "检查失败：${it.message ?: "网络不可用"}"
+            }
+            if (tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+        }
+    }
+    private fun confirmAppUpdateDownload(release: AppRelease) {
+        AlertDialog.Builder(this)
+            .setTitle("下载 BRZ Garage v${release.version}")
+            .setMessage("安装包将从本项目 GitHub Release 下载。下载完成后 App 会先校验版本和签名，再打开 Android 系统安装界面。\n\n请使用稳定网络；覆盖安装会保留现有行程、加油记录和设置。")
+            .setPositiveButton("下载") { _, _ ->
+                try {
+                    AppUpdater.startDownload(this, release)
+                    appUpdatePromptedDownloadId = -1L
+                    toast("已交给系统下载")
+                    showTab(3)
+                    resumeAppUpdateDownloadPolling()
+                } catch (error: RuntimeException) {
+                    toast("无法开始下载：${error.message ?: "系统错误"}")
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+    private fun resumeAppUpdateDownloadPolling() {
+        if (appUpdatePollScheduled || isFinishing || isDestroyed) return
+        if (AppUpdater.downloadState(this).status != AppDownloadStatus.DOWNLOADING) return
+        appUpdatePollScheduled = true
+        handler.postDelayed(appUpdatePoll, 800L)
+    }
+    private fun refreshAppUpdateDownload() {
+        if (isFinishing || isDestroyed) return
+        val snapshot = AppUpdater.downloadState(this)
+        val changed = snapshot.status != appUpdateLastStatus || snapshot.progress != appUpdateLastProgress
+        appUpdateLastStatus = snapshot.status
+        appUpdateLastProgress = snapshot.progress
+        if (changed && tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+        if (snapshot.status == AppDownloadStatus.DOWNLOADING) {
+            if (!appUpdatePollScheduled) {
+                appUpdatePollScheduled = true
+                handler.postDelayed(appUpdatePoll, 1000L)
+            }
+        } else if (snapshot.status == AppDownloadStatus.READY &&
+            snapshot.downloadId != appUpdatePromptedDownloadId && tab == 3 &&
+            !showingGaugeSettings && !showingVehicleSettings) {
+            appUpdatePromptedDownloadId = snapshot.downloadId
+            AlertDialog.Builder(this)
+                .setTitle("App 更新已下载")
+                .setMessage("v${snapshot.release?.version ?: "新版本"} 已完成版本和签名校验。是否现在打开 Android 系统安装界面？")
+                .setPositiveButton("现在安装") { _, _ -> requestInstallDownloadedUpdate() }
+                .setNegativeButton("稍后", null)
+                .show()
+        }
+    }
+    private fun requestInstallDownloadedUpdate() {
+        try {
+            when (AppUpdater.installDownloaded(this)) {
+                AppInstallResult.STARTED -> Unit
+                AppInstallResult.NEED_PERMISSION -> AlertDialog.Builder(this)
+                    .setTitle("允许安装此来源的应用")
+                    .setMessage("Android 需要你为 BRZ Garage 单独开启一次“安装未知应用”权限。该权限仅允许本 App 请求系统安装界面；下载的 APK 仍会先经过包名、版本和签名校验。")
+                    .setPositiveButton("打开系统设置") { _, _ ->
+                        appUpdateInstallAfterPermission = true
+                        try {
+                            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                android.net.Uri.parse("package:$packageName")))
+                        } catch (_: ActivityNotFoundException) {
+                            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:$packageName")))
+                        }
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        } catch (error: RuntimeException) {
+            AlertDialog.Builder(this)
+                .setTitle("无法安装更新")
+                .setMessage(error.message ?: "安装包不可用，请重新检查并下载。")
+                .setPositiveButton("知道了", null)
+                .show()
+        }
     }
     private fun firmwareUpdateCard(body: LinearLayout) {
         val update = card(body, "仪表固件更新")
@@ -1743,14 +2012,15 @@ class MainActivity : Activity() {
         showingTripDetail = false
         showingRefuelDetail = false
         showingCustomTripDetail = false
+        showingVehicleSettings = false
         showingGaugeSettings = true
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("仪表设置", "开放 BRZ 车型、亮度与加油识别阈值")
+        val body = page("仪表设置", "查看仪表参数并调整日间亮度")
         add(body, button("‹ 返回连接与设置") { showTab(3) }, 18)
         val notice = card(body, "受限设置")
-        add(notice, label("当前可由手机切换 BRZ ZD8 / ZC6 车型，并调整日间亮度和自动加油识别阈值，其余选择框、开关和输入框继续冻结。设置命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 14f, accent, true), 10)
+        add(notice, label("当前可由手机调整日间亮度，其余选择框、开关和输入框继续冻结。车型与自动加油识别阈值在“我的车辆 → 车辆设置”中调整；设置命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 14f, accent, true), 10)
         val settings = state.gaugeSettings()
         val received = card(body, "同步状态")
         add(received, label(
@@ -1763,13 +2033,11 @@ class MainActivity : Activity() {
         } else "已读取仪表设置\n读取时间：${date(state.gaugeSettingsAt)} · 协议版本：${settings.version}", 14f, ink, settings != null), 10)
 
         val basic = card(body, "基本设置")
-        editableVehicleModel(basic, settings?.vehicleProfile)
         frozenChoice(basic, "OBD 协议", obdProtocolNames(), settings?.protocol)
         frozenValue(basic, "ELM327 名称", settings?.obdName?.ifEmpty { "未设置" })
         frozenValue(basic, "ELM327 MAC", settings?.obdMac?.let(::formatMac))
         frozenChoice(basic, "主题", listOf("DEFAULT", "AMBER", "OCEAN"), settings?.theme)
         editableBrightness(basic, settings?.brightness)
-        editableRefuelThreshold(basic, settings?.refuelThresholdMl)
         frozenChoice(basic, "默认页面", gaugePageNames(), settings?.defaultPage)
 
         val warning = card(body, "提醒设置")
@@ -1834,7 +2102,7 @@ class MainActivity : Activity() {
             } else {
                 "${selected.title} 已保存在手机，连接仪表后自动同步"
             })
-            gaugeSettingsPage()
+            vehicleSettingsPage()
         }, 5)
         add(parent, label("切换后首页车辆图立即变化。ZC6 使用与 ZD8 相同的单路 OBD/PID 采集结构，并保留 FA20 专用机油温度请求；车型命令不会打断正在进行的授时、行程或车辆数据同步。", 11f, muted), 5)
     }
@@ -1920,7 +2188,7 @@ class MainActivity : Activity() {
                 toast("阈值 $selected L 已提交，将在当前同步完成后应用")
             } else {
                 toast("仪表当前未连接，阈值没有修改")
-                gaugeSettingsPage()
+                vehicleSettingsPage()
             }
         }.apply { isEnabled = canApply }
         add(parent, apply, 5)

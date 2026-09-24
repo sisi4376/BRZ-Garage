@@ -31,7 +31,7 @@ class PhoneModelTest(unittest.TestCase):
             compile_result = subprocess.run([
                 str(java), '-cp', classpath, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
                 '-no-stdlib', '-no-reflect', '-classpath', classpath, '-d', temp,
-                *[str(sources / name) for name in ['VehicleState.kt', 'TripBleProtocol.kt', 'TripRecord.kt', 'RefuelInterval.kt', 'CustomTripInterval.kt', 'FuelRecord.kt', 'RangeEstimator.kt', 'MileageEstimator.kt', 'VehicleDisplayName.kt', 'SupportedVehicleModel.kt']],
+                *[str(sources / name) for name in ['VehicleState.kt', 'TripBleProtocol.kt', 'TripRecord.kt', 'RefuelInterval.kt', 'CustomTripInterval.kt', 'FuelRecord.kt', 'RangeEstimator.kt', 'MileageEstimator.kt', 'VehicleDisplayName.kt', 'SupportedVehicleModel.kt', 'LicensePlateGenerator.kt']],
                 str(ROOT / 'tests/phone_model_host_test.kt'),
             ], capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(compile_result.returncode, 0, compile_result.stdout + compile_result.stderr)
@@ -39,7 +39,7 @@ class PhoneModelTest(unittest.TestCase):
                                      'com.brz.gauge.trips.Phone_model_host_testKt'],
                                     capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(result.stdout.count('PASS:'), 23)
+            self.assertEqual(result.stdout.count('PASS:'), 24)
 
 
 if __name__ == '__main__':

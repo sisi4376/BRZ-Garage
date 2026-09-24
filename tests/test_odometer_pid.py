@@ -6,11 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OdometerPidContractTest(unittest.TestCase):
-    def test_pid_a6_capability_and_decode_are_wired(self):
+    def test_pid_a6_capability_and_decode_remain_available_while_polling_is_paused(self):
         source = (ROOT / "main/bsp_obd_dsp/elm327_ble_client.c").read_text(encoding="utf-8")
-        self.assertIn('elm327_ble_send_ascii_blocking("01 A0\\r")', source)
+        self.assertIn("factory odometer (A6) polling", source)
+        self.assertIn("temporarily disabled to reserve adapter bandwidth", source)
         self.assertIn("d[0] & 0x04u", source)
-        self.assertIn('elm327_ble_send_ascii_blocking("01 A6\\r")', source)
         self.assertIn("case 0xA6", source)
         self.assertIn("((uint32_t)d[0] << 24)", source)
         self.assertIn("obd_data_set_factory_odometer_x10_km(raw)", source)

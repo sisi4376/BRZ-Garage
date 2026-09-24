@@ -27,7 +27,7 @@ static void ui_gear_hide_lower_markers(void)
     }
 }
 
-void ui_gear_page_update_visuals(uint16_t rpm, uint16_t speed_kmh,
+void ui_gear_page_update_visuals(uint16_t rpm, uint16_t warning_rpm, uint16_t speed_kmh,
                                  uint8_t current_gear, uint16_t yellowline_rpm)
 {
     if (!ui_GearPageArcGearNumBack) return;
@@ -35,8 +35,8 @@ void ui_gear_page_update_visuals(uint16_t rpm, uint16_t speed_kmh,
     uint32_t dial_rpm = rpm > RPM_DIAL_MAX ? RPM_DIAL_MAX : rpm;
     lv_arc_set_value(ui_GearPageArcGearNumBack, dial_rpm * 100U / RPM_DIAL_MAX);
 
-    lv_color_t rpm_color = rpm >= RPM_REDLINE ? lv_color_hex(0xFF2020) :
-                           rpm >= yellowline_rpm ? lv_color_hex(0xFFD21F) :
+    lv_color_t rpm_color = warning_rpm >= RPM_REDLINE ? lv_color_hex(0xFF2020) :
+                           warning_rpm >= yellowline_rpm ? lv_color_hex(0xFFD21F) :
                                                    ui_theme_color_lv(UI_COLOR_ARC_INDICATOR);
     lv_obj_set_style_arc_color(ui_GearPageArcGearNumBack, rpm_color,
                                LV_PART_INDICATOR | LV_STATE_DEFAULT);

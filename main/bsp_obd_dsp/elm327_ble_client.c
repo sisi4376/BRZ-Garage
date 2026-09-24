@@ -107,6 +107,8 @@ static oil_temp_query_mode_t s_oil_mode_priority[4] = {
 static uint32_t s_oil_mode_fail_count[12] = {0};  // consecutive failure count per mode (poll idx 0~11)
 #define OIL_MODE_FAIL_THRESHOLD 5  // switch to the next mode only after a mode fails this many times
 #define OBD_POLL_SLOT_GAP_MS   30  // idle gap between poll slots (ms); was 100, lowered to raise refresh rate — too small overwhelms clone adapters
+#define OBD_SLOW_PID_INTERVAL_US 5000000LL  // IAT/coolant/oil/voltage: at most once every 5 s
+#define OBD_FUEL_PID_INTERVAL_US  500000LL  // fuel-calculation inputs: target/max 2 Hz
 static bool s_vehicle_profile_inited = false;
 
 // Oil-temp diagnostic stats
@@ -161,10 +163,7 @@ static uint32_t s_zc6_can_monitor_obd_cycle = 0;   // OBD query cycle counter wh
 #define ZC6_CAN_TEMP_STALE_US 15000000LL            // CAN temp channels stale after 15s without fresh frames
 static int64_t s_zc6_can_temp_probe_last_us = 0;    // last time we briefly entered ATMA to refresh ZC6 CAN temps
 static int8_t s_standard_gear_pid_support = -1;     // -1=unknown, 0=unsupported, 1=PID 01 A4 advertised
-static uint8_t s_standard_gear_support_probes = 0;
 static int8_t s_odometer_pid_support = -1;          // -1=unknown, 0=unsupported, 1=PID 01 A6 advertised
-static uint8_t s_odometer_support_probes = 0;
-static int64_t s_odometer_poll_us = 0;
 static uint8_t s_a4_candidate_gear = 0;
 static uint8_t s_a4_candidate_count = 0;
 static int8_t s_fuel_rate_pid_support = -1;         // -1=unknown, 0=unsupported, 1=PID 01 5E advertised
@@ -174,6 +173,43 @@ static uint8_t s_fuel_status_probes = 0;
 static uint8_t s_fuel_level_probes;
 static bool s_fuel_level_supported;
 static int64_t s_fuel_level_poll_us;
+
+// Per-PID cadence gates. A missed deadline is deliberately not queued: ELM327
+// is strictly request/response, so catch-up traffic would only delay RPM/speed.
+static int64_t s_iat_poll_us;
+static int64_t s_coolant_poll_us;
+static int64_t s_oil_poll_us;
+static int64_t s_voltage_poll_us;
+static int64_t s_load_poll_us;
+static int64_t s_throttle_poll_us;
+static int64_t s_fuel_status_poll_us;
+static int64_t s_afr_poll_us;
+static int64_t s_maf_poll_us;
+static int64_t s_fuel_rate_poll_us;
+
+static bool poll_interval_due(int64_t now_us, int64_t *last_poll_us, int64_t interval_us)
+{
+    if (*last_poll_us != 0 && now_us >= *last_poll_us &&
+        now_us - *last_poll_us < interval_us) {
+        return false;
+    }
+    *last_poll_us = now_us;
+    return true;
+}
+
+static void reset_pid_poll_cadence(void)
+{
+    s_iat_poll_us = 0;
+    s_coolant_poll_us = 0;
+    s_oil_poll_us = 0;
+    s_voltage_poll_us = 0;
+    s_load_poll_us = 0;
+    s_throttle_poll_us = 0;
+    s_fuel_status_poll_us = 0;
+    s_afr_poll_us = 0;
+    s_maf_poll_us = 0;
+    s_fuel_rate_poll_us = 0;
+}
 
 static void send_fuel_status_request(void)
 {
@@ -952,10 +988,7 @@ static void do_elm_init(void) {
     char atsp_cmd[16];
     const nvs_user_cfg_t *cfg = nvs_cfg_get();
     s_standard_gear_pid_support = -1;
-    s_standard_gear_support_probes = 0;
     s_odometer_pid_support = -1;
-    s_odometer_support_probes = 0;
-    s_odometer_poll_us = 0;
     s_a4_candidate_gear = 0;
     s_a4_candidate_count = 0;
     s_fuel_rate_pid_support = -1;
@@ -965,6 +998,7 @@ static void do_elm_init(void) {
     s_fuel_level_probes = 0;
     s_fuel_level_supported = false;
     s_fuel_level_poll_us = 0;
+    reset_pid_poll_cadence();
     obd_data_reset_fuel_inputs();
     obd_data_reset_factory_odometer();
     obd_data_set_fuel_rate_unavailable();
@@ -1156,6 +1190,7 @@ static void obd_poll_task(void *arg) {
         }
 
         bool completed_obd_round = (tick_count == 13);
+        int64_t poll_now_us = esp_timer_get_time();
         {
         switch(tick_count)
         {
@@ -1163,10 +1198,13 @@ static void obd_poll_task(void *arg) {
                 send_rpm_request("slot0");
                 break;
             case 1:// Intake air temp
-                elm327_ble_send_ascii_blocking("01 0F\r");
+                if (poll_interval_due(poll_now_us, &s_iat_poll_us, OBD_SLOW_PID_INTERVAL_US)) {
+                    elm327_ble_send_ascii_blocking("01 0F\r");
+                }
                 break;
             case 6: // Auto oil-temp query (based on vehicle strategy) (CAN mode gets it from passive CAN, skip when available)
                 if (can_broadcast && can_has_oil) break;
+                if (!poll_interval_due(poll_now_us, &s_oil_poll_us, OBD_SLOW_PID_INTERVAL_US)) break;
                 {
                     const oil_formula_t *oil_f = NULL;
                     if (s_oil_use_override) {
@@ -1230,33 +1268,42 @@ static void obd_poll_task(void *arg) {
                 elm327_ble_send_ascii_blocking("01 0D\r");
                 break;
             case 3:// Coolant temp (skip when CAN already provides it)
-                if (!(can_broadcast && can_has_coolant)) {
+                if (!(can_broadcast && can_has_coolant) &&
+                    poll_interval_due(poll_now_us, &s_coolant_poll_us, OBD_SLOW_PID_INTERVAL_US)) {
                     elm327_ble_send_ascii_blocking("01 05\r");
                 }
                 break;
             case 4:// Engine load (0x04, 0~100%)
-                elm327_ble_send_ascii_blocking("01 04\r");
+                if (poll_interval_due(poll_now_us, &s_load_poll_us, OBD_FUEL_PID_INTERVAL_US)) {
+                    elm327_ble_send_ascii_blocking("01 04\r");
+                }
                 break;
             case 5:// Throttle position TPS (skip when CAN already provides it)
-                if (!(can_broadcast && can_has_tps)) {
+                if (!(can_broadcast && can_has_tps) &&
+                    poll_interval_due(poll_now_us, &s_throttle_poll_us, OBD_FUEL_PID_INTERVAL_US)) {
                     elm327_ble_send_ascii_blocking("01 11\r");
                 }
                 break;
             case 7:// Battery voltage (0x42)
-                elm327_ble_send_ascii_blocking("01 42\r");
+                if (poll_interval_due(poll_now_us, &s_voltage_poll_us, OBD_SLOW_PID_INTERVAL_US)) {
+                    elm327_ble_send_ascii_blocking("01 42\r");
+                }
                 break;
             case 8:// Boost pressure: intake manifold absolute pressure (0x0B, kPa), queried only for turbo profiles
                 {
                     const vehicle_profile_t *vp = vehicle_profile_get_active();
                     if (vp && vp->has_boost) {
                         elm327_ble_send_ascii_blocking("01 0B\r");
-                    } else {
+                    } else if (poll_interval_due(poll_now_us, &s_fuel_status_poll_us,
+                                                 OBD_FUEL_PID_INTERVAL_US)) {
                         send_fuel_status_request(); // reuse ZD8's unused boost slot
                     }
                 }
                 break;
             case 9:// Air-fuel ratio AFR (01 44, Commanded Equivalence Ratio)
-                elm327_ble_send_ascii_blocking("01 44\r");
+                if (poll_interval_due(poll_now_us, &s_afr_poll_us, OBD_FUEL_PID_INTERVAL_US)) {
+                    elm327_ble_send_ascii_blocking("01 44\r");
+                }
                 break;
             case 10:// Engine oil pressure (Mode 22 DID, per-profile: 4436=B58, 586F=N55) — physical header, only for OBD-oil-pressure profiles
                 {
@@ -1270,63 +1317,17 @@ static void obd_poll_task(void *arg) {
                                  (vp->obd_oil_pressure_did >> 8) & 0xFF, vp->obd_oil_pressure_did & 0xFF);
                         elm327_ble_send_ascii_blocking(cmd);
                         elm327_ble_send_ascii_blocking(get_vehicle_fixed_header_cmd());
-                    } else {
+                    } else if (poll_interval_due(poll_now_us, &s_maf_poll_us,
+                                                 OBD_FUEL_PID_INTERVAL_US)) {
                         elm327_ble_send_ascii_blocking("01 10\r"); // reuse unused oil-pressure slot for MAF
                     }
                 }
                 break;
-            case 11:// Direct gear plus low-rate optional SAE odometer (PID 01 A6)
-                {
-                    const vehicle_profile_t *vp = vehicle_profile_get_active();
-                    bool queried_a0 = false;
-                    if (vp && vp->obd_gear_did != 0) {
-                        const vehicle_override_t *ov = vehicle_profile_get_override();
-                        const char *gear_hdr = (ov && ov->obd_gear_header_cmd) ? ov->obd_gear_header_cmd
-                                             : ((ov && ov->uds_header_cmd) ? ov->uds_header_cmd : "ATSH7E0\r");
-                        char cmd[16];
-                        elm327_ble_send_ascii_blocking(gear_hdr);
-                        snprintf(cmd, sizeof(cmd), "22 %02X %02X\r",
-                                 (vp->obd_gear_did >> 8) & 0xFF, vp->obd_gear_did & 0xFF);
-                        elm327_ble_send_ascii_blocking(cmd);
-                        elm327_ble_send_ascii_blocking(get_vehicle_fixed_header_cmd());
-                    } else if (vp && vp->obd_standard_gear_pid) {
-                        if (s_standard_gear_pid_support < 0 && s_standard_gear_support_probes < 3) {
-                            // Enumerate A1-C0 first instead of repeatedly timing out on an unsupported A4.
-                            elm327_ble_send_ascii_blocking("01 A0\r");
-                            queried_a0 = true;
-                            s_standard_gear_support_probes++;
-                            if (s_odometer_support_probes < 3) s_odometer_support_probes++;
-                            if (s_standard_gear_support_probes >= 3 && s_standard_gear_pid_support < 0) {
-                                s_standard_gear_pid_support = 0;
-                            }
-                            if (s_odometer_support_probes >= 3 && s_odometer_pid_support < 0) {
-                                s_odometer_pid_support = 0;
-                            }
-                        } else if (s_standard_gear_pid_support > 0 && obd_data_get_speed() >= 3) {
-                            // A4's ratio is undefined at standstill, so avoid a misleading query there.
-                            elm327_ble_send_ascii_blocking("01 A4\r");
-                        }
-                    }
-
-                    // A6 is optional. Probe its capability independently of the selected
-                    // vehicle/gear strategy, then read it only once every 30 seconds.
-                    // The UI remains absent until a valid A6 payload is actually parsed.
-                    if (s_odometer_pid_support < 0 && s_odometer_support_probes < 3 && !queried_a0) {
-                        elm327_ble_send_ascii_blocking("01 A0\r");
-                        s_odometer_support_probes++;
-                        if (s_odometer_support_probes >= 3 && s_odometer_pid_support < 0) {
-                            s_odometer_pid_support = 0;
-                        }
-                    }
-                    if (s_odometer_pid_support > 0 &&
-                        (s_odometer_poll_us == 0 || esp_timer_get_time() - s_odometer_poll_us >= 30000000LL)) {
-                        s_odometer_poll_us = esp_timer_get_time();
-                        elm327_ble_send_ascii_blocking("01 A6\r");
-                    }
-                }
+            case 11:
+                // Direct gear (A4/profile DID) and factory odometer (A6) polling
+                // are temporarily disabled to reserve adapter bandwidth.
                 break;
-            case 12:// Mass air flow (PID 01 10, 0.01 g/s) — fuel-consumption source
-                elm327_ble_send_ascii_blocking("01 10\r");
+            case 12:
                 // Tank level changes slowly: at most one extra query per 30 s.
                 // Three unanswered probes disable it until ELM reinitialization.
                 if ((s_fuel_level_supported || s_fuel_level_probes < 3) &&
@@ -1337,6 +1338,10 @@ static void obd_poll_task(void *arg) {
                 }
                 break;
             case 13:// Exact engine fuel rate (PID 01 5E), preferred over MAF estimation
+                if (!poll_interval_due(poll_now_us, &s_fuel_rate_poll_us,
+                                       OBD_FUEL_PID_INTERVAL_US)) {
+                    break;
+                }
                 if (s_fuel_rate_pid_support < 0 && s_fuel_rate_support_probes < 3) {
                     elm327_ble_send_ascii_blocking("01 40\r");
                     s_fuel_rate_support_probes++;
@@ -1346,8 +1351,6 @@ static void obd_poll_task(void *arg) {
                     }
                 } else if (s_fuel_rate_pid_support > 0) {
                     elm327_ble_send_ascii_blocking("01 5E\r");
-                } else {
-                    send_fuel_status_request(); // unsupported 5E slot supports MAF cutoff detection
                 }
                 break;
             default:

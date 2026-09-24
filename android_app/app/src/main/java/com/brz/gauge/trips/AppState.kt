@@ -90,6 +90,19 @@ class AppState(context: Context) {
         set(value) {
             prefs.edit().putString("vehicle_display_name", normalizeVehicleDisplayName(value)).apply()
         }
+    var customLicensePlate: String?
+        get() = compatibleString("custom_license_plate")
+            ?.let { LicensePlateGenerator.parse(it).plate?.compactText }
+        set(value) {
+            val normalized = value?.let { LicensePlateGenerator.parse(it).plate?.compactText }
+            val edit = prefs.edit()
+            if (normalized == null) edit.remove("custom_license_plate")
+            else edit.putString("custom_license_plate", normalized)
+            edit.apply()
+        }
+    var showCustomLicensePlate: Boolean
+        get() = compatibleBoolean("show_custom_license_plate", false) && customLicensePlate != null
+        set(value) { prefs.edit().putBoolean("show_custom_license_plate", value).apply() }
     val selectedVehicleModel: SupportedVehicleModel
         get() = SupportedVehicleModel.fromProfileIndex(
             compatibleInt("selected_vehicle_profile", SupportedVehicleModel.DEFAULT_PROFILE_INDEX)

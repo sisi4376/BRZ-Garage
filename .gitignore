@@ -1,12 +1,22 @@
 # Local toolchains, downloaded dependencies and compiler caches
 /.toolchains/
 /.ccache/
+/.lfs/
 /managed_components/
 /tools/.cache/
+
+# Local-only visual calibrator. Its saved coordinates are applied to the app
+# source, while the calibrator itself and its machine-local draft stay private.
+/tools/license_plate_calibrator.html
+/tools/license_plate_calibrator_server.py
+/tools/start_license_plate_calibrator.ps1
+/preview/license_plate_calibrator.png
+/.local/license_plate_calibration.json
 
 # Firmware build output and generated release packages
 /build/
 /build_fix/
+/build_*/
 /simulator/build/
 /firmware/release/
 /bootmedia.bin
@@ -70,3 +80,5 @@ __pycache__/
 /preview/lvgl_status.json
 /preview/lvgl_status.tmp
 /preview/lvgl_command.txt
+/preview/zd8_plate_projection_*.png
+/preview/zd8_plate_projection_*.svg

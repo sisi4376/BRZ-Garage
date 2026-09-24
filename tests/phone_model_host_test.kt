@@ -4,6 +4,17 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 fun main() {
+    val generatedPlate = checkNotNull(LicensePlateGenerator.parse(" 粤b·a1234 ").plate)
+    check(generatedPlate.compactText == "粤BA1234" && generatedPlate.displayText == "粤B·A1234")
+    check(LicensePlateGenerator.parse("粤B12345").plate?.serial == "12345")
+    check(LicensePlateGenerator.parse("粤B1234").plate == null)
+    check(LicensePlateGenerator.parse("鲁O12345").plate?.authority == 'O')
+    check(LicensePlateGenerator.parse("粤B12I45").plate == null)
+    check(LicensePlateGenerator.parse("粤BABC12").plate == null)
+    check(LicensePlateGenerator.parse("港B12345").plate == null)
+    check(LicensePlateGenerator.parse("粤BD12345").plate == null)
+    println("PASS: GA 36-2018 small-car plate input is normalized and validated")
+
     val mileageTrips = listOf(
         TripRecord("AA:BB", 1, 0, 0, 60, 1200, 0, 0, 0),
         TripRecord("aa:bb", 2, 0, 0, 60, 2300, 0, 0, 0),

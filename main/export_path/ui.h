@@ -57,7 +57,7 @@ extern lv_obj_t * ui_LabelMainMieageNum;
 
 // SCREEN: ui_ScreenPageGear
 void ui_ScreenPageGear_screen_init(void);
-void ui_gear_page_update_visuals(uint16_t rpm, uint16_t speed_kmh,
+void ui_gear_page_update_visuals(uint16_t rpm, uint16_t warning_rpm, uint16_t speed_kmh,
                                  uint8_t current_gear, uint16_t yellowline_rpm);
 extern lv_obj_t * ui_ScreenPageGear;
 extern lv_obj_t * ui_SpinnerGearPage;
