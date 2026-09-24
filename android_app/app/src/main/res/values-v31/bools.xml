@@ -1,3 +1,4 @@
 <resources>
-    <bool name="supports_companion_presence">true</bool>
+    <bool name="supports_legacy_companion_presence">true</bool>
+    <bool name="supports_modern_companion_presence">false</bool>
 </resources>

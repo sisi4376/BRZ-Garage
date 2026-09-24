@@ -15,7 +15,7 @@ class RefuelAndHomeFeaturesTest(unittest.TestCase):
         self.assertIn("未更新 · 上次更新", main)
         self.assertIn("显示上次加油以来", main)
         self.assertIn("显示自定义行程", main)
-        self.assertIn('listOf("车辆", "行程", "加油", "设置")', main)
+        self.assertIn('listOf("车辆", "行程", "记账", "设置")', main)
         self.assertIn("floor(currentMileageEstimate().distanceM / 1000.0)", main)
         self.assertIn("暂存，不参与统计", main)
         self.assertIn("records.filter { !it.draft", fuel)

@@ -8,6 +8,20 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-09-24 — App 3.2.32 Huawei BLE callback 108 recovery
+
+- Treats the non-standard asynchronous BLE scan callback error `108` as a recoverable Huawei/HarmonyOS vendor-stack failure instead of leaving the wake scan on the same failing configuration.
+- Progressively falls back from exact-address controller matching to the gauge's advertised `0x1FFA` service UUID and finally the universally supported `ALL_MATCHES` callback, automatically stopping and re-registering the system-owned PendingIntent scan.
+- Verifies every UUID-filtered scan result against the saved gauge MAC before starting the foreground connection service, so the compatibility path cannot connect to another device advertising the same service.
+
+### 2026-09-24 — App 3.2.31 screen-off wake recovery
+
+- Makes a verified Companion Device Manager association the primary Android 12+ wake path. A saved BLE address is no longer misreported as a system association; the connection page identifies a missing association and offers an exact-address repair flow.
+- Uses the advertised `0x1FFA` service UUID for companion discovery, consumes `EXTRA_ASSOCIATION` on vendor implementations, and supports Android 16's association-id observation and `DevicePresenceEvent` callback while retaining the Android 12-15 service.
+- A fresh system BLE appearance signal now replaces a stale vendor `autoConnect` GATT request with an immediate direct connection instead of being ignored merely because a dormant GATT object still exists.
+- Holds a bounded CPU wake lock only across the signal-triggered connection handshake, then hands over to the existing connected-session wake lock and releases both on failure or disconnect.
+- Adds an opt-in exact one-shot recovery alarm for Android 12+ when the operating system rejects the direct background foreground-service start; the regular 15-minute watchdog remains inexact and low-power.
+
 ### 2026-09-24 — App 3.2.30 model-specific final plate calibration
 
 - Applies the final manually calibrated four-corner plate planes independently for ZD8 and ZC6, correcting the home vehicle plate's position, scale and perspective relationship.
@@ -487,6 +501,20 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-09-24 — App 3.2.32 华为 BLE 回调错误 108 恢复
+
+- 将非标准的异步 BLE 扫描回调错误 `108` 识别为可恢复的华为 / HarmonyOS 蓝牙栈异常，不再沿用同一套失败配置等待重试。
+- 自动从精确 MAC 控制器匹配逐级降级为仪表持续广播的 `0x1FFA` 服务 UUID 过滤，必要时再使用兼容性最高的 `ALL_MATCHES` 回调，并重新注册系统持有的 PendingIntent 扫描。
+- UUID 兼容扫描收到结果后仍会核对已保存的仪表 MAC，只有绑定仪表才能启动前台连接服务，不会误连广播相同服务的其他设备。
+
+### 2026-09-24 — App 3.2.31 息屏与长时间后台唤醒恢复
+
+- 将经过验证的系统伴生设备关联设为 Android 12 以上的主唤醒链路；不再把“仅保存 BLE 地址”误报成系统关联，连接页会识别关联缺失，并可按当前 MAC 地址发起修复。
+- 伴生发现改用仪表广播中稳定存在的 `0x1FFA` 服务 UUID，兼容厂商系统通过 `EXTRA_ASSOCIATION` 返回关联；Android 16 使用 association ID 与 `DevicePresenceEvent` 新接口，同时保留 Android 12～15 服务。
+- 系统收到新的仪表 BLE 出现信号时，不再因为厂商蓝牙栈遗留的 `autoConnect` GATT 对象非空而忽略广播；会关闭旧请求并立即按绑定地址直连。
+- 仅在“广播到达至连接完成”这段握手期间持有限时 CPU 唤醒锁，连接成功后交给原有连接期唤醒锁，失败、断开或服务退出均会释放。
+- Android 12 及以上若拒绝从后台直接启动前台服务，可由用户授权一次性的精确恢复闹钟作为兜底；原 15 分钟后台自检仍为低功耗非精确闹钟。
 
 ### 2026-09-24 — App 3.2.30 分车型最终校准车牌安装面
 

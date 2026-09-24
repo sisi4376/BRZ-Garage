@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.bluetooth.BluetoothAdapter
+import android.app.AlarmManager
 import android.os.Build
 import android.os.UserManager
 
@@ -18,6 +19,7 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_USER_UNLOCKED,
             Intent.ACTION_USER_PRESENT,
             Intent.ACTION_MY_PACKAGE_REPLACED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED,
             ACTION_QUICKBOOT,
             ACTION_HUAWEI_QUICKBOOT,
         ) || bluetoothOn
@@ -41,6 +43,7 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_BOOT_COMPLETED -> "手机开机"
             Intent.ACTION_USER_UNLOCKED -> "手机首次解锁"
             Intent.ACTION_MY_PACKAGE_REPLACED -> "应用升级"
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> "精确唤醒权限已开启"
             Intent.ACTION_USER_PRESENT -> "手机解锁"
             ACTION_QUICKBOOT, ACTION_HUAWEI_QUICKBOOT -> "手机快速开机"
             else -> "蓝牙开启"
@@ -65,7 +68,7 @@ class BootReceiver : BroadcastReceiver() {
         val requested = TripSyncService.start(context, reason = reason)
         state.prefs.edit().putBoolean("autostart_requested", requested)
             .putString("autostart_result", if (requested) "已请求启动后台服务" else "系统拒绝后台启动").apply()
-        if (!requested) ServiceWatchdogReceiver.schedule(context, 60_000L)
+        if (!requested) ServiceWatchdogReceiver.scheduleRecovery(context)
     }
 
     companion object {

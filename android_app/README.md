@@ -1,5 +1,13 @@
 # BRZ Garage Android 客户端
 
+## 2026-09-24 更新：App 3.2.32 / 固件 3.2.14
+
+最新安装包：`android_app/BRZ-Garage-v3.2.32-debug.apk`，versionCode=86，内置仪表固件仍为 3.2.14。修复部分华为 / HarmonyOS 手机在系统 PendingIntent BLE 扫描中返回非标准回调错误 108 后无法息屏唤醒的问题：App 会自动切换到 `0x1FFA` 服务 UUID 兼容过滤并重新注册，必要时继续降级为基础 `ALL_MATCHES` 回调；收到兼容扫描结果后仍会核对绑定 MAC，避免误连其他设备。
+
+## 2026-09-24 更新：App 3.2.31 / 固件 3.2.14
+
+最新安装包：`android_app/BRZ-Garage-v3.2.31-debug.apk`，versionCode=85，内置仪表固件仍为 3.2.14。后台唤醒主链路改为经过系统验证的伴生设备关联：连接页会区分“仅保存蓝牙地址”和“系统伴生关联有效”，缺失时可按当前 MAC 修复；伴生发现使用仪表持续广播的 `0x1FFA` 服务 UUID，并兼容 Android 16 的 association ID/presence event 新接口。新到达的仪表广播也会绕过遗留 `autoConnect` 请求改为直接连接，并在握手期间持有限时 CPU 唤醒锁。Android 12 及以上另有可选的一次性精确恢复兜底；常规 15 分钟自检仍保持非精确、低功耗。
+
 ## 2026-09-24 更新：App 3.2.30 / 固件 3.2.14
 
 最新安装包：`android_app/BRZ-Garage-v3.2.30-debug.apk`，versionCode=84，内置仪表固件仍为 3.2.14。采用本地可视化校准后确认的 ZD8、ZC6 独立四点坐标，修正首页车牌的安装位置、大小和透视关系；App 继续先以 GA 36-2018 版式生成完整平面车牌位图，再将位图透视安装到对应车型的前保险杠。

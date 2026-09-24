@@ -32,6 +32,14 @@ class LicensePlateAssetTests(unittest.TestCase):
         self.assertIn("151f", source)
         self.assertNotIn('Typeface.create("sans-serif-condensed"', source)
 
+    def test_low_resolution_templates_are_supersampled_before_drawing(self):
+        source = ARTWORK_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("GLYPH_MASK_WIDTH = 360", source)
+        self.assertIn("GLYPH_MASK_HEIGHT = 720", source)
+        self.assertIn("buildHighResolutionMask(source)", source)
+        self.assertIn("LruCache<Char, Bitmap>", source)
+        self.assertIn("Paint.DITHER_FLAG", source)
+
     def test_custom_plate_is_perspective_installed_on_each_vehicle(self):
         hero = (
             ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/VehicleHeroView.kt"

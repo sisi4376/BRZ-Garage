@@ -40,6 +40,7 @@
 # Local analysis workspaces, backups, diagnostics and device-state dumps
 /.analysis/
 /.publish/
+/tmp_ai_inspect/
 /backups/
 /logs/
 /nvs_*.bin

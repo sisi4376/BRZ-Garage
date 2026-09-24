@@ -219,6 +219,26 @@ class TripDatabase(context: Context) :
         }
     }
 
+    /**
+     * Returns this phone's durable sync cursor for one gauge.  Deleted rows are
+     * included because their tombstones deliberately prevent a retained gauge
+     * record from being restored on the next connection.
+     */
+    fun latestKnownId(deviceId: String): Long {
+        readableDatabase.rawQuery(
+            """
+            SELECT MAX(trip_id) FROM (
+                SELECT trip_id FROM trips WHERE device_id=?
+                UNION ALL
+                SELECT trip_id FROM deleted_trips WHERE device_id=?
+            )
+            """.trimIndent(),
+            arrayOf(deviceId, deviceId)
+        ).use { cursor ->
+            return if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
+        }
+    }
+
     fun allTrips(): List<TripRecord> {
         val result = ArrayList<TripRecord>()
         readableDatabase.rawQuery(

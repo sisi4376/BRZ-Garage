@@ -5,22 +5,33 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
+import android.util.LruCache
 
 /** Draws one canonical, flat GA 36-2018 small conventional-car plate artwork. */
 object LicensePlateArtwork {
-    private val glyphCache = mutableMapOf<Char, Bitmap>()
-    private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-        // Convert each black-on-white source template to a white alpha mask.
-        colorFilter = ColorMatrixColorFilter(floatArrayOf(
-            0f, 0f, 0f, 0f, 255f,
-            0f, 0f, 0f, 0f, 255f,
-            0f, 0f, 0f, 0f, 255f,
-            -0.3333f, -0.3333f, -0.3333f, 0f, 255f,
-        ))
+    /*
+     * Some province templates are only about 77 x 150 px. Drawing those JPEGs
+     * directly into an xxhdpi preview enlarged their hard black/white pixels
+     * and made the plate look soft. Build a supersampled alpha mask once, then
+     * let Canvas downsample that mask at the actual display or perspective
+     * size. The bounded cache keeps a normal seven-character plate below the
+     * memory limit while avoiding work on every frame.
+     */
+    private const val GLYPH_MASK_WIDTH = 360
+    private const val GLYPH_MASK_HEIGHT = 720
+    private const val GLYPH_CACHE_KB = 12 * 1024
+    private const val EDGE_BLACK = 72
+    private const val EDGE_WHITE = 200
+
+    private val glyphCache = object : LruCache<Char, Bitmap>(GLYPH_CACHE_KB) {
+        override fun sizeOf(key: Char, value: Bitmap): Int =
+            (value.byteCount / 1024).coerceAtLeast(1)
     }
+    private val glyphPaint = Paint(
+        Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG,
+    )
 
     fun draw(context: Context, canvas: Canvas, value: GeneratedLicensePlate, bounds: RectF) {
         val sx = bounds.width() / LicensePlateGenerator.WIDTH_MM
@@ -73,10 +84,61 @@ object LicensePlateArtwork {
             'O' -> '0'
             else -> character
         }
-        return glyphCache[assetCharacter] ?: runCatching {
-            context.assets.open("license_plate_font/140_${assetCharacter}.jpg").use {
-                BitmapFactory.decodeStream(it)
-            }
-        }.getOrNull()?.also { glyphCache[assetCharacter] = it }
+        glyphCache.get(assetCharacter)?.let { return it }
+        return runCatching {
+            val source = context.assets.open("license_plate_font/140_${assetCharacter}.jpg").use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
+                    inScaled = false
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                })
+            } ?: return@runCatching null
+            buildHighResolutionMask(source)
+        }.getOrNull()?.also { glyphCache.put(assetCharacter, it) }
+    }
+
+    private fun buildHighResolutionMask(source: Bitmap): Bitmap {
+        val supersampled = Bitmap.createScaledBitmap(
+            source,
+            GLYPH_MASK_WIDTH,
+            GLYPH_MASK_HEIGHT,
+            true,
+        )
+        if (supersampled !== source) source.recycle()
+
+        val pixels = IntArray(GLYPH_MASK_WIDTH * GLYPH_MASK_HEIGHT)
+        supersampled.getPixels(
+            pixels,
+            0,
+            GLYPH_MASK_WIDTH,
+            0,
+            0,
+            GLYPH_MASK_WIDTH,
+            GLYPH_MASK_HEIGHT,
+        )
+        val edgeRange = EDGE_WHITE - EDGE_BLACK
+        for (index in pixels.indices) {
+            val color = pixels[index]
+            val luminance = (Color.red(color) * 77 +
+                Color.green(color) * 150 + Color.blue(color) * 29) shr 8
+            val alpha = ((EDGE_WHITE - luminance) * 255 / edgeRange).coerceIn(0, 255)
+            pixels[index] = (alpha shl 24) or 0x00FFFFFF
+        }
+        supersampled.recycle()
+
+        return Bitmap.createBitmap(
+            GLYPH_MASK_WIDTH,
+            GLYPH_MASK_HEIGHT,
+            Bitmap.Config.ARGB_8888,
+        ).apply {
+            setPixels(
+                pixels,
+                0,
+                GLYPH_MASK_WIDTH,
+                0,
+                0,
+                GLYPH_MASK_WIDTH,
+                GLYPH_MASK_HEIGHT,
+            )
+        }
     }
 }

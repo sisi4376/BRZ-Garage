@@ -19,6 +19,11 @@ class BackgroundTimeWakeTest(unittest.TestCase):
         self.assertIn("CALLBACK_TYPE_ALL_MATCHES", source)
         self.assertIn("consumeBasicCompatibleSignal", source)
         self.assertIn("SCAN_MODE_LOW_POWER", source)
+        self.assertIn("error == 108", source)
+        self.assertIn("MODE_SERVICE_FIRST_MATCH", source)
+        self.assertIn("setServiceUuid(ParcelUuid(TripBleProtocol.INFO_SERVICE))", source)
+        self.assertIn("EXTRA_LIST_SCAN_RESULT", source)
+        self.assertIn("it.device.address.equals(state.address", source)
         lost = source.index("callbackType and ScanSettings.CALLBACK_TYPE_MATCH_LOST")
         wake = source.index("TripSyncService.wakeFromGaugeSignal(context)")
         self.assertLess(lost, wake)
@@ -26,11 +31,13 @@ class BackgroundTimeWakeTest(unittest.TestCase):
     def test_signal_uses_direct_connection_and_clock_is_first(self):
         service = (JAVA / "TripSyncService.kt").read_text(encoding="utf-8")
         self.assertIn('ACTION_GAUGE_SIGNAL = "com.brz.gauge.trips.GAUGE_SIGNAL"', service)
-        self.assertIn("if (gaugeSignalWake) connectFromGaugeSignal() else beginReconnect()", service)
+        self.assertIn("if (gaugeSignalWake && !connected)", service)
         direct = service.split("private fun connectFromGaugeSignal()", 1)[1].split(
             "private val scanCallback", 1)[0]
         self.assertIn("if (destroyed || gatt != null || !state.automatic) return", direct)
         self.assertIn("device.connectGatt(this, false, callback", direct)
+        self.assertIn("acquireSignalConnectWakeLock()", direct)
+        self.assertIn("if (gatt != null) closeConnection() else stopScan()", service)
         discovered = service.split("override fun onServicesDiscovered", 1)[1].split(
             "override fun onMtuChanged", 1)[0]
         self.assertIn("syncClock()", discovered)
@@ -46,6 +53,9 @@ class BackgroundTimeWakeTest(unittest.TestCase):
         wake = (JAVA / "BackgroundBleWake.kt").read_text(encoding="utf-8")
         service = (JAVA / "TripSyncService.kt").read_text(encoding="utf-8")
         watchdog = (JAVA / "ServiceWatchdogReceiver.kt").read_text(encoding="utf-8")
+        observer = (JAVA / "GaugePresenceObserver.kt").read_text(encoding="utf-8")
+        modern_presence = (JAVA / "GaugePresenceServiceModern.kt").read_text(encoding="utf-8")
+        activity = (JAVA / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('android:directBootAware="true"', manifest)
         self.assertIn("android.intent.action.LOCKED_BOOT_COMPLETED", manifest)
         self.assertIn("android.intent.action.USER_UNLOCKED", manifest)
@@ -59,6 +69,18 @@ class BackgroundTimeWakeTest(unittest.TestCase):
         self.assertIn("service_started_at", service)
         self.assertIn("service_start_failed_at", service)
         self.assertIn('TripSyncService.start(context, reason = "后台自检")', watchdog)
+        self.assertIn("SCHEDULE_EXACT_ALARM", manifest)
+        self.assertIn("setExactAndAllowWhileIdle", watchdog)
+        self.assertIn("scheduleRecovery(context)", wake)
+        self.assertIn('ACTION_RECOVER = "com.brz.gauge.trips.SERVICE_RECOVERY"', watchdog)
+        self.assertIn("manager.myAssociations", observer)
+        self.assertIn("ObservingDevicePresenceRequest.Builder()", observer)
+        self.assertIn("未建立系统伴生关联", observer)
+        self.assertIn("onDevicePresenceEvent", modern_presence)
+        self.assertIn("EVENT_BLE_APPEARED", modern_presence)
+        self.assertIn("CompanionDeviceManager.EXTRA_ASSOCIATION", activity)
+        self.assertIn("setServiceUuid(ParcelUuid(TripBleProtocol.INFO_SERVICE))", activity)
+        self.assertIn("修复系统伴生关联（后台唤醒必需）", activity)
 
     def test_completed_trip_is_pulled_without_waiting_for_periodic_history_cycle(self):
         service = (JAVA / "TripSyncService.kt").read_text(encoding="utf-8")

@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
     <uses-permission android:name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
     <uses-permission android:name="android.permission.REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
@@ -52,12 +53,26 @@
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
         <service android:name=".GaugePresenceService"
-            android:enabled="@bool/supports_companion_presence"
+            android:enabled="@bool/supports_legacy_companion_presence"
             android:exported="true"
             android:permission="android.permission.BIND_COMPANION_DEVICE_SERVICE">
             <intent-filter>
                 <action android:name="android.companion.CompanionDeviceService" />
             </intent-filter>
+            <property
+                android:name="android.companion.PROPERTY_PRIMARY_COMPANION_DEVICE_SERVICE"
+                android:value="true" />
+        </service>
+        <service android:name=".GaugePresenceServiceModern"
+            android:enabled="@bool/supports_modern_companion_presence"
+            android:exported="true"
+            android:permission="android.permission.BIND_COMPANION_DEVICE_SERVICE">
+            <intent-filter>
+                <action android:name="android.companion.CompanionDeviceService" />
+            </intent-filter>
+            <property
+                android:name="android.companion.PROPERTY_PRIMARY_COMPANION_DEVICE_SERVICE"
+                android:value="true" />
         </service>
 
         <receiver
@@ -71,6 +86,7 @@
                 <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.USER_PRESENT" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
                 <action android:name="android.bluetooth.adapter.action.STATE_CHANGED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.huawei.intent.action.QUICKBOOT_POWERON" />

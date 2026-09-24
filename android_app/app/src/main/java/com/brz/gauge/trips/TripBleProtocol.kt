@@ -337,7 +337,7 @@ object TripBleProtocol {
         )
         return meta.takeIf {
             ((it.version == 1 && it.recordSize == 40) ||
-                (it.version == 2 && it.recordSize == 48)) &&
+                (it.version in 2..3 && it.recordSize == 48)) &&
                 it.pendingCount <= it.capacity &&
                 (it.pendingCount == 0 || it.oldestId in 1..it.newestId)
         }

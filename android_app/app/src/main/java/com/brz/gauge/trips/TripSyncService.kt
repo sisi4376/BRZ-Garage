@@ -84,19 +84,25 @@ class TripSyncService : Service() {
                 false
             }
         }
-        fun wakeFromGaugeSignal(context: Context): Boolean {
+        fun wakeFromGaugeSignal(
+            context: Context,
+            reason: String = "仪表通电广播",
+            retryWithAlarm: Boolean = true,
+        ): Boolean {
             val state = AppState(context)
             if (!state.automatic || state.address.isEmpty() || !hasPermissions(context)) return false
             return try {
-                context.startForegroundService(Intent(context, TripSyncService::class.java)
-                    .setAction(ACTION_GAUGE_SIGNAL))
+                context.startForegroundService(Intent(context, TripSyncService::class.java).apply {
+                    action = ACTION_GAUGE_SIGNAL
+                    putExtra(EXTRA_START_REASON, reason)
+                })
                 true
             } catch (error: RuntimeException) {
                 state.prefs.edit().putLong("wake_start_failed_at", System.currentTimeMillis())
                     .putString("wake_start_error", error.javaClass.simpleName).apply()
                 state.status("已收到仪表信号，但系统限制后台启动；请允许后台运行", false)
                 BackgroundBleWake.register(context, force = true)
-                ServiceWatchdogReceiver.schedule(context, 60_000L)
+                if (retryWithAlarm) ServiceWatchdogReceiver.scheduleRecovery(context)
                 false
             }
         }
@@ -236,6 +242,7 @@ class TripSyncService : Service() {
     private var info: BluetoothGattService? = null
     private var ota: BluetoothGattService? = null
     private var connectionWakeLock: PowerManager.WakeLock? = null
+    private var signalConnectWakeLock: PowerManager.WakeLock? = null
     private var notificationVehicle: VehicleState? = null
     private var scanning = false
     private var connected = false
@@ -349,6 +356,14 @@ class TripSyncService : Service() {
             Log.w(LOG_TAG, "Unable to create gauge synchronization wake lock", error)
             null
         }
+        signalConnectWakeLock = try {
+            (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "$packageName:GaugeSignalConnect"
+            ).apply { setReferenceCounted(false) }
+        } catch (error: RuntimeException) {
+            Log.w(LOG_TAG, "Unable to create gauge signal connection wake lock", error)
+            null
+        }
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannels(listOf(
             NotificationChannel(CHANNEL, "车辆连接与自动授时", NotificationManager.IMPORTANCE_LOW),
@@ -395,9 +410,18 @@ class TripSyncService : Service() {
         if (gatt != null && address != state.address) closeConnection()
         // During Wi-Fi upload the gauge deliberately releases Bluetooth. A
         // watchdog/service restart must not launch a competing BLE scan.
-        if (gatt == null && !otaSessionActive) {
-            if (address != state.address) stopScan()
-            if (gaugeSignalWake) connectFromGaugeSignal() else beginReconnect()
+        if (!otaSessionActive) {
+            if (gaugeSignalWake && !connected) {
+                // A stale vendor autoConnect request is still represented by a
+                // non-null GATT object. The fresh system scan result proves the
+                // gauge is advertising now, so replace that request with an
+                // immediate direct connection instead of ignoring the signal.
+                if (gatt != null) closeConnection() else stopScan()
+                connectFromGaugeSignal()
+            } else if (gatt == null) {
+                if (address != state.address) stopScan()
+                beginReconnect()
+            }
         }
         if (gaugeSignalWake && connected && !busy) {
             lastClockMs = 0
@@ -487,7 +511,7 @@ class TripSyncService : Service() {
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (state.automatic) ServiceWatchdogReceiver.schedule(this, 60_000L)
+        if (state.automatic) ServiceWatchdogReceiver.scheduleRecovery(this)
         super.onTaskRemoved(rootIntent)
     }
     override fun onDestroy() {
@@ -515,7 +539,7 @@ class TripSyncService : Service() {
         state.status("自动连接服务未运行", false)
         if (state.automatic) {
             BackgroundBleWake.register(this, force = true)
-            ServiceWatchdogReceiver.schedule(this, 60_000L)
+            ServiceWatchdogReceiver.scheduleRecovery(this)
         }
         super.onDestroy()
     }
@@ -665,6 +689,7 @@ class TripSyncService : Service() {
         if (!BluetoothAdapter.checkBluetoothAddress(address)) { publish("请先绑定自己的仪表"); return }
         try {
             val device = adapter?.getRemoteDevice(address) ?: run { beginReconnect(); return }
+            acquireSignalConnectWakeLock()
             busy = true
             publish("已收到仪表广播 · 直接连接并优先授时…")
             armConnectTimeout()
@@ -713,6 +738,7 @@ class TripSyncService : Service() {
                 handler.removeCallbacks(scanFallback)
                 connected = true
                 acquireConnectionWakeLock()
+                releaseSignalConnectWakeLock()
                 retryMs = 2000L
                 publish("仪表已连接 · 准备自动授时")
                 armConnectTimeout()
@@ -879,10 +905,29 @@ class TripSyncService : Service() {
                 meta = TripBleProtocol.parseMeta(bytes)
                 val m = meta ?: run { retryOperation("行程元数据暂时不完整"); return }
                 completeOperation()
-                cursor = m.lastAckedId
-                if (m.overflowed) state.prefs.edit().putBoolean("overflow_$address", true).apply()
+                // Protocol 3 keeps a rolling history on the gauge.  Each phone
+                // therefore resumes from its own durable database cursor rather
+                // than the gauge-wide legacy ACK cursor.  A second phone may
+                // advance the latter, but cannot create a gap on this phone.
+                cursor = if (m.version >= 3) {
+                    try { database.latestKnownId(address) } catch (_: RuntimeException) { 0L }
+                } else {
+                    m.lastAckedId
+                }
+                if (m.version < 3 && m.overflowed) {
+                    state.prefs.edit().putBoolean("overflow_$address", true).apply()
+                }
+                if (m.version >= 3 && cursor > 0L && m.oldestId > cursor + 1L) {
+                    state.prefs.edit().putBoolean("overflow_$address", true).apply()
+                }
                 continueAfterGattIdle {
-                    if (m.pendingCount == 0) finishHistory() else requestNext()
+                    if (m.version >= 3) {
+                        if (m.newestId == 0L || cursor >= m.newestId) finishHistory() else requestNext()
+                    } else if (m.pendingCount == 0) {
+                        finishHistory()
+                    } else {
+                        requestNext()
+                    }
                 }
             }
             TripBleProtocol.TRIP_DATA -> {
@@ -2061,6 +2106,20 @@ class TripSyncService : Service() {
             Log.w(LOG_TAG, "Unable to hold gauge synchronization wake lock", error)
         }
     }
+    private fun acquireSignalConnectWakeLock() {
+        try {
+            signalConnectWakeLock?.let { if (!it.isHeld) it.acquire(CONNECT_TIMEOUT_MS + 5_000L) }
+        } catch (error: RuntimeException) {
+            Log.w(LOG_TAG, "Unable to hold gauge signal connection wake lock", error)
+        }
+    }
+    private fun releaseSignalConnectWakeLock() {
+        try {
+            signalConnectWakeLock?.let { if (it.isHeld) it.release() }
+        } catch (error: RuntimeException) {
+            Log.w(LOG_TAG, "Unable to release gauge signal connection wake lock", error)
+        }
+    }
     private fun releaseConnectionWakeLock() {
         try {
             connectionWakeLock?.let { if (it.isHeld) it.release() }
@@ -2079,6 +2138,7 @@ class TripSyncService : Service() {
         gatt = null
         linkGeneration++
         connected = false
+        releaseSignalConnectWakeLock()
         releaseConnectionWakeLock()
         busy = false
         completeOperation()

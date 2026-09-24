@@ -29,7 +29,7 @@
 #define KEY_CUSTOM_TRIP       "customtrip" // phone-selected lifetime baseline for the gauge page
 #define FUEL_STORE_VERSION    4
 #define TRIP_SYNC_STORE_VERSION 1
-#define TRIP_SYNC_PROTOCOL_VERSION 2
+#define TRIP_SYNC_PROTOCOL_VERSION 3
 #define REFUEL_STORE_VERSION 1U
 #define REFUEL_PROTOCOL_VERSION 2U
 #define CUSTOM_TRIP_STORE_VERSION 1U
@@ -1443,7 +1443,15 @@ void nvs_trip_sync_get_meta(nvs_trip_sync_meta_t *out)
     out->protocol_version = TRIP_SYNC_PROTOCOL_VERSION;
     if (!s_mux) return;
     xSemaphoreTake(s_mux, portMAX_DELAY);
-    out->pending_count = s_trip_sync.count;
+    /* Protocol 3 retains a rolling history for phones with independent local
+       cursors.  pending_count keeps its legacy meaning so protocol 1/2 clients
+       still stop after their gauge-wide ACK cursor reaches the newest record. */
+    for (uint8_t i = 0; i < s_trip_sync.count; ++i) {
+        if (s_trip_sync.records[i].id > s_trip_sync.last_acked_id &&
+            out->pending_count < UINT8_MAX) {
+            out->pending_count++;
+        }
+    }
     out->overflowed = s_trip_sync.overflowed != 0;
     out->last_acked_id = s_trip_sync.last_acked_id;
     if (s_trip_sync.count) {
@@ -1485,19 +1493,10 @@ esp_err_t nvs_trip_sync_ack(uint32_t up_to_id)
         xSemaphoreGive(s_mux);
         return ESP_ERR_INVALID_ARG;
     }
-    uint8_t remove = 0;
-    while (remove < s_trip_sync.count && s_trip_sync.records[remove].id <= up_to_id) {
-        ++remove;
-    }
-    if (remove) {
-        memmove(&s_trip_sync.records[0], &s_trip_sync.records[remove],
-                (s_trip_sync.count - remove) * sizeof(s_trip_sync.records[0]));
-        memmove(&s_trip_sync.details[0], &s_trip_sync.details[remove],
-                (s_trip_sync.count - remove) * sizeof(s_trip_sync.details[0]));
-        s_trip_sync.count -= remove;
-    }
+    /* Do not delete acknowledged records.  The queue is now a retained ring:
+       trip_sync_enqueue() evicts only the oldest record when capacity is
+       reached, allowing another phone to resume from its own local cursor. */
     if (up_to_id > s_trip_sync.last_acked_id) s_trip_sync.last_acked_id = up_to_id;
-    if (s_trip_sync.count == 0) s_trip_sync.overflowed = 0;
     s_trip_sync_dirty = true;
     xSemaphoreGive(s_mux);
     /* ACK is idempotent: defer its flash write to the normal checkpoint so
