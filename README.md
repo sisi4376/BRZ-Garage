@@ -309,4 +309,7 @@ cd C:\path\to\BRZ_OBD
 
 ```text
 Copyright (C) 2024-2026 steveEcode and contributors
+Modifications Copyright (C) 2026 sisi4376
 ```
+
+本仓库包含 sisi4376 于 2026 年对上述上游项目所作的修改；原作者版权声明以及第三方组件各自的许可证声明均予以保留。
