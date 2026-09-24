@@ -325,6 +325,4 @@ Android App：Copyright (C) 2026 sisi4376
 
 本仓库包含 sisi4376 于 2026 年对上游仪表项目所作的修改，以及独立新增的 BRZ Garage Android App。原作者对上游代码的版权不会因本项目的修改而转移；sisi4376 对自行完成的仪表修改和 Android App 代码分别主张版权。
 
-App 内置的 `android_app/app/src/main/assets/firmware/obd_brz_gauge.bin` 是由本仓库仪表源码构建的定制 OTA 固件，不是从上游项目或其他作者的发布渠道取得的程序，也不代表上游作者发布、审核或认可的官方固件。该二进制文件仍随其对应的仪表源码适用 GPLv3；对应源代码可在本仓库中取得。
-
 第三方组件和素材继续适用其各自的许可证与版权声明。更完整的组件归属、内置固件说明和非官方声明请参阅 [NOTICE](NOTICE.md)。
