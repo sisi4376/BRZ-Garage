@@ -17,7 +17,9 @@ class VehicleHeroView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
-    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bitmapPaint = Paint(
+        Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG,
+    )
     private val plateMountPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(155, 4, 7, 11)
         style = Paint.Style.FILL

@@ -23,6 +23,9 @@ class TripBleProtocolTest(unittest.TestCase):
         self.assertEqual(struct.unpack(META_FORMAT, payload), (1, 7, 0, 0, 21, 27, 20, 64, 40))
         payload_v2 = struct.pack(META_FORMAT, 2, 7, 0, 0, 21, 27, 20, 64, 48)
         self.assertEqual(len(payload_v2), 20)
+        payload_v3 = struct.pack(META_FORMAT, 3, 0, 0, 0, 21, 27, 27, 64, 48)
+        self.assertEqual(len(payload_v3), 20)
+        self.assertEqual(struct.unpack(META_FORMAT, payload_v3)[0], 3)
 
     def test_record_layout_and_crc_match_firmware_contract(self):
         prefix = struct.pack(

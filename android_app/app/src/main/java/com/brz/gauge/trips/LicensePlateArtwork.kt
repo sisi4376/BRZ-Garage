@@ -2,35 +2,26 @@ package com.brz.gauge.trips
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.LruCache
+import org.json.JSONObject
 
 /** Draws one canonical, flat GA 36-2018 small conventional-car plate artwork. */
 object LicensePlateArtwork {
-    /*
-     * Some province templates are only about 77 x 150 px. Drawing those JPEGs
-     * directly into an xxhdpi preview enlarged their hard black/white pixels
-     * and made the plate look soft. Build a supersampled alpha mask once, then
-     * let Canvas downsample that mask at the actual display or perspective
-     * size. The bounded cache keeps a normal seven-character plate below the
-     * memory limit while avoiding work on every frame.
-     */
-    private const val GLYPH_MASK_WIDTH = 360
-    private const val GLYPH_MASK_HEIGHT = 720
-    private const val GLYPH_CACHE_KB = 12 * 1024
-    private const val EDGE_BLACK = 72
-    private const val EDGE_WHITE = 200
+    private const val GLYPH_ASSET = "license_plate_vector/glyphs.json"
+    private const val GLYPH_CACHE_SIZE = 67
+    private val plateBlue = Color.rgb(0, 82, 168)
+    private val glyphLock = Any()
+    private var glyphTable: JSONObject? = null
+    private val glyphCache = LruCache<Char, List<GlyphLayer>>(GLYPH_CACHE_SIZE)
 
-    private val glyphCache = object : LruCache<Char, Bitmap>(GLYPH_CACHE_KB) {
-        override fun sizeOf(key: Char, value: Bitmap): Int =
-            (value.byteCount / 1024).coerceAtLeast(1)
-    }
-    private val glyphPaint = Paint(
-        Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG,
+    private data class GlyphLayer(
+        val path: Path,
+        val cutout: Boolean,
     )
 
     fun draw(context: Context, canvas: Canvas, value: GeneratedLicensePlate, bounds: RectF) {
@@ -42,7 +33,7 @@ object LicensePlateArtwork {
         canvas.scale(sx, sy)
 
         paint.style = Paint.Style.FILL
-        paint.color = Color.rgb(0, 82, 168)
+        paint.color = plateBlue
         canvas.drawRoundRect(RectF(0f, 0f, 440f, 140f), 10f, 10f, paint)
 
         paint.style = Paint.Style.STROKE
@@ -58,87 +49,101 @@ object LicensePlateArtwork {
             }
         }
 
-        drawGlyph(context, canvas, value.province, 15f)
-        drawGlyph(context, canvas, value.authority, 72f)
+        drawGlyph(context, canvas, value.province, 15f, paint)
+        drawGlyph(context, canvas, value.authority, 72f, paint)
         paint.color = Color.WHITE
         canvas.drawCircle(134f, 70f, 5f, paint)
         value.serial.forEachIndexed { index, character ->
-            drawGlyph(context, canvas, character, 151f + index * 57f)
+            drawGlyph(context, canvas, character, 151f + index * 57f, paint)
         }
         canvas.restore()
     }
 
+    /**
+     * Produces a 4 px/mm intermediate plate for the home-screen perspective pass.
+     * The final installed plate is small, but the extra source samples keep the
+     * outlined strokes and corners crisp on GPU implementations that minify a
+     * perspective texture less accurately than an axis-aligned bitmap.
+     */
     fun renderBitmap(context: Context, value: GeneratedLicensePlate): Bitmap =
-        Bitmap.createBitmap(880, 280, Bitmap.Config.ARGB_8888).also { bitmap ->
-            draw(context, Canvas(bitmap), value, RectF(0f, 0f, 880f, 280f))
+        Bitmap.createBitmap(1760, 560, Bitmap.Config.ARGB_8888).also { bitmap ->
+            draw(context, Canvas(bitmap), value, RectF(0f, 0f, 1760f, 560f))
+            bitmap.setHasMipMap(true)
+            bitmap.prepareToDraw()
         }
 
-    private fun drawGlyph(context: Context, canvas: Canvas, character: Char, leftMm: Float) {
-        val bitmap = glyphBitmap(context, character) ?: return
-        canvas.drawBitmap(bitmap, null, RectF(leftMm, 25f, leftMm + 45f, 115f), glyphPaint)
+    private fun drawGlyph(
+        context: Context,
+        canvas: Canvas,
+        character: Char,
+        leftMm: Float,
+        paint: Paint,
+    ) {
+        val layers = glyphLayers(context, character) ?: return
+        canvas.save()
+        canvas.translate(leftMm, 25f)
+        paint.style = Paint.Style.FILL
+        for (layer in layers) {
+            paint.color = if (layer.cutout) plateBlue else Color.WHITE
+            canvas.drawPath(layer.path, paint)
+        }
+        canvas.restore()
     }
 
-    private fun glyphBitmap(context: Context, character: Char): Bitmap? {
-        val assetCharacter = when (character) {
-            'I' -> '1'
-            'O' -> '0'
-            else -> character
+    private fun glyphLayers(context: Context, character: Char): List<GlyphLayer>? {
+        glyphCache.get(character)?.let { return it }
+        return synchronized(glyphLock) {
+            glyphCache.get(character) ?: runCatching {
+                val table = glyphTable ?: context.assets.open(GLYPH_ASSET).bufferedReader().use {
+                    JSONObject(it.readText()).getJSONObject("glyphs")
+                }.also { glyphTable = it }
+                val sourceLayers = table.getJSONArray(character.toString())
+                List(sourceLayers.length()) { index ->
+                    val sourceLayer = sourceLayers.getJSONObject(index)
+                    GlyphLayer(
+                        path = parsePathData(sourceLayer.getString("path")),
+                        cutout = sourceLayer.getBoolean("cutout"),
+                    )
+                }
+            }.getOrNull()?.also { glyphCache.put(character, it) }
         }
-        glyphCache.get(assetCharacter)?.let { return it }
-        return runCatching {
-            val source = context.assets.open("license_plate_font/140_${assetCharacter}.jpg").use {
-                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
-                    inScaled = false
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                })
-            } ?: return@runCatching null
-            buildHighResolutionMask(source)
-        }.getOrNull()?.also { glyphCache.put(assetCharacter, it) }
     }
 
-    private fun buildHighResolutionMask(source: Bitmap): Bitmap {
-        val supersampled = Bitmap.createScaledBitmap(
-            source,
-            GLYPH_MASK_WIDTH,
-            GLYPH_MASK_HEIGHT,
-            true,
-        )
-        if (supersampled !== source) source.recycle()
+    /** Parses the absolute M/L/C/Z subset emitted by the asset generator. */
+    private fun parsePathData(data: String): Path {
+        val path = Path()
+        var index = 0
 
-        val pixels = IntArray(GLYPH_MASK_WIDTH * GLYPH_MASK_HEIGHT)
-        supersampled.getPixels(
-            pixels,
-            0,
-            GLYPH_MASK_WIDTH,
-            0,
-            0,
-            GLYPH_MASK_WIDTH,
-            GLYPH_MASK_HEIGHT,
-        )
-        val edgeRange = EDGE_WHITE - EDGE_BLACK
-        for (index in pixels.indices) {
-            val color = pixels[index]
-            val luminance = (Color.red(color) * 77 +
-                Color.green(color) * 150 + Color.blue(color) * 29) shr 8
-            val alpha = ((EDGE_WHITE - luminance) * 255 / edgeRange).coerceIn(0, 255)
-            pixels[index] = (alpha shl 24) or 0x00FFFFFF
+        fun skipSeparators() {
+            while (index < data.length && (data[index] == ',' || data[index].isWhitespace())) {
+                index++
+            }
         }
-        supersampled.recycle()
 
-        return Bitmap.createBitmap(
-            GLYPH_MASK_WIDTH,
-            GLYPH_MASK_HEIGHT,
-            Bitmap.Config.ARGB_8888,
-        ).apply {
-            setPixels(
-                pixels,
-                0,
-                GLYPH_MASK_WIDTH,
-                0,
-                0,
-                GLYPH_MASK_WIDTH,
-                GLYPH_MASK_HEIGHT,
-            )
+        fun number(): Float {
+            skipSeparators()
+            val start = index
+            if (index < data.length && (data[index] == '-' || data[index] == '+')) index++
+            while (index < data.length && data[index].isDigit()) index++
+            if (index < data.length && data[index] == '.') {
+                index++
+                while (index < data.length && data[index].isDigit()) index++
+            }
+            require(index > start) { "Expected path number at $start" }
+            return data.substring(start, index).toFloat()
         }
+
+        while (index < data.length) {
+            skipSeparators()
+            if (index >= data.length) break
+            when (val command = data[index++]) {
+                'M' -> path.moveTo(number(), number())
+                'L' -> path.lineTo(number(), number())
+                'C' -> path.cubicTo(number(), number(), number(), number(), number(), number())
+                'Z' -> path.close()
+                else -> error("Unsupported glyph path command: $command")
+            }
+        }
+        return path
     }
 }

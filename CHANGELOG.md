@@ -8,6 +8,37 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-09-26 — App 3.4.0 driving-footprint visual refresh
+
+- Replaces year-relative calendar intensity with fixed daily-distance bands: below 25 km, 25–49 km, 50–99 km and 100 km or more. A 100 km day is therefore always shown at the highest intensity across every month and year.
+- Restyles Driving Footprint to match Bookkeeping, including paired metric cards, softened category colour, pill-shaped revision and year controls, clearer calendar guidance and consistently aligned trip cards.
+- Changes historical trip statistics from red to the shared driving/bookkeeping blue accent while preserving the continuous scroll layout and tap-to-open details.
+
+### 2026-09-26 — App 3.3.3 driving-calendar fixes
+
+- Stops the current-year driving calendar at the end of the current week instead of drawing empty future months.
+- Adds a no-activity-to-high-activity colour legend beneath the calendar.
+- Makes the overview, calendar and historical trip rows one continuous vertically scrolling list, restoring reliable access to trip details on smaller screens.
+
+### 2026-09-26 — App 3.3.2 refined bookkeeping interface
+
+- Replaces the bookkeeping page's default system-style buttons with a compact pill-shaped segmented control while preserving tap and horizontal-swipe navigation across Fuel, Maintenance, Daily and Statistics.
+- Introduces category-coloured primary actions, paired metric cards, clearer empty states and fully tappable record rows with stronger date, amount and status hierarchy.
+- Refreshes the Statistics page with a gradient monthly-total hero, labelled annual category proportions and a lighter 12-month stacked chart with grid lines, current-month emphasis and zero-data guidance.
+
+### 2026-09-25 — App 3.3.1 vector license-plate artwork
+
+- Replaces the enlarged low-resolution JPEG character templates with 67 bundled outline glyphs rendered directly through Android paths.
+- Fits every province outline to the GA 36-2018 45 mm × 90 mm character dimensions and preserves rectangular strokes that were previously omitted during vector extraction.
+- Raises the home-screen perspective source from 880 × 280 to 1760 × 560 pixels and enables filtered mipmap preparation to keep small projected strokes crisp.
+- Keeps the canonical 880 × 280 flat plate and the model-specific four-corner installation pipeline, while removing bitmap-source scaling artifacts before the final perspective transform.
+
+### 2026-09-25 — App 3.2.33 / Firmware 3.2.16 driving calendar, bookkeeping and multi-phone continuity
+
+- Adds a Codex-style yearly driving activity calendar and vehicle-scoped totals for trips, active days, distance, duration and fuel.
+- Replaces the Fuel tab with swipeable Fuel, Maintenance, Daily and Statistics bookkeeping sections, including monthly/yearly visual summaries and 5,000 km / six-month maintenance reminders with explicit initialization gates.
+- Upgrades trip sync to protocol 3: the gauge retains a fixed 64-record rolling history while each phone resumes from its own durable local cursor, so another phone's ACK no longer deletes records the original phone still needs.
+
 ### 2026-09-24 — App 3.2.32 Huawei BLE callback 108 recovery
 
 - Treats the non-standard asynchronous BLE scan callback error `108` as a recoverable Huawei/HarmonyOS vendor-stack failure instead of leaving the wake scan on the same failing configuration.
@@ -501,6 +532,37 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-09-26 — App 3.4.0 驾驶足迹视觉与里程口径升级
+
+- 日历深浅不再按当年最大里程相对缩放，改为每日累计里程固定分档：低于 25 km、25～49 km、50～99 km、100 km 及以上；跨月份、跨年份可直接比较，达到 100 km 始终显示最深色。
+- 驾驶足迹整体统一为记账页风格：双列指标卡、柔和主题色、胶囊式修订与年份切换、清晰的日历说明及对齐一致的历史记录卡。
+- 历史行程的统计强调色由红色改为驾驶/记账共用的蓝色，同时保留整页连续滚动和点击记录进入详情。
+
+### 2026-09-26 — App 3.3.3 驾驶日历修复
+
+- 当前年份的驾驶日历只显示到本周日，不再绘制后续月份的大量空白方格。
+- 日历下方新增从无记录、活动较少到活动较多的颜色深浅图例。
+- 将驾驶总览、日历和历史行程改为同一个连续纵向滚动列表，修复小屏设备上历史记录区域被挤到零高度、无法进入详情的问题。
+
+### 2026-09-26 — App 3.3.2 记账界面精修
+
+- 将记账页原有的系统风格按钮改为紧凑的胶囊分段导航，同时完整保留加油、保养、日常和统计四个栏目的点击与左右滑动切换。
+- 加入按栏目区分的主操作色、双列数据卡、统一空状态和整行可点击记录卡，强化日期、金额与记录状态的视觉层级。
+- 统计页新增渐变月度总额卡、带金额和百分比的年度分类构成，以及包含网格、当前月份强调和空数据提示的轻量 12 个月堆叠图。
+
+### 2026-09-25 — App 3.3.1 矢量高清车牌
+
+- 将原先放大的低分辨率 JPG 字符模板替换为 App 内置的 67 个轮廓字形，由 Android 路径直接绘制。
+- 省份汉字轮廓按 GA 36-2018 的 45 mm × 90 mm 字符尺寸生成，并补齐此前矢量提取遗漏的矩形笔画。
+- 首页透视安装使用的平面车牌由 880 × 280 提升至 1760 × 560 像素，并启用滤波、抖动和 mipmap 准备，减少小尺寸投影后的笔画发虚。
+- 保留 880 × 280 平面号牌和分车型四点透视安装流程，在最终投影前消除位图源放大造成的锯齿与模糊。
+
+### 2026-09-25 — App 3.2.33 / 固件 3.2.16 驾驶日历、用车记账与多手机连续同步
+
+- “驾驶足迹”新增类似 Codex 活动图的年度驾驶日历，并按当前车辆汇总行程数、驾驶日、总里程、总时长和燃油。
+- 底部“加油”升级为可左右滑动的“记账”，包含加油、保养、日常和统计四栏；新增月度/年度分类可视化及需分别初始化的 5000 km / 6 个月保养提醒。
+- 行程同步协议升级为 v3：仪表固定保留最近 64 条汇总记录，每台手机按自己的本地持久游标补齐；另一台手机的 ACK 不再删除原手机尚未取得的记录。
 
 ### 2026-09-24 — App 3.2.32 华为 BLE 回调错误 108 恢复
 

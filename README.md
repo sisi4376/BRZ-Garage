@@ -5,8 +5,8 @@
 ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
-[![Firmware](https://img.shields.io/badge/Firmware-3.2.14-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-3.2.20-3DDC84)](https://github.com/sisi4376/BRZ-Garage/releases/download/v3.2.20/BRZ-Garage-v3.2.20-debug.apk)
+[![Firmware](https://img.shields.io/badge/Firmware-3.2.16-00C853)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-3.4.0-3DDC84)](https://github.com/sisi4376/BRZ-Garage/releases)
 [![Status](https://img.shields.io/badge/Status-Early_Test-orange)](#早期测试版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 

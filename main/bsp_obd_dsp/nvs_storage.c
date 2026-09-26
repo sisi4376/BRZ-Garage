@@ -23,7 +23,7 @@
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
 #define KEY_MG_EXTRA          "mgextra"   // multi-gauge boot animation settings
 #define KEY_FUEL_TRIPS        "fueltrips" // lifetime fuel totals + active trip + history
-#define KEY_TRIP_SYNC         "tripsync"  // completed records awaiting phone ACK
+#define KEY_TRIP_SYNC         "tripsync"  // retained rolling trip history for phone sync
 #define KEY_ODOMETER_CFG      "odometer"  // phone calibration + shared home visibility
 #define KEY_REFUEL_HISTORY    "refuelhist" // independent automatic/manual refuel intervals
 #define KEY_CUSTOM_TRIP       "customtrip" // phone-selected lifetime baseline for the gauge page

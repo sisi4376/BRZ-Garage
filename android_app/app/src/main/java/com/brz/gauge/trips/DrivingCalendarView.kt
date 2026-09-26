@@ -10,7 +10,6 @@ import android.view.View
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
-import kotlin.math.sqrt
 
 data class DrivingDayActivity(
     val date: LocalDate,
@@ -21,6 +20,23 @@ data class DrivingDayActivity(
 )
 
 class DrivingCalendarView(context: Context) : View(context) {
+    companion object {
+        val EMPTY_COLOR: Int = Color.rgb(232, 236, 241)
+        val ACTIVITY_COLORS: IntArray = intArrayOf(
+            Color.rgb(213, 238, 246),
+            Color.rgb(138, 210, 229),
+            Color.rgb(69, 166, 201),
+            Color.rgb(25, 104, 148),
+        )
+
+        fun colorForDistance(distanceM: Long): Int = when {
+            distanceM < 25_000L -> ACTIVITY_COLORS[0]
+            distanceM < 50_000L -> ACTIVITY_COLORS[1]
+            distanceM < 100_000L -> ACTIVITY_COLORS[2]
+            else -> ACTIVITY_COLORS[3]
+        }
+    }
+
     private val density = resources.displayMetrics.density
     private fun dp(value: Float) = value * density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -32,6 +48,7 @@ class DrivingCalendarView(context: Context) : View(context) {
     private val cells = HashMap<LocalDate, DrivingDayActivity>()
     private var year = LocalDate.now().year
     private var start = LocalDate.of(year, 1, 1).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    private var visibleEnd = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
     private var weeks = 53
     private var selected: LocalDate? = null
     private var listener: ((LocalDate, DrivingDayActivity?) -> Unit)? = null
@@ -43,10 +60,16 @@ class DrivingCalendarView(context: Context) : View(context) {
     fun submit(valueYear: Int, activity: Collection<DrivingDayActivity>) {
         year = valueYear
         start = LocalDate.of(year, 1, 1).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-        val end = LocalDate.of(year, 12, 31).with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-        weeks = ((end.toEpochDay() - start.toEpochDay() + 1L) / 7L).toInt()
+        val today = LocalDate.now()
+        visibleEnd = if (year == today.year) {
+            today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+        } else {
+            LocalDate.of(year, 12, 31).with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+        }
+        weeks = ((visibleEnd.toEpochDay() - start.toEpochDay() + 1L) / 7L).toInt()
         cells.clear()
-        activity.filter { it.date.year == year }.forEach { cells[it.date] = it }
+        activity.filter { it.date.year == year && !it.date.isAfter(visibleEnd) }
+            .forEach { cells[it.date] = it }
         selected = null
         requestLayout()
         invalidate()
@@ -64,7 +87,6 @@ class DrivingCalendarView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val maxDistance = cells.values.maxOfOrNull { it.distanceM }?.coerceAtLeast(1L) ?: 1L
         listOf(1 to "一", 3 to "三", 5 to "五", 7 to "日").forEach { (day, name) ->
             canvas.drawText(name, dp(2f), headerHeight + (day - 1) * (cell + gap) + cell * .82f, textPaint)
         }
@@ -78,16 +100,9 @@ class DrivingCalendarView(context: Context) : View(context) {
             }
             repeat(7) { day ->
                 val date = weekStart.plusDays(day.toLong())
-                if (date.year != year) return@repeat
+                if (date.year != year || date.isAfter(visibleEnd)) return@repeat
                 val item = cells[date]
-                val ratio = item?.let { sqrt(it.distanceM.toDouble() / maxDistance) } ?: 0.0
-                paint.color = when {
-                    item == null -> Color.rgb(232, 236, 241)
-                    ratio < .25 -> Color.rgb(213, 238, 246)
-                    ratio < .5 -> Color.rgb(138, 210, 229)
-                    ratio < .75 -> Color.rgb(69, 166, 201)
-                    else -> Color.rgb(25, 104, 148)
-                }
+                paint.color = item?.let { colorForDistance(it.distanceM) } ?: EMPTY_COLOR
                 val left = labelWidth + week * (cell + gap)
                 val top = headerHeight + day * (cell + gap)
                 canvas.drawRoundRect(RectF(left, top, left + cell, top + cell), dp(2.5f), dp(2.5f), paint)
@@ -109,7 +124,7 @@ class DrivingCalendarView(context: Context) : View(context) {
         val day = ((event.y - headerHeight) / (cell + gap)).toInt()
         if (week !in 0 until weeks || day !in 0..6) return true
         val date = start.plusWeeks(week.toLong()).plusDays(day.toLong())
-        if (date.year != year) return true
+        if (date.year != year || date.isAfter(visibleEnd)) return true
         selected = date
         contentDescription = "${date}，${cells[date]?.trips ?: 0} 次行程"
         listener?.invoke(date, cells[date])
