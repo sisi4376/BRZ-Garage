@@ -8,6 +8,111 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-09-29 — App 3.8.1 settings-entry cleanup
+
+- Hides manual remaining-fuel setup, recalibration and clearing actions from the new Vehicle Settings page without deleting an existing stored estimate.
+- Keeps exactly one Classic Settings entry at the bottom of the App category, removing the Settings hero shortcut and the indirect Background Health redirect.
+
+### 2026-09-29 — App 3.8.0 streamlined Settings and secondary pages
+
+- Removes the duplicated Common Settings category and keeps direct Vehicle, Driving and App categories, with each common action placed in its actual owner category.
+- Redesigns Vehicle Settings and Gauge Settings with compact back actions, gradient status heroes, clearer cards and consistent primary actions.
+- Makes tank capacity, range-consumption source, correction factor and manual fuel calibration directly editable in Vehicle Settings; replaces disabled gauge inputs with compact read-only value rows.
+- Retains the complete Classic Settings fallback in the same APK.
+
+### 2026-09-29 — App 3.7.1 first-service mileage baseline
+
+- Calculates an unrecorded item's first service threshold from 0 km whenever the vehicle odometer is available, including remaining distance and progress.
+- Distinguishes planned, approaching and reached first-service thresholds while leaving recorded items based on their most recent service mileage.
+
+### 2026-09-28 — App 3.7.0 maintenance-table schedules and mileage suggestions
+
+- Replaces the earlier US-booklet schedule with the supplied Chinese maintenance table, tracking only replacement, additive and tire-rotation work instead of asking users to record inspection-only rows.
+- Prefills a new maintenance visit from the current odometer milestone and adds a rerunnable mileage-based recommendation action; every suggestion remains manually adjustable and old free-text records remain recognizable.
+- Adds Repair as a daily-expense category with a dedicated gear icon and includes it in annual category visualization and detail statistics.
+
+### 2026-09-28 — App 3.6.7 unified vector settings icons
+
+- Replaces the grouped Settings page's temporary text glyphs with consistent outline vector icons for vehicle, mileage, gauge, fuel, trips, Bluetooth, updates, firmware, display, autostart, health checks, legacy layout and license plate.
+- Keeps the category colour mapping and the in-app Classic Settings fallback introduced in 3.6.6.
+
+### 2026-09-28 — App 3.6.6 grouped settings preview with fallback
+
+- Adds a grouped Settings overview matching the visual language of Driving Footprint and Bookkeeping, organized into Common, Vehicle, Driving and App sections.
+- Keeps the complete classic Settings page in the same APK. The grouped page can immediately fall back to Classic, Classic can switch back, and both layouts share the same stored settings and records.
+
+### 2026-09-28 — App 3.6.5 higher-resolution home license plate
+
+- Raises the home vehicle's perspective plate source from 1760 × 560 to 2640 × 840 pixels (6 px/mm), increasing linear resolution by 50% while retaining the calibrated size, position and perspective.
+- Keeps filtered mipmap preparation and vector glyph rendering, while avoiding the much larger memory cost of a full 3520 × 1120 source bitmap.
+
+### 2026-09-28 — App 3.6.4 complete bookkeeping history
+
+- Keeps the trend chart limited to the latest 12 months while extending monthly details from the first recorded bookkeeping month through the current month.
+- Retains zero-value months between recorded months so the full history remains continuous.
+
+### 2026-09-28 — App 3.6.3 complete monthly bookkeeping statistics
+
+- Labels every month in the 12-month stacked chart with its total, including zero-value months, and shows every month on the horizontal axis.
+- Adds a latest-12-month detail section with each month's exact total plus fuel, maintenance and daily-expense amounts.
+
+### 2026-09-28 — App 3.6.2 multi-item maintenance and monthly separators
+
+- Allows one maintenance record to select multiple manual-defined service items, updating every selected schedule while counting the visit cost only once; an optional custom item remains available.
+- Adds month separators to trip history and to fuel, maintenance and daily-expense record lists. Bookkeeping separators show each month's record count and subtotal.
+
+### 2026-09-28 — App 3.6.1 daily-expense categories
+
+- Adds Documents & Procedures as a dedicated daily-expense category with its own icon and colour.
+- Renames Vehicle Accessories to Accessories & Supplies and migrates existing records in place without changing amounts, dates or details.
+
+### 2026-09-28 — App 3.6.0 maintenance schedule and daily-expense breakdown
+
+- Replaces the single maintenance reminder with individual BRZ manual-based schedules for oil/filter, tires, cabin filter, chassis inspection, transmission oil, air cleaner, brake/clutch fluid, drive belt, rear differential oil, spark plugs and coolant.
+- Calculates normal, due-soon and overdue states independently by date and odometer, supports the booklet's severe-use overrides, and offers standardized maintenance items while recognizing existing free-text records.
+- Adds a yearly donut visualization for all six daily-expense subcategories, with per-category amount, record count, percentage and progress.
+
+### 2026-09-27 — App 3.5.5 split-dialog action fix
+
+- Keeps the manual split form in a bounded scrolling area and pins explicit Cancel and Confirm Split actions below it, preventing tall forms from pushing the confirmation control off-screen on some phones.
+
+### 2026-09-27 — App 3.5.4 / Firmware 3.2.17 trip-boundary recovery
+
+- Stops the gauge from merging two consecutive trips merely because both were recorded before reliable phone time became available; records with an unprovable gap now remain separate.
+- Adds a transactional manual split action to trip details. The first segment is entered by the user, the second retains the exact remaining distance, duration and fuel, and both segments receive editable start/end times.
+- Replaces the merged parent with local `A` / `B` records and a durable deletion marker so a later gauge sync cannot restore the bad parent. Unrecoverable speed, RPM and acceleration extrema are deliberately left blank.
+
+### 2026-09-26 — App 3.5.3 privacy-safe public package
+
+- Removes the owner's personal expense rows, bundled seed dataset and automatic owner-data import path from the distributable APK.
+- Keeps the expense database schema unchanged and performs no deletion or reset, so updating an existing installation preserves all locally stored bookkeeping data.
+- New installations begin with an empty bookkeeping database and retain the fixed categories and refined interface from 3.5.2.
+
+### 2026-09-26 — App 3.5.2 driving and bookkeeping refinements
+
+- Adds an overall average fuel-consumption metric to Driving Footprint, splits trip-detail dates and times across lines, and temporarily hides maximum acceleration/deceleration.
+- Simplifies the driving-calendar legend to the two endpoints, `0km` and `100km+`.
+- Replaces free-form daily expense categories with Parking, Toll, Vehicle Care, Vehicle Accessories, Insurance and Other; each category has its own icon, record cards show the date at left, and the note field is renamed to Details.
+- Migrates the 99 non-fuel owner expenses imported by 3.5.1 in place and leaves all fuel records unchanged.
+
+### 2026-09-26 — App 3.5.1 owner expense migration
+
+- Adds the owner-provided 99 non-fuel, non-purchase vehicle expenses directly to the App without adding a general bulk-import interface.
+- Leaves every existing fuel record and the purchase price untouched.
+- Imports the expenses for the currently bound vehicle with date/title/amount deduplication, so an upgrade or repeated launch cannot duplicate exact entries.
+
+### 2026-09-26 — App 3.5.0 complete trip-record visual redesign
+
+- Replaces the legacy three-line trip rows with the same visual structure used by bookkeeping records: date badges, status pills, fully tappable cards and a three-column metric panel.
+- Restyles revision controls as compact pill actions and surfaces synced, revised, test-data, unknown-time and needs-review states directly on each record.
+- Rebuilds trip details with a themed distance hero, paired metric cards and consistent primary actions instead of the previous plain text and system buttons.
+
+### 2026-09-26 — App 3.4.1 resilient App updates
+
+- Tries the official GitHub Releases API and APK URL first, then automatically falls back to a domestic mirror when the official connection fails.
+- Adds a lightweight mirrored update manifest so version checks can recover even when `api.github.com` is unreachable.
+- Verifies the release SHA-256, package name, increasing version code and pinned BRZ Garage signing certificate before an APK from either source can be installed.
+
 ### 2026-09-26 — App 3.4.0 driving-footprint visual refresh
 
 - Replaces year-relative calendar intensity with fixed daily-distance bands: below 25 km, 25–49 km, 50–99 km and 100 km or more. A 100 km day is therefore always shown at the highest intensity across every month and year.
@@ -532,6 +637,111 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-09-29 — App 3.8.1 设置入口收敛
+
+- 在新版车辆设置页隐藏当前剩余油量的设置、重新校准和清除入口，不删除已有估算数据。
+- 经典设置仅保留“应用”栏目最底部一个入口，移除设置主卡快捷按钮及后台检查的间接跳转。
+
+### 2026-09-29 — App 3.8.0 精简设置栏目与二级页
+
+- 取消重复的“常用”设置栏目，仅保留“车辆、驾驶、应用”，并把常用入口归回实际所属分类，减少中转点击。
+- 车辆设置和仪表设置二级页统一使用返回胶囊、渐变状态主卡、清晰卡片层级及主操作按钮。
+- 油箱容量、续航油耗来源、修正系数和 App 油量校准可直接在车辆设置中修改；仪表冻结参数改为紧凑只读状态行。
+- 同一 APK 继续保留完整经典设置回退入口。
+
+### 2026-09-29 — App 3.7.1 首次保养里程基准
+
+- 尚无记录的项目在取得车辆里程后从 0 km 起算首次保养阈值，并显示剩余里程与进度。
+- 分别显示“首次计划、首次将到、首次已到”；已有记录的项目仍按上次保养里程计算。
+
+### 2026-09-28 — App 3.7.0 按养护维修表更新周期与里程推荐
+
+- 按用户提供的中文养护维修表重建保养项目，只跟踪更换、添加和轮胎换位，不再要求记录纯检查项目。
+- 新增保养时按当前里程节点自动推荐；修改里程后可重新推荐，并可继续手动增删，旧自由文本记录仍兼容识别。
+- 日常花费新增“维修”分类和独立齿轮图标，自动纳入年度小类可视化及明细统计。
+
+### 2026-09-28 — App 3.6.7 设置页统一矢量图标
+
+- 将分组设置页的临时文字占位符替换为统一细线矢量图标，覆盖车辆、里程、仪表、油量、行程、蓝牙、更新、固件、显示、自启、后台检查、经典版和车牌入口。
+- 保留类别配色，以及 3.6.6 加入的 App 内经典设置页回退途径。
+
+### 2026-09-28 — App 3.6.6 可回退的分组设置页
+
+- 新增与驾驶足迹、用车记账风格一致的分组设置概览，按“常用、车辆、驾驶、应用”整理主要入口和开关。
+- 同一 APK 完整保留经典设置页；新版可立即回退，经典版也可随时切回，两种界面共用同一份设置与记录。
+
+### 2026-09-28 — App 3.6.5 首页车牌分辨率提升
+
+- 首页车辆透视车牌源图由 1760 × 560 提升至 2640 × 840（6 px/mm），线性分辨率提高 50%，已校准的大小、位置和透视保持不变。
+- 继续使用矢量字形、滤波和 mipmap 准备，同时避免直接使用 3520 × 1120 带来的过高位图内存占用。
+
+### 2026-09-28 — App 3.6.4 完整记账历史
+
+- 趋势图继续显示最近 12 个月，月度明细则从第一条记账记录所在月份连续显示到当前月份。
+- 保留记录区间内的零支出月份，超过一年的历史不再截断。
+
+### 2026-09-28 — App 3.6.3 完整月度记账统计
+
+- 近 12 个月堆叠图为每个月标注合计数值，包括零支出月份，并完整显示每个月的横轴标签。
+- 统计页新增近 12 个月明细，逐月显示精确总额以及加油、保养、日常花费金额。
+
+### 2026-09-28 — App 3.6.2 多项目保养与月份隔断
+
+- 一次保养记录可勾选多个手册标准项目，金额只统计一次，同时更新所有已选项目的保养周期，并保留可选自定义项目。
+- 驾驶足迹，以及加油、保养、日常花费记录列表新增月份隔断；记账隔断同时显示当月笔数和小计。
+
+### 2026-09-28 — App 3.6.1 日常花费分类调整
+
+- 日常花费新增“证件手续”分类，并赋予独立图标与配色。
+- “车辆配件”更名为“配件用品”，已有记录原地迁移，金额、日期和详细内容均保持不变。
+
+### 2026-09-28 — App 3.6.0 保养周期与日常花费分类可视化
+
+- 将单一保养提醒升级为按 BRZ 手册分项目跟踪机油/机滤、轮胎、空调滤芯、底盘检查、变速箱油、空气滤芯、制动液、皮带、后差速器油、火花塞和冷却液。
+- 每项按日期和里程独立计算正常、即将到期与超期状态，支持手册中的严苛工况周期；新增标准项目选择，同时兼容并识别旧自由文本记录。
+- 日常花费新增年度六小类环形构成图，并逐类展示金额、笔数、占比与进度。
+
+### 2026-09-27 — App 3.5.5 拆分弹窗操作修复
+
+- 将手动拆分表单限制在可滚动区域内，并在底部固定显示“取消”和“确定拆分”，修复部分手机上表单过高导致确定按钮被挤出屏幕的问题。
+
+### 2026-09-27 — App 3.5.4 / 固件 3.2.17 行程边界修复
+
+- 仪表不再仅因连续两段行程都未获得可靠手机时间就将它们合并；无法证明间隔小于 15 分钟时，会保留为两条独立记录。
+- 行程详情新增事务式“手动拆分”。用户输入第一段的里程、时长、燃油和两段起止时间，第二段严格使用原行程剩余值，保证拆分前后总量不变。
+- 合并的原记录会替换为本地 `A` / `B` 子行程，并留下持久删除标记，避免后续同步恢复错误原记录；无法可靠分摊的速度、转速及加减速极值保持为空。
+
+### 2026-09-26 — App 3.5.3 适合公开分发的隐私安装包
+
+- 从可分发 APK 中移除车主个人账目、内置种子数据和自动导入入口。
+- 支出数据库结构保持不变，不执行删除、清空或重建，因此覆盖安装会保留手机本地已有的全部记账数据。
+- 其他用户全新安装后从空白记账数据开始，同时保留 3.5.2 的固定分类和新版界面。
+
+### 2026-09-26 — App 3.5.2 驾驶与记账细节优化
+
+- 驾驶足迹新增全部行程的总平均油耗；行程详情的日期、时间分行显示，并暂时隐藏最大加速与最大减速。
+- 驾驶日历色阶图例精简为首尾 `0km`、`100km+`。
+- 日常花费不再自由填写分类，改为停车、通行、车辆洗护、车辆配件、保险、其他六个选项；每类使用独立图标，记录左侧显示日期，“备注”更名为“详细”。
+- 3.5.1 导入的 99 笔非加油支出会原地迁移；所有加油记录保持不变。
+
+### 2026-09-26 — App 3.5.1 车主其他支出迁移
+
+- 不增加通用批量导入入口，只把车主提供的 99 笔非加油、非购车支出写入 App 本地数据库。
+- 所有现有加油记录和购车款完全保持原样。
+- 其他支出按当前绑定车辆写入，以日期、项目和金额去重，覆盖升级或重复启动不会产生完全相同的记录。
+
+### 2026-09-26 — App 3.5.0 行程记录完整视觉重做
+
+- 历史行程从旧式三行文字列表改为与记账记录一致的日期徽章、状态胶囊、整行可点击卡片和三列指标面板。
+- 修订模式使用紧凑的胶囊操作，并在每条记录上直接区分已同步、已修订、测试数据、时间未知和待核实状态。
+- 行程详情改为主题色里程主卡、双列数据卡和统一主操作按钮，不再沿用纯文字指标与系统默认按钮。
+
+### 2026-09-26 — App 3.4.1 更新下载容错
+
+- 检查版本和下载 APK 均优先使用 GitHub 官方，官方连接失败后自动切换国内镜像。
+- 新增轻量镜像更新清单，`api.github.com` 无法访问时仍可取得最新版本信息。
+- 无论来自官方还是镜像，安装前都校验 Release SHA-256、包名、递增版本号和 BRZ Garage 固定签名。
 
 ### 2026-09-26 — App 3.4.0 驾驶足迹视觉与里程口径升级
 

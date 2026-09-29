@@ -56,9 +56,9 @@ class LicensePlateAssetTests(unittest.TestCase):
         self.assertNotIn('Typeface.create("sans-serif-condensed"', source)
         self.assertNotIn("BitmapFactory", source)
 
-    def test_vector_paths_are_rasterized_at_four_pixels_per_mm(self):
+    def test_vector_paths_are_rasterized_at_six_pixels_per_mm(self):
         source = ARTWORK_SOURCE.read_text(encoding="utf-8")
-        self.assertIn("Bitmap.createBitmap(1760, 560", source)
+        self.assertIn("Bitmap.createBitmap(2640, 840", source)
         self.assertIn("bitmap.setHasMipMap(true)", source)
         self.assertIn("bitmap.prepareToDraw()", source)
         self.assertIn("Paint(Paint.ANTI_ALIAS_FLAG)", source)

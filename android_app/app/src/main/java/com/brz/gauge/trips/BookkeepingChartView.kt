@@ -30,10 +30,9 @@ class BookkeepingChartView(context: Context) : View(context) {
 
     fun submit(items: List<MonthlyExpenseSummary>) {
         values = items
-        val latest = items.lastOrNull()
         contentDescription = buildString {
             append("最近 ${items.size} 个月用车开销堆叠柱状图")
-            latest?.let { append("，${it.month.monthValue} 月合计 %.2f 元".format(it.total)) }
+            items.forEach { append("，${it.month.year} 年 ${it.month.monthValue} 月 %.2f 元".format(it.total)) }
         }
         invalidate()
     }
@@ -87,23 +86,25 @@ class BookkeepingChartView(context: Context) : View(context) {
                     dp(4f), dp(4f), paint)
                 bottom -= barHeight
             }
-            if (item.total > 0.0 && index == values.lastIndex) {
-                valueText.color = Color.rgb(79, 86, 100)
-                val compact = when {
-                    item.total >= 10000.0 -> "%.1fw".format(item.total / 10000.0)
-                    item.total >= 1000.0 -> "%.1fk".format(item.total / 1000.0)
-                    else -> "%.0f".format(item.total)
-                }
-                canvas.drawText(compact, left + barWidth / 2f,
-                    (bottom - dp(6f)).coerceAtLeast(dp(10f)), valueText)
+            valueText.color = when {
+                index == values.lastIndex -> Color.rgb(86, 92, 169)
+                item.total <= 0.0 -> Color.rgb(154, 161, 173)
+                else -> Color.rgb(79, 86, 100)
             }
-            if (index % 2 == 0 || index == values.lastIndex) {
-                monthText.color = if (index == values.lastIndex) Color.rgb(86, 92, 169)
-                    else Color.rgb(109, 119, 132)
-                monthText.isFakeBoldText = index == values.lastIndex
-                canvas.drawText("${item.month.monthValue}月", index * slot + slot / 2f,
-                    height - dp(9f), monthText)
+            valueText.textSize = dp(8f)
+            val compact = when {
+                item.total >= 10000.0 -> "%.1fw".format(item.total / 10000.0)
+                item.total >= 1000.0 -> "%.1fk".format(item.total / 1000.0)
+                else -> "%.0f".format(item.total)
             }
+            canvas.drawText(compact, left + barWidth / 2f,
+                (bottom - dp(6f)).coerceAtLeast(dp(9f)), valueText)
+
+            monthText.color = if (index == values.lastIndex) Color.rgb(86, 92, 169)
+                else Color.rgb(109, 119, 132)
+            monthText.isFakeBoldText = index == values.lastIndex
+            canvas.drawText("${item.month.monthValue}月", index * slot + slot / 2f,
+                height - dp(9f), monthText)
         }
     }
 }

@@ -388,6 +388,18 @@ static void fuel_finish_pending_trip(void)
     fuel_clear_pending();
 }
 
+static void fuel_move_active_to_pending(void)
+{
+    s_fuel.pending_duration_ms = s_fuel.active_duration_ms;
+    s_fuel.pending_distance_mm = s_fuel.active_distance_mm;
+    s_fuel.pending_fuel_ul = s_fuel.active_fuel_ul;
+    s_fuel.pending_last_epoch_s = s_fuel.active_last_epoch_s;
+    s_fuel.pending_start_epoch_s = s_fuel.active_start_epoch_s;
+    s_fuel.pending_detail = s_fuel.active_detail;
+    s_fuel.pending_valid = 1;
+    fuel_clear_active();
+}
+
 /* At boot there is no trustworthy clock yet. Keep the just-ended active
    accumulator in a separate persisted slot, while new OBD samples start a
    fresh active accumulator. Phone time later decides whether to merge them. */
@@ -397,38 +409,32 @@ static void fuel_prepare_pending_at_boot(void)
                            s_fuel.active_distance_mm ||
                            s_fuel.active_fuel_ul;
     if (s_fuel.pending_valid) {
-        /* Opening the native USB serial port and other harmless resets can
-           reboot the ESP32 before the phone has resolved the previous boot's
-           pending trip. Never finalize that pending trip merely because a
-           second boot occurred. If the intervening boot collected data, fold
-           it into the retained accumulator; phone time will still make the
-           actual merge/split decision. This is boot-only arithmetic and does
-           not add tasks, allocations or flash writes. */
         if (active_has_data) {
-            s_fuel.pending_duration_ms += s_fuel.active_duration_ms;
-            s_fuel.pending_distance_mm += s_fuel.active_distance_mm;
-            s_fuel.pending_fuel_ul += s_fuel.active_fuel_ul;
-            trip_detail_merge(&s_fuel.pending_detail, &s_fuel.active_detail);
-            if (s_fuel.pending_start_epoch_s < 1704067200ULL &&
-                s_fuel.active_start_epoch_s >= 1704067200ULL) {
-                s_fuel.pending_start_epoch_s = s_fuel.active_start_epoch_s;
-            }
-            if (s_fuel.active_last_epoch_s >= 1704067200ULL) {
+            /* Never destroy an unresolved power-cycle boundary.  Merge only
+             * when both persisted boundaries prove that the gap was within
+             * the configured window.  With missing phone time there is no
+             * trustworthy way to distinguish a quick reboot from a later
+             * drive, so preserve two unknown-time records instead. */
+            bool can_merge = trip_time_gap_within(
+                s_fuel.pending_last_epoch_s,
+                s_fuel.active_start_epoch_s,
+                s_cfg.trip_merge_timeout_min);
+            if (can_merge) {
+                s_fuel.pending_duration_ms += s_fuel.active_duration_ms;
+                s_fuel.pending_distance_mm += s_fuel.active_distance_mm;
+                s_fuel.pending_fuel_ul += s_fuel.active_fuel_ul;
+                trip_detail_merge(&s_fuel.pending_detail, &s_fuel.active_detail);
                 s_fuel.pending_last_epoch_s = s_fuel.active_last_epoch_s;
+                fuel_clear_active();
+            } else {
+                fuel_finish_pending_trip();
+                fuel_move_active_to_pending();
             }
-            fuel_clear_active();
         }
         return;
     }
     if (active_has_data) {
-        s_fuel.pending_duration_ms = s_fuel.active_duration_ms;
-        s_fuel.pending_distance_mm = s_fuel.active_distance_mm;
-        s_fuel.pending_fuel_ul = s_fuel.active_fuel_ul;
-        s_fuel.pending_last_epoch_s = s_fuel.active_last_epoch_s;
-        s_fuel.pending_start_epoch_s = s_fuel.active_start_epoch_s;
-        s_fuel.pending_detail = s_fuel.active_detail;
-        s_fuel.pending_valid = 1;
-        fuel_clear_active();
+        fuel_move_active_to_pending();
     }
 }
 

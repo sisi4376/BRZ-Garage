@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.*
 import android.provider.Settings
@@ -72,6 +73,7 @@ class MainActivity : Activity() {
     private var customTripLoading = false
     private var tab = 0
     private var accountingSection = 0
+    private var settingsSection = 0
     private var calendarYear = LocalDate.now().year
     private var bindAfterPermission = false
     private var updateAfterWifiPermission = false
@@ -112,6 +114,7 @@ class MainActivity : Activity() {
     private val accent = Color.rgb(220, 49, 86)
     private val pageColor = Color.rgb(244, 245, 247)
     private val lowFuelYellow = Color.rgb(255, 209, 102)
+    private val showTripAccelerationDetails = false
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val updated = intent?.getBooleanExtra(TripSyncService.EXTRA_UPDATED, false) == true
@@ -618,6 +621,9 @@ class MainActivity : Activity() {
         val totalDistance = vehicleTrips.sumOf { it.distanceM }
         val totalDuration = vehicleTrips.sumOf { it.durationS }
         val totalFuel = vehicleTrips.sumOf { it.fuelMl }
+        val totalAverageFuel = totalDistance.takeIf { it > 0L }?.let {
+            totalFuel.toDouble() / it * 100.0
+        }
         val activeDays = vehicleTrips.filter { it.hasValidTime }.map {
             Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
         }.distinct().size
@@ -628,16 +634,12 @@ class MainActivity : Activity() {
         addMetricPair(totalCard,
             bookkeepingMetric("行程记录", "${vehicleTrips.size} 次", ink),
             bookkeepingMetric("驾驶时长", durationDetailed(totalDuration), ink))
-        val averageTrip = column().apply {
-            background = rounded(soften(bookkeepingFuel), 15)
-            setPadding(dp(15), dp(13), dp(15), dp(13))
-        }
-        add(averageTrip, label("平均每次行程", 11f, bookkeepingFuel, true))
-        add(averageTrip, label(if (vehicleTrips.isEmpty()) "等待行程记录" else
-            fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), 22f,
-            if (vehicleTrips.isEmpty()) muted else bookkeepingFuel, true), 4)
-        add(averageTrip, label("累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}", 10f, muted), 3)
-        add(totalCard, averageTrip, 10)
+        addMetricPair(totalCard,
+            bookkeepingMetric("平均每次行程", if (vehicleTrips.isEmpty()) "—" else
+                fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), bookkeepingFuel),
+            bookkeepingMetric("总平均油耗", totalAverageFuel?.let {
+                fmt("%.1f L/100km", it)
+            } ?: "—", bookkeepingFuel, "累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}"), 10)
 
         val dayActivities = vehicleTrips.filter { it.hasValidTime }.groupBy {
             Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -648,7 +650,6 @@ class MainActivity : Activity() {
         val years = dayActivities.map { it.date.year }.distinct().sorted()
         if (years.isNotEmpty() && calendarYear !in years) calendarYear = years.last()
         val calendarCard = card(body, "驾驶日历")
-        add(calendarCard, label("按当天累计里程着色 · 100 km 及以上为最高强度", 11f, muted), 5)
         val yearControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -688,23 +689,18 @@ class MainActivity : Activity() {
         val calendarLegend = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL or Gravity.END
-            contentDescription = "每日里程颜色图例，从无记录到一百公里及以上"
+            contentDescription = "每日里程颜色图例，从零公里到一百公里以上"
         }
-        calendarLegend.addView(label("无", 11f, muted))
+        calendarLegend.addView(label("0km", 11f, muted))
         calendarLegend.addView(View(this).apply { background = rounded(DrivingCalendarView.EMPTY_COLOR, 3) },
             LinearLayout.LayoutParams(dp(13), dp(13)).apply { leftMargin = dp(5) })
-        calendarLegend.addView(label("少", 11f, muted),
-            LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(7) })
         DrivingCalendarView.ACTIVITY_COLORS.forEach { color ->
             calendarLegend.addView(View(this).apply { background = rounded(color, 3) },
-                LinearLayout.LayoutParams(dp(13), dp(13)).apply { leftMargin = dp(5) })
+            LinearLayout.LayoutParams(dp(13), dp(13)).apply { leftMargin = dp(5) })
         }
-        calendarLegend.addView(label("100 km+", 11f, bookkeepingFuel, true),
+        calendarLegend.addView(label("100km+", 11f, bookkeepingFuel, true),
             LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
         add(calendarCard, calendarLegend, 8)
-        add(calendarCard, label("色阶：低于 25 · 25–49 · 50–99 · 100+ km", 10f, muted).apply {
-            gravity = Gravity.END
-        }, 4)
         add(calendarCard, selectedDay, 6)
         add(calendarCard, label("仅使用具有可靠开始时间的行程；时间未知的旧记录仍计入上方总览。", 11f, muted), 6)
 
@@ -766,49 +762,83 @@ class MainActivity : Activity() {
 
         val subtitle = if (current) "正在进行 · 数据来自仪表实时快照" else if (trip.hasValidTime) {
             val start = Instant.ofEpochSecond(trip.startEpochS).atZone(ZoneId.systemDefault())
-            start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " · #${trip.tripId}"
-        } else "时间未知 · #${trip.tripId}"
+            start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " · #${trip.displayId}"
+        } else "时间未知 · #${trip.displayId}"
         val body = page("行程详情", subtitle)
-        add(body, button(if (current) "‹ 返回首页" else "‹ 返回驾驶足迹") {
+        add(body, primaryBookkeepingAction(if (current) "‹  返回首页" else "‹  返回驾驶足迹",
+            bookkeepingFuel) {
             showTab(if (current) 0 else 1)
         }, 18)
-        if (!current) add(body, button("修订测试数据") { reviseTripData(trip) }, 8)
+        if (!current) add(body, primaryBookkeepingAction("修订这条测试数据", bookkeepingMaintenance) {
+            reviseTripData(trip)
+        }, 8)
+        if (!current && !trip.isLocalSplit) add(body,
+            primaryBookkeepingAction("手动拆分这条行程", bookkeepingFuel) {
+                splitTripRecord(trip)
+            }, 8)
         if (!current && trip.dataRevised) {
-            add(body, label("此行程的数值已作为测试数据手动修订；不会写回仪表。", 12f, accent, true), 10)
+            val revisionText = if (trip.isLocalSplit)
+                "由行程 #${trip.splitParentId} 手动拆分 · 不会写回仪表"
+            else "测试数据已手动修订 · 不会写回仪表"
+            add(body, label(revisionText, 11f, bookkeepingMaintenance, true).apply {
+                gravity = Gravity.CENTER
+                background = rounded(soften(bookkeepingMaintenance), 13)
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+            }, 10)
         }
 
         val overview = card(body, "行程概览")
-        add(overview, label(fmt("%.1f km", trip.distanceM / 1000.0), 32f, ink, true), 10)
-        add(overview, label(
-            "驾驶时长 ${durationDetailed(trip.durationS)}\n" +
-                "平均时速 ${trip.averageSpeedKmh?.let { fmt("%.1f km/h", it) } ?: "—"}",
-            15f, muted), 8)
+        val distanceHero = column().apply {
+            background = rounded(soften(bookkeepingFuel), 17)
+            setPadding(dp(16), dp(15), dp(16), dp(15))
+        }
+        add(distanceHero, label("本次行程", 11f, bookkeepingFuel, true))
+        add(distanceHero, label(fmt("%.1f km", trip.distanceM / 1000.0), 30f,
+            bookkeepingFuel, true), 4)
+        add(distanceHero, label("消耗 ${fmt("%.2f L", trip.fuelMl / 1000.0)} 燃油", 11f, muted), 3)
+        add(overview, distanceHero, 10)
+        addMetricPair(overview,
+            tripDetailMetric("驾驶时长", durationDetailed(trip.durationS)),
+            tripDetailMetric("平均时速", trip.averageSpeedKmh?.let { fmt("%.1f km/h", it) }), 10)
 
         val performance = card(body, "速度与转速")
-        add(performance, detailMetric("最高速度", trip.maxSpeedKmh?.let { "$it km/h" }), 10)
-        add(performance, detailMetric("最高转速", trip.maxRpm?.let { "$it rpm" }), 8)
+        addMetricPair(performance,
+            tripDetailMetric("最高速度", trip.maxSpeedKmh?.let { "$it km/h" }, bookkeepingFuel),
+            tripDetailMetric("最高转速", trip.maxRpm?.let { "$it rpm" }), 10)
         add(performance, label(
             if (trip.hasDrivingDetails) "极值由仪表在行程中实时统计。"
             else "该行程来自旧版记录，仪表当时尚未采集速度与转速极值。",
             11f, muted), 10)
 
-        val acceleration = card(body, "纵向加速度")
-        add(acceleration, detailMetric("最大加速", trip.maxAccelX100?.let { fmt("%+.2f m/s²", it / 100.0) }), 10)
-        add(acceleration, detailMetric("最大减速", trip.maxDecelX100?.let { fmt("%+.2f m/s²", it / 100.0) }), 8)
-        add(acceleration, label(
-            "根据 OBD 车速变化和采样间隔估算，并过滤超过约 3 g 的异常跳变；仅供驾驶回顾，不作为专业性能或事故分析数据。",
-            11f, muted), 10)
+        if (showTripAccelerationDetails) {
+            val acceleration = card(body, "纵向加速度")
+            addMetricPair(acceleration,
+                tripDetailMetric("最大加速", trip.maxAccelX100?.let { fmt("%+.2f m/s²", it / 100.0) },
+                    bookkeepingFuel),
+                tripDetailMetric("最大减速", trip.maxDecelX100?.let { fmt("%+.2f m/s²", it / 100.0) },
+                    bookkeepingMaintenance), 10)
+            add(acceleration, label(
+                "根据 OBD 车速变化和采样间隔估算，并过滤超过约 3 g 的异常跳变；仅供驾驶回顾，不作为专业性能或事故分析数据。",
+                11f, muted), 10)
+        }
 
         val fuel = card(body, "燃油表现")
-        add(fuel, detailMetric("平均油耗", fmt("%.1f L/100km", trip.avgL100X100 / 100.0)), 10)
-        add(fuel, detailMetric("消耗燃油", fmt("%.2f L", trip.fuelMl / 1000.0)), 8)
+        addMetricPair(fuel,
+            tripDetailMetric("平均油耗", fmt("%.1f L/100km", trip.avgL100X100 / 100.0),
+                bookkeepingFuel),
+            tripDetailMetric("消耗燃油", fmt("%.2f L", trip.fuelMl / 1000.0)), 10)
 
         val timing = card(body, "时间记录")
         if (trip.hasValidTime) {
             val zone = ZoneId.systemDefault()
-            val format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            add(timing, detailMetric("开始", format.format(Instant.ofEpochSecond(trip.startEpochS).atZone(zone))), 10)
-            add(timing, detailMetric("结束", format.format(Instant.ofEpochSecond(trip.endEpochS).atZone(zone))), 8)
+            val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
+            fun detailedTime(epochS: Long): String {
+                val value = Instant.ofEpochSecond(epochS).atZone(zone)
+                return "${dateFormat.format(value)}\n${timeFormat.format(value)}"
+            }
+            add(timing, tripDetailMetric("开始", detailedTime(trip.startEpochS)), 10)
+            add(timing, tripDetailMetric("结束", detailedTime(trip.endEpochS)), 8)
             if (current) add(timing, label("本次行程结束后，最终记录会同步到驾驶足迹。", 11f, muted), 8)
             else if (trip.timeRevised) add(timing, label("时间由用户手动修订", 11f, accent, true), 8)
             else if (trip.timeInconsistent) add(timing, label("时间跨度与驾驶时长不一致，请核实", 11f, accent, true), 8)
@@ -817,8 +847,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun detailMetric(name: String, value: String?): TextView =
-        label("$name\n${value ?: "旧记录未采集"}", 16f, if (value == null) muted else ink, value != null)
+    private fun tripDetailMetric(name: String, value: String?, color: Int = ink): LinearLayout =
+        bookkeepingMetric(name, value ?: "旧记录未采集", if (value == null) muted else color)
 
     private fun showCustomTripDetails() {
         rememberCurrentScroll()
@@ -1250,8 +1280,189 @@ class MainActivity : Activity() {
         actions.addView(saveButton, LinearLayout.LayoutParams(0, -2, 1f))
         add(content, actions, 8)
         dialog = AlertDialog.Builder(this)
-            .setTitle("修订行程 #${trip.tripId} 测试数据")
+            .setTitle("修订行程 #${trip.displayId} 测试数据")
             .setMessage("仅修改手机本地副本，不写回仪表。相同行程再次同步时仍保留修订值。时间请使用行程列表的“修订”模式修改。")
+            .setView(content)
+            .create()
+        dialog.show()
+    }
+
+    private fun splitTripRecord(trip: TripRecord) {
+        if (trip.tripId <= 0L || trip.durationS < 2L || trip.distanceM < 2L) {
+            toast("这条行程的数据不足以拆分")
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val initialEnd = if (trip.hasValidTime)
+            Instant.ofEpochSecond(trip.endEpochS).atZone(zone)
+        else Instant.now().atZone(zone)
+        val initialStart = if (trip.hasValidTime)
+            Instant.ofEpochSecond(trip.startEpochS).atZone(zone)
+        else initialEnd.minusSeconds(trip.durationS)
+        val initialBoundary = initialStart.plusSeconds(
+            ((initialEnd.toEpochSecond() - initialStart.toEpochSecond()) / 2L).coerceAtLeast(1L)
+        )
+        data class Selection(var date: LocalDate, var hour: Int, var minute: Int)
+        fun selection(value: java.time.ZonedDateTime) =
+            Selection(value.toLocalDate(), value.hour, value.minute)
+        val firstStart = selection(initialStart)
+        val firstEnd = selection(initialBoundary)
+        val secondStart = selection(initialBoundary)
+        val secondEnd = selection(initialEnd)
+        val editor = column().apply { setPadding(dp(20), dp(2), dp(20), dp(8)) }
+        add(editor, label(
+            "输入第一段的里程、驾驶时长和燃油，第二段会自动使用原行程的剩余值。两段时间可分别设置；原行程会由 #${trip.tripId}-A 和 #${trip.tripId}-B 取代。",
+            12f, muted), 8)
+
+        fun numberField(title: String, value: String): EditText {
+            add(editor, label(title, 12f, muted), 7)
+            return EditText(this).apply {
+                setText(value)
+                selectAll()
+                isSingleLine = true
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                editor.addView(this, LinearLayout.LayoutParams(-1, -2))
+            }
+        }
+        val firstDistance = numberField("第一段里程（km）", fmt("%.3f", trip.distanceM / 2000.0))
+        val firstDuration = numberField("第一段驾驶时长（秒）", (trip.durationS / 2L).toString())
+        val firstFuel = numberField("第一段消耗燃油（L）", fmt("%.3f", trip.fuelMl / 2000.0))
+
+        fun addDateTimeRows(prefix: String, value: Selection) {
+            val dateButton = Button(this).apply {
+                text = value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                isAllCaps = false
+                setOnClickListener {
+                    DatePickerDialog(this@MainActivity, { _, year, month, day ->
+                        value.date = LocalDate.of(year, month + 1, day)
+                        text = value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                    }, value.date.year, value.date.monthValue - 1, value.date.dayOfMonth).show()
+                }
+            }
+            val timeButton = Button(this).apply {
+                text = fmt("%02d:%02d", value.hour, value.minute)
+                isAllCaps = false
+                setOnClickListener {
+                    TimePickerDialog(this@MainActivity, { _, hour, minute ->
+                        value.hour = hour
+                        value.minute = minute
+                        text = fmt("%02d:%02d", hour, minute)
+                    }, value.hour, value.minute, true).show()
+                }
+            }
+            add(editor, LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(label("${prefix}日期", 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+                addView(dateButton, LinearLayout.LayoutParams(dp(150), -2))
+            }, 4)
+            add(editor, LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(label("${prefix}时间", 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+                addView(timeButton, LinearLayout.LayoutParams(dp(150), -2))
+            }, 4)
+        }
+        add(editor, label("第一段时间", 14f, ink, true), 16)
+        addDateTimeRows("开始", firstStart)
+        addDateTimeRows("结束", firstEnd)
+        add(editor, label("第二段时间", 14f, ink, true), 16)
+        addDateTimeRows("开始", secondStart)
+        addDateTimeRows("结束", secondEnd)
+
+        val scroller = ScrollView(this).apply { addView(editor) }
+        val content = column().apply { setPadding(dp(8), 0, dp(8), dp(8)) }
+        content.addView(scroller, LinearLayout.LayoutParams(-1,
+            minOf(dp(480), (resources.displayMetrics.heightPixels * 0.56f).toInt())))
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        lateinit var dialog: AlertDialog
+        actions.addView(button("取消") { dialog.dismiss() }, LinearLayout.LayoutParams(0, -2, 1f))
+        val confirmButton = button("确定拆分") {}
+        actions.addView(confirmButton, LinearLayout.LayoutParams(0, -2, 1f))
+        add(content, actions, 8)
+        confirmButton.setOnClickListener {
+                fun decimal(field: EditText) = field.text.toString().replace(',', '.').toDoubleOrNull()
+                fun epoch(value: Selection) = value.date.atTime(value.hour, value.minute)
+                    .atZone(zone).toEpochSecond()
+                val distanceKm = decimal(firstDistance)
+                val durationS = firstDuration.text.toString().toLongOrNull()
+                val fuelL = decimal(firstFuel)
+                val distanceM = distanceKm?.takeIf { it.isFinite() }?.let { (it * 1000.0).roundToLong() }
+                val fuelMl = fuelL?.takeIf { it.isFinite() }?.let { (it * 1000.0).roundToLong() }
+                if (distanceM == null || distanceM !in 1L until trip.distanceM ||
+                    durationS == null || durationS !in 1L until trip.durationS ||
+                    fuelMl == null || fuelMl !in 0L..trip.fuelMl) {
+                    toast("第一段数值必须小于原行程总值，时长和里程需大于 0")
+                    return@setOnClickListener
+                }
+                val firstStartS = epoch(firstStart)
+                val firstEndS = epoch(firstEnd)
+                val secondStartS = epoch(secondStart)
+                val secondEndS = epoch(secondEnd)
+                val secondDurationS = trip.durationS - durationS
+                if (firstStartS !in 1704067200L..4102444800L ||
+                    secondEndS !in 1704067200L..4102444800L ||
+                    firstEndS < firstStartS || secondStartS < firstEndS || secondEndS < secondStartS) {
+                    toast("请检查两段时间，时间不能倒序或重叠")
+                    return@setOnClickListener
+                }
+                if (firstEndS - firstStartS + 59L < durationS ||
+                    secondEndS - secondStartS + 59L < secondDurationS) {
+                    toast("每段起止时间跨度不能短于该段驾驶时长")
+                    return@setOnClickListener
+                }
+                val secondDistanceM = trip.distanceM - distanceM
+                val secondFuelMl = trip.fuelMl - fuelMl
+                fun average(distance: Long, fuel: Long): Int = if (distance > 0L)
+                    (fuel.toDouble() / distance * 10_000.0).roundToInt().coerceIn(0, 10_000) else 0
+                val first = trip.copy(
+                    tripId = TripRecord.localSplitId(trip.tripId, 1),
+                    startEpochS = firstStartS, endEpochS = firstEndS,
+                    durationS = durationS, distanceM = distanceM, fuelMl = fuelMl,
+                    avgL100X100 = average(distanceM, fuelMl), flags = trip.flags or 1,
+                    timeRevised = true, dataRevised = true,
+                    maxSpeedKmh = null, maxRpm = null, maxAccelX100 = null, maxDecelX100 = null,
+                )
+                val second = trip.copy(
+                    tripId = TripRecord.localSplitId(trip.tripId, 2),
+                    startEpochS = secondStartS, endEpochS = secondEndS,
+                    durationS = secondDurationS, distanceM = secondDistanceM, fuelMl = secondFuelMl,
+                    avgL100X100 = average(secondDistanceM, secondFuelMl), flags = trip.flags or 1,
+                    timeRevised = true, dataRevised = true,
+                    maxSpeedKmh = null, maxRpm = null, maxAccelX100 = null, maxDecelX100 = null,
+                )
+                val preview = "#${trip.tripId}-A：${fmt("%.3f km", distanceM / 1000.0)} · ${durationDetailed(durationS)} · ${fmt("%.3f L", fuelMl / 1000.0)}\n" +
+                    "#${trip.tripId}-B：${fmt("%.3f km", secondDistanceM / 1000.0)} · ${durationDetailed(secondDurationS)} · ${fmt("%.3f L", secondFuelMl / 1000.0)}\n\n" +
+                    "两段合计与原行程完全一致。拆分后不能自动还原，请确认。"
+                AlertDialog.Builder(this)
+                    .setTitle("确认拆分行程 #${trip.tripId}")
+                    .setMessage(preview)
+                    .setNegativeButton("返回修改", null)
+                    .setPositiveButton("确认拆分") { _, _ ->
+                        io.execute {
+                            val saved = try { database.splitTrip(trip, first, second) }
+                            catch (_: RuntimeException) { false }
+                            runOnUiThread {
+                                if (!isDestroyed) {
+                                    if (saved) {
+                                        dialog.dismiss()
+                                        toast("行程 #${trip.tripId} 已拆分为 A、B 两段")
+                                        showingTripDetail = false
+                                        showTab(1)
+                                        loadTrips()
+                                    } else toast("拆分失败，请重试")
+                                }
+                            }
+                        }
+                    }
+                    .show()
+        }
+        dialog = AlertDialog.Builder(this)
+            .setTitle("拆分行程 #${trip.displayId}")
+            .setMessage("速度、转速和加减速极值无法从合并数据中可靠分摊，拆分后将留空。")
             .setView(content)
             .create()
         dialog.show()
@@ -1309,7 +1520,7 @@ class MainActivity : Activity() {
         addDateTimeRows("开始", startSelection)
         addDateTimeRows("结束", endSelection)
         val dialog = AlertDialog.Builder(this)
-            .setTitle("修订行程 #${trip.tripId} 时间")
+            .setTitle("修订行程 #${trip.displayId} 时间")
             .setView(editor)
             .setNegativeButton("取消", null)
             .setPositiveButton("保存", null)
@@ -1351,7 +1562,7 @@ class MainActivity : Activity() {
 
     private fun confirmDeleteTrip(trip: TripRecord) {
         AlertDialog.Builder(this)
-            .setTitle("删除行程 #${trip.tripId}？")
+            .setTitle("删除行程 #${trip.displayId}？")
             .setMessage("该行程会从手机历史中永久删除，仪表中的其他行程不受影响。")
             .setNegativeButton("取消", null)
             .setPositiveButton("删除") { _, _ ->
@@ -1443,6 +1654,17 @@ class MainActivity : Activity() {
         else -> bookkeepingStats
     }
 
+    private fun dailyExpenseColor(kind: DailyExpenseKind): Int = when (kind) {
+        DailyExpenseKind.PARKING -> Color.rgb(66, 109, 190)
+        DailyExpenseKind.TOLL -> Color.rgb(46, 142, 119)
+        DailyExpenseKind.CARE -> Color.rgb(35, 145, 170)
+        DailyExpenseKind.REPAIR -> Color.rgb(202, 72, 78)
+        DailyExpenseKind.ACCESSORY -> Color.rgb(222, 122, 50)
+        DailyExpenseKind.INSURANCE -> Color.rgb(139, 88, 176)
+        DailyExpenseKind.PAPERWORK -> Color.rgb(184, 91, 102)
+        DailyExpenseKind.OTHER -> Color.rgb(105, 115, 130)
+    }
+
     private fun soften(color: Int, whiteRatio: Float = .88f): Int {
         fun channel(value: Int) = (value + (255 - value) * whiteRatio).roundToInt().coerceIn(0, 255)
         return Color.rgb(channel(Color.red(color)), channel(Color.green(color)), channel(Color.blue(color)))
@@ -1488,6 +1710,30 @@ class MainActivity : Activity() {
         add(empty, label(title, 15f, ink, true).apply { gravity = Gravity.CENTER }, 8)
         add(empty, label(detail, 11f, muted).apply { gravity = Gravity.CENTER }, 5)
         add(parent, empty, 5)
+    }
+
+    private fun bookkeepingMonthDivider(
+        parent: LinearLayout,
+        month: YearMonth,
+        count: Int,
+        amount: Double,
+        color: Int,
+        first: Boolean,
+    ) {
+        val divider = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(6), dp(2), dp(3))
+        }
+        divider.addView(label("${month.year}年${month.monthValue}月", 13f, color, true))
+        divider.addView(View(this).apply {
+            background = rounded(Color.rgb(224, 228, 235), 1)
+        }, LinearLayout.LayoutParams(0, dp(1), 1f).apply {
+            marginStart = dp(10)
+            marginEnd = dp(10)
+        })
+        divider.addView(label("$count 笔  ·  ${fmt("¥%.2f", amount)}", 10f, muted, true))
+        add(parent, divider, if (first) 9 else 17)
     }
 
     private fun bookkeeping() {
@@ -1619,8 +1865,19 @@ class MainActivity : Activity() {
         if (!fuelLoaded || fuelLoading) add(listCard, label("正在读取…", 14f, muted), 12)
         else if (fuelRecords.isEmpty()) bookkeepingEmpty(listCard, "还没有加油记录",
             "点击上方按钮，录入第一次加油")
-        else fuelRecords.forEach { record ->
+        else fuelRecords.forEachIndexed { index, record ->
             val date = LocalDate.ofEpochDay(record.dateEpochDay)
+            val month = YearMonth.from(date)
+            val previousMonth = fuelRecords.getOrNull(index - 1)?.let {
+                YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay))
+            }
+            if (month != previousMonth) {
+                val monthGroup = fuelRecords.filter {
+                    YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month
+                }
+                bookkeepingMonthDivider(listCard, month, monthGroup.size,
+                    monthGroup.sumOf { it.cost }, bookkeepingFuel, index == 0)
+            }
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1675,57 +1932,144 @@ class MainActivity : Activity() {
             editExpenseRecord(null, ExpenseCategory.MAINTENANCE)
         }, 16)
         val maintenance = expenseRecords.filter { it.category == ExpenseCategory.MAINTENANCE }
-        val latest = maintenance.maxWithOrNull(compareBy<ExpenseRecord> { it.dateEpochDay }.thenBy { it.id })
-        val reminder = card(body, "保养计划")
-        val rule = label("5000 km / 6个月，以先到为准", 11f, bookkeepingMaintenance, true).apply {
-            gravity = Gravity.CENTER
-            background = rounded(soften(bookkeepingMaintenance), 12)
-            setPadding(dp(10), dp(7), dp(10), dp(7))
+        val year = LocalDate.now().year
+        val yearRecords = maintenance.filter { LocalDate.ofEpochDay(it.dateEpochDay).year == year }
+        val overview = card(body, "保养概览")
+        addMetricPair(overview,
+            bookkeepingMetric("$year 年保养花费", fmt("¥%.2f", yearRecords.sumOf { it.amount }),
+                bookkeepingMaintenance),
+            bookkeepingMetric("累计保养记录", "${maintenance.size} 笔", ink))
+
+        val currentKm = if (state.odometerDisplayEnabled)
+            currentMileageEstimate().distanceM / 1000.0 else null
+        val dueStates = calculateMaintenanceDueStates(maintenance, currentKm, LocalDate.now())
+        val overdue = dueStates.count { it.status == MaintenanceDueStatus.OVERDUE }
+        val dueSoon = dueStates.count { it.status == MaintenanceDueStatus.DUE_SOON }
+        val missingKm = dueStates.count { it.status == MaintenanceDueStatus.MISSING_ODOMETER }
+        val tracked = dueStates.count { it.lastRecord != null }
+        val initialPlans = dueStates.count { it.lastRecord == null && it.dueOdometerKm != null }
+        val schedule = card(body, "保养项目跟踪")
+        add(schedule, label(
+            when {
+                overdue > 0 -> "$overdue 项已到或超期，需要优先处理"
+                dueSoon > 0 -> "$dueSoon 项即将到期"
+                missingKm > 0 -> "已跟踪 $tracked 项，其中 $missingKm 项需要里程数据"
+                tracked > 0 && initialPlans > 0 -> "已跟踪 $tracked 项，其余按 0 km 计算首次阈值"
+                tracked > 0 -> "已跟踪 $tracked 项，目前均在周期内"
+                initialPlans > 0 -> "已按 0 km 起算全部项目的首次保养阈值"
+                else -> "选择标准项目记录后即可开始跟踪"
+            }, 18f, if (overdue > 0 || dueSoon > 0) bookkeepingMaintenance else ink, true), 11)
+        add(schedule, label(
+            "${state.selectedVehicleModel.name} · 养护维修表一般行驶条件 · 日期或里程先到为准",
+            11f, muted), 6)
+        if (!state.odometerDisplayEnabled) {
+            add(schedule, label("当前只按日期提醒；燃油添加剂、火花塞和轮胎换位只有里程周期，请在车辆设置中开启里程显示，并在记录中填写当时里程。",
+                11f, muted), 6)
         }
-        reminder.addView(rule, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(9) })
-        if (latest == null) {
-            add(reminder, label("从第一条保养记录开始", 20f, ink, true), 14)
-            add(reminder, label("添加一条保养记录并填写日期，即可开始 6 个月倒计时；开启里程统计并填写当时里程后，才会同时开始 5000 km 倒计时。", 12f, muted), 8)
-        } else {
-            val lastDate = LocalDate.ofEpochDay(latest.dateEpochDay)
-            val dueDate = lastDate.plusMonths(6)
-            val days = ChronoUnit.DAYS.between(LocalDate.now(), dueDate)
-            val dateMessage = when {
-                days < 0 -> "已超期 ${-days} 天"
-                days == 0L -> "今天到期"
-                else -> "剩余 $days 天"
-            }
-            val timeMetric = bookkeepingMetric("按日期", dateMessage,
-                if (days <= 30) bookkeepingMaintenance else ink,
-                "预计 ${dueDate}")
-            val baseline = latest.odometerKm
-            if (!state.odometerDisplayEnabled) {
-                addMetricPair(reminder, timeMetric, bookkeepingMetric("按里程", "尚未开启", muted,
-                    "请在车辆设置中开启"), 12)
-            } else if (baseline == null) {
-                addMetricPair(reminder, timeMetric, bookkeepingMetric("按里程", "等待基准", muted,
-                    "编辑记录并填写里程"), 12)
-            } else {
-                val currentKm = currentMileageEstimate().distanceM / 1000.0
-                val driven = (currentKm - baseline).coerceAtLeast(0.0)
-                val remaining = 5000.0 - driven
-                val distanceValue = if (remaining <= 0.0) "超出 ${fmt("%.0f km", -remaining)}"
-                    else "剩余 ${fmt("%.0f km", remaining)}"
-                addMetricPair(reminder, timeMetric, bookkeepingMetric("按里程", distanceValue,
-                    if (remaining <= 500.0) bookkeepingMaintenance else ink,
-                    "已行驶 ${fmt("%.0f km", driven)}"), 12)
-                add(reminder, ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-                    max = 5000
-                    progress = driven.roundToInt().coerceIn(0, 5000)
-                    progressTintList = android.content.res.ColorStateList.valueOf(bookkeepingMaintenance)
-                    progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(226, 231, 237))
-                }, 8)
-                add(reminder, label("上次 ${lastDate}  ·  ${fmt("%.1f km", baseline)}    当前 ${fmt("%.1f km", currentKm)}",
-                    11f, muted), 5)
-            }
-        }
+        dueStates.forEach { addMaintenanceDueRow(schedule, it) }
+        add(schedule, label(
+            "仅跟踪表中的更换、添加和轮胎换位项目，不要求记录检查项。未给出时间周期的项目仅按里程提醒；BRZ 使用正时链条，且本 App 面向 6MT，因此不显示正时皮带、自动变速箱与 CVT 项目。",
+            10f, muted), 12)
         val list = card(body, "保养历史")
         renderExpenseList(list, maintenance, "还没有保养记录")
+    }
+
+    private fun addMaintenanceDueRow(parent: LinearLayout, state: MaintenanceDueState) {
+        val initialFromZero = state.lastRecord == null && state.dueOdometerKm != null
+        val color = when (state.status) {
+            MaintenanceDueStatus.OVERDUE -> Color.rgb(198, 48, 75)
+            MaintenanceDueStatus.DUE_SOON -> Color.rgb(224, 132, 38)
+            MaintenanceDueStatus.MISSING_ODOMETER -> Color.rgb(224, 132, 38)
+            MaintenanceDueStatus.OK -> Color.rgb(43, 139, 111)
+            MaintenanceDueStatus.UNTRACKED -> Color.rgb(126, 134, 148)
+        }
+        val statusText = when {
+            initialFromZero && state.status == MaintenanceDueStatus.OVERDUE -> "首次已到"
+            initialFromZero && state.status == MaintenanceDueStatus.DUE_SOON -> "首次将到"
+            initialFromZero && state.status == MaintenanceDueStatus.OK -> "首次计划"
+            state.status == MaintenanceDueStatus.OVERDUE -> "已超期"
+            state.status == MaintenanceDueStatus.DUE_SOON -> "即将到期"
+            state.status == MaintenanceDueStatus.MISSING_ODOMETER -> "缺里程"
+            state.status == MaintenanceDueStatus.OK -> "正常"
+            else -> "未跟踪"
+        }
+        val item = column().apply {
+            background = rounded(Color.rgb(247, 248, 251), 15)
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+        }
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titles = column()
+        add(titles, label(state.kind.title, 14f, ink, true))
+        add(titles, label("${state.kind.action} · ${state.kind.intervalLabel()}", 10f, muted), 3)
+        heading.addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
+        heading.addView(label(statusText, 10f, color, true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(soften(color), 11)
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+        })
+        add(item, heading)
+        if (state.lastRecord == null) {
+            if (state.dueOdometerKm != null && state.kmRemaining != null) {
+                val timing = when {
+                    state.kmRemaining < 0.0 -> "已超过首次阈值 ${fmt("%.0f km", -state.kmRemaining)}"
+                    state.kmRemaining == 0.0 -> "已到首次保养阈值"
+                    else -> "距首次保养还剩 ${fmt("%.0f km", state.kmRemaining)}"
+                }
+                add(item, label(timing, 12f, color, true), 8)
+                add(item, label("从 0 km 起算 · 首次阈值 ${fmt("%.0f km", state.dueOdometerKm)}",
+                    10f, muted), 4)
+                val progress = ((state.dueOdometerKm - state.kmRemaining) /
+                    state.dueOdometerKm.coerceAtLeast(1.0)).coerceIn(0.0, 1.0)
+                add(item, ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 1000
+                    this.progress = (progress * 1000).roundToInt()
+                    progressTintList = android.content.res.ColorStateList.valueOf(color)
+                    progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(226, 231, 237))
+                }, 7)
+            } else {
+                add(item, label("开启里程显示后，将从 0 km 计算首次保养阈值", 11f, muted), 8)
+            }
+        } else {
+            val timing = buildList {
+                state.daysRemaining?.let {
+                    add(when {
+                        it < 0 -> "超期 ${-it} 天"
+                        it == 0L -> "今天到期"
+                        else -> "剩余 $it 天"
+                    })
+                }
+                state.kmRemaining?.let {
+                    add(if (it < 0.0) "超出 ${fmt("%.0f km", -it)}" else "剩余 ${fmt("%.0f km", it)}")
+                }
+            }.joinToString("  ·  ").ifBlank {
+                if (state.status == MaintenanceDueStatus.MISSING_ODOMETER) "已记录，需要补充当时里程" else "已记录"
+            }
+            add(item, label(timing, 12f, color, true), 8)
+            val lastDate = LocalDate.ofEpochDay(state.lastRecord.dateEpochDay)
+            val due = buildString {
+                append("上次 $lastDate")
+                state.lastRecord.odometerKm?.let { append(" · ${fmt("%.0f km", it)}") }
+                state.dueDate?.let { append("    预计 $it") }
+                state.dueOdometerKm?.let { append(" / ${fmt("%.0f km", it)}") }
+            }
+            add(item, label(due, 10f, muted), 4)
+            val totalDays = state.dueDate?.let { ChronoUnit.DAYS.between(lastDate, it).coerceAtLeast(1) }
+            val dateProgress = if (totalDays != null && state.daysRemaining != null)
+                ((totalDays - state.daysRemaining).toDouble() / totalDays).coerceIn(0.0, 1.0) else 0.0
+            val intervalKm = state.kind.intervalKm?.toDouble()
+            val kmProgress = if (state.kmRemaining != null && intervalKm != null)
+                ((intervalKm - state.kmRemaining) / intervalKm).coerceIn(0.0, 1.0) else 0.0
+            add(item, ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 1000
+                progress = (maxOf(dateProgress, kmProgress) * 1000).roundToInt()
+                progressTintList = android.content.res.ColorStateList.valueOf(color)
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(226, 231, 237))
+            }, 7)
+        }
+        add(parent, item, 9)
     }
 
     private fun renderDailyExpenseSection(body: LinearLayout) {
@@ -1738,11 +2082,49 @@ class MainActivity : Activity() {
             YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == currentMonth
         }
         val monthTotal = monthRecords.sumOf { it.amount }
+        val year = currentMonth.year
+        val yearRecords = daily.filter { LocalDate.ofEpochDay(it.dateEpochDay).year == year }
+        val yearTotal = yearRecords.sumOf { it.amount }
         val summary = card(body, "本月概览")
         addMetricPair(summary,
             bookkeepingMetric("本月日常花费", fmt("¥%.2f", monthTotal), bookkeepingDaily),
-            bookkeepingMetric("本月记录", "${monthRecords.size} 笔", ink))
-        add(summary, label("停车、洗车、保险、用品、路桥等均可记录，分类名称可以自由填写。", 12f, muted), 7)
+            bookkeepingMetric("$year 年日常花费", fmt("¥%.2f", yearTotal), ink,
+                "${yearRecords.size} 笔记录"))
+        add(summary, label("从停车、通行、车辆洗护、配件用品、保险、证件手续或其他中选择分类。", 12f, muted), 7)
+
+        val slices = DailyExpenseKind.entries.map { kind ->
+            DailyExpenseSlice(kind.title,
+                yearRecords.filter { DailyExpenseKind.fromTitle(it.title) == kind }.sumOf { it.amount },
+                dailyExpenseColor(kind))
+        }
+        val breakdown = card(body, "$year 年小类花费")
+        add(breakdown, DailyExpenseBreakdownView(this).apply { submit(slices) }, 6)
+        DailyExpenseKind.entries.forEachIndexed { index, kind ->
+            val records = yearRecords.filter { DailyExpenseKind.fromTitle(it.title) == kind }
+            val amount = records.sumOf { it.amount }
+            val percent = if (yearTotal > 0.0) amount / yearTotal else 0.0
+            val color = dailyExpenseColor(kind)
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            row.addView(ImageView(this).apply {
+                setImageResource(kind.iconRes)
+                imageTintList = android.content.res.ColorStateList.valueOf(color)
+                contentDescription = kind.title
+            }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(8) })
+            row.addView(label("${kind.title}  ·  ${records.size} 笔", 12f, ink, true),
+                LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(label("${fmt("¥%.2f", amount)}  ·  ${(percent * 100).roundToInt()}%",
+                12f, color, true))
+            add(breakdown, row, if (index == 0) 7 else 11)
+            add(breakdown, ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 1000
+                progress = (percent * 1000).roundToInt()
+                progressTintList = android.content.res.ColorStateList.valueOf(color)
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(232, 236, 241))
+            }, 3)
+        }
         val list = card(body, "最近记录")
         renderExpenseList(list, daily, "还没有日常花费记录")
     }
@@ -1756,10 +2138,26 @@ class MainActivity : Activity() {
             bookkeepingEmpty(parent, empty, "点击上方按钮添加第一条记录")
             return
         }
-        records.forEach { record ->
-            val color = if (record.category == ExpenseCategory.MAINTENANCE)
-                bookkeepingMaintenance else bookkeepingDaily
+        records.forEachIndexed { index, record ->
+            val kind = record.takeIf { it.category == ExpenseCategory.DAILY }
+                ?.let { DailyExpenseKind.fromTitle(it.title) }
+            val color = kind?.let(::dailyExpenseColor) ?: bookkeepingMaintenance
+            val iconRes = kind?.iconRes ?: R.drawable.ic_expense_accessory
             val date = LocalDate.ofEpochDay(record.dateEpochDay)
+            val month = YearMonth.from(date)
+            val previousMonth = records.getOrNull(index - 1)?.let {
+                YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay))
+            }
+            if (month != previousMonth) {
+                val monthGroup = records.filter {
+                    YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month
+                }
+                bookkeepingMonthDivider(parent, month, monthGroup.size,
+                    monthGroup.sumOf { it.amount },
+                    if (record.category == ExpenseCategory.DAILY) bookkeepingDaily
+                    else bookkeepingMaintenance,
+                    index == 0)
+            }
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -1769,19 +2167,39 @@ class MainActivity : Activity() {
                 isFocusable = true
                 setOnClickListener { editExpenseRecord(record, record.category) }
             }
-            val badge = label(if (record.category == ExpenseCategory.MAINTENANCE) "养" else "支",
-                17f, color, true).apply {
+            val dateBadge = column().apply {
                 gravity = Gravity.CENTER
-                background = rounded(soften(color), 14)
+                background = rounded(soften(color), 13)
+                setPadding(dp(8), dp(7), dp(8), dp(7))
             }
-            row.addView(badge, LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginEnd = dp(12) })
+            add(dateBadge, label("${date.monthValue}月", 10f, color, true).apply {
+                gravity = Gravity.CENTER
+            })
+            add(dateBadge, label(date.dayOfMonth.toString(), 19f, color, true).apply {
+                gravity = Gravity.CENTER
+            }, 1)
+            row.addView(dateBadge, LinearLayout.LayoutParams(dp(50), -2).apply { marginEnd = dp(12) })
             val details = column()
-            add(details, label(record.title, 14f, ink, true))
-            add(details, label(buildString {
-                append(date.format(DateTimeFormatter.ofPattern("yyyy.MM.dd")))
-                record.odometerKm?.let { append(fmt("  ·  %.1f km", it)) }
-                if (record.note.isNotBlank()) append("\n").append(record.note)
-            }, 11f, muted), 4)
+            val titleRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            titleRow.addView(ImageView(this).apply {
+                setImageResource(iconRes)
+                imageTintList = android.content.res.ColorStateList.valueOf(color)
+                contentDescription = record.title
+            }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(7) })
+            titleRow.addView(label(record.title, 14f, ink, true))
+            add(details, titleRow)
+            val detailText = buildString {
+                record.odometerKm?.let { append(fmt("%.1f km", it)) }
+                if (record.note.isNotBlank()) {
+                    if (isNotEmpty()) append("  ·  ")
+                    append(record.note)
+                }
+                if (isEmpty()) append(if (record.category == ExpenseCategory.DAILY) "未填写详细" else "未填写备注")
+            }
+            add(details, label(detailText, 11f, muted), 4)
             row.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
             val amount = column().apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
             add(amount, label(fmt("¥%.2f", record.amount), 15f, color, true).apply {
@@ -1793,10 +2211,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun monthlyExpenseSummaries(): List<MonthlyExpenseSummary> {
-        val now = YearMonth.now()
-        return (11 downTo 0).map { offset ->
-            val month = now.minusMonths(offset.toLong())
+    private fun expenseSummariesFor(months: List<YearMonth>): List<MonthlyExpenseSummary> =
+        months.map { month ->
             val fuel = fuelRecords.filter { it.cost > 0.0 && YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month }
                 .sumOf { it.cost }
             val monthExpenses = expenseRecords.filter {
@@ -1806,10 +2222,26 @@ class MainActivity : Activity() {
                 monthExpenses.filter { it.category == ExpenseCategory.MAINTENANCE }.sumOf { it.amount },
                 monthExpenses.filter { it.category == ExpenseCategory.DAILY }.sumOf { it.amount })
         }
+
+    private fun monthlyExpenseSummaries(): List<MonthlyExpenseSummary> {
+        val now = YearMonth.now()
+        return expenseSummariesFor((11 downTo 0).map { now.minusMonths(it.toLong()) })
+    }
+
+    private fun allMonthlyExpenseSummaries(): List<MonthlyExpenseSummary> {
+        val recordedMonths = buildList {
+            fuelRecords.forEach { add(YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay))) }
+            expenseRecords.forEach { add(YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay))) }
+        }
+        val first = recordedMonths.minOrNull() ?: return emptyList()
+        val last = maxOf(YearMonth.now(), recordedMonths.maxOrNull() ?: first)
+        val count = ChronoUnit.MONTHS.between(first, last).toInt().coerceAtLeast(0)
+        return expenseSummariesFor((0..count).map { first.plusMonths(it.toLong()) })
     }
 
     private fun renderExpenseStatistics(body: LinearLayout) {
         val months = monthlyExpenseSummaries()
+        val allMonths = allMonthlyExpenseSummaries()
         val current = months.lastOrNull() ?: MonthlyExpenseSummary(YearMonth.now(), 0.0, 0.0, 0.0)
         val year = YearMonth.now().year
         val annual = months.filter { it.month.year == year }
@@ -1869,6 +2301,48 @@ class MainActivity : Activity() {
         categoryRow("加油", annualFuel, bookkeepingFuel)
         categoryRow("保养", annualMaintenance, bookkeepingMaintenance)
         categoryRow("日常", annualDaily, bookkeepingDaily)
+
+        val monthlyDetails = card(body, "全部月度明细")
+        if (allMonths.isEmpty()) {
+            bookkeepingEmpty(monthlyDetails, "还没有记账记录", "添加记录后会从首个记账月份开始统计")
+        }
+        allMonths.asReversed().forEachIndexed { index, month ->
+            val item = column().apply {
+                background = rounded(if (index == 0) soften(bookkeepingStats)
+                    else Color.rgb(247, 248, 251), 15)
+                setPadding(dp(13), dp(12), dp(13), dp(12))
+            }
+            val heading = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            heading.addView(label("${month.month.year}年${month.month.monthValue}月", 14f,
+                if (index == 0) bookkeepingStats else ink, true),
+                LinearLayout.LayoutParams(0, -2, 1f))
+            heading.addView(label(fmt("合计  ¥%.2f", month.total), 14f,
+                if (index == 0) bookkeepingStats else ink, true))
+            add(item, heading)
+            val categories = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            listOf(
+                Triple("加油", month.fuel, bookkeepingFuel),
+                Triple("保养", month.maintenance, bookkeepingMaintenance),
+                Triple("日常", month.daily, bookkeepingDaily),
+            ).forEach { (title, amount, color) ->
+                val metric = column().apply {
+                    gravity = Gravity.CENTER
+                    add(this, label("● $title", 10f, color, true).apply { gravity = Gravity.CENTER })
+                    add(this, label(fmt("¥%.2f", amount), 12f, ink, true).apply {
+                        gravity = Gravity.CENTER
+                    }, 3)
+                }
+                categories.addView(metric, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            add(item, categories, 9)
+            add(monthlyDetails, item, if (index == 0) 10 else 8)
+        }
     }
 
     private fun editExpenseRecord(existing: ExpenseRecord?, category: ExpenseCategory) {
@@ -1891,16 +2365,99 @@ class MainActivity : Activity() {
                 form.addView(this, LinearLayout.LayoutParams(-1, -2))
             }
         }
-        val title = field(if (category == ExpenseCategory.MAINTENANCE) "保养项目" else "花费分类",
-            existing?.title ?: if (category == ExpenseCategory.MAINTENANCE) "常规保养" else "")
-        val amount = field("金额（元，可填 0）", existing?.let { fmt("%.2f", it.amount) } ?: "", true)
         val suggestedKm = if (category == ExpenseCategory.MAINTENANCE && state.odometerDisplayEnabled)
             currentMileageEstimate().distanceM / 1000.0 else null
         val odometer = if (category == ExpenseCategory.MAINTENANCE) field(
-            "当时车辆里程（km；里程提醒需要）",
+            "当时车辆里程（km；用于推荐项目和里程提醒）",
             existing?.odometerKm?.let { fmt("%.1f", it) } ?: suggestedKm?.let { fmt("%.1f", it) } ?: "", true
         ) else null
-        val note = field("备注（可选）", existing?.note ?: "")
+        val automaticMaintenanceKinds = if (category == ExpenseCategory.MAINTENANCE && existing == null) {
+            suggestedKm?.let(::recommendedMaintenanceKinds) ?: setOf(
+                MaintenanceServiceKind.ENGINE_OIL,
+                MaintenanceServiceKind.ENGINE_OIL_FILTER,
+                MaintenanceServiceKind.FUEL_ADDITIVE,
+            )
+        } else emptySet()
+        val selectedMaintenanceKinds = MaintenanceServiceKind.entries.map { kind ->
+            existing?.takeIf { category == ExpenseCategory.MAINTENANCE }?.let { kind.matches(it.title) }
+                ?: (kind in automaticMaintenanceKinds)
+        }.toBooleanArray()
+        val maintenanceSelector = if (category == ExpenseCategory.MAINTENANCE) {
+            add(form, label("保养项目（可多选）", 12f, muted, true), 10)
+            lateinit var selector: TextView
+            fun refreshSelector() {
+                val selected = MaintenanceServiceKind.entries.filterIndexed { index, _ ->
+                    selectedMaintenanceKinds[index]
+                }
+                selector.text = when {
+                    selected.isEmpty() -> "选择保养项目"
+                    selected.size <= 2 -> selected.joinToString("、") { it.title }
+                    else -> "${selected.take(2).joinToString("、") { it.title }} 等 ${selected.size} 项"
+                }
+            }
+            selector = button("") { }.apply {
+                setOnClickListener {
+                    val pending = selectedMaintenanceKinds.copyOf()
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("本次完成了哪些项目？")
+                        .setMultiChoiceItems(
+                            MaintenanceServiceKind.entries.map { "${it.action} · ${it.title}" }.toTypedArray(),
+                            pending,
+                        ) { _, which, checked -> pending[which] = checked }
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("完成") { _, _ ->
+                            pending.copyInto(selectedMaintenanceKinds)
+                            refreshSelector()
+                        }
+                        .show()
+                }
+                form.addView(this, LinearLayout.LayoutParams(-1, -2))
+            }
+            refreshSelector()
+            add(form, button("按填写里程推荐项目") {
+                val km = odometer?.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
+                if (km == null || !km.isFinite() || km < 0.0) {
+                    toast("请先填写有效的保养里程")
+                } else {
+                    val recommended = recommendedMaintenanceKinds(km)
+                    selectedMaintenanceKinds.fill(false)
+                    MaintenanceServiceKind.entries.forEachIndexed { index, kind ->
+                        selectedMaintenanceKinds[index] = kind in recommended
+                    }
+                    refreshSelector()
+                    toast("已按 ${fmt("%.0f km", km)} 推荐，可继续手动调整")
+                }
+            }, 5)
+            add(form, label("新记录会按当前里程自动推荐；修改里程后可重新推荐，再手动增删项目。一次保养只统计一笔金额。", 11f, muted), 5)
+            selector
+        } else null
+        val customMaintenanceValue = existing?.takeIf { category == ExpenseCategory.MAINTENANCE }
+            ?.title?.split("、")
+            ?.filter { title -> MaintenanceServiceKind.fromRecordTitle(title) == null }
+            ?.joinToString("、").orEmpty()
+        val customMaintenanceTitle = if (category == ExpenseCategory.MAINTENANCE) {
+            field("其他项目名称（可选）", customMaintenanceValue)
+        } else null
+        val existingDailyKind = existing?.takeIf { category == ExpenseCategory.DAILY }
+            ?.let { DailyExpenseKind.matchTitle(it.title) }
+        val categorySpinner = if (category == ExpenseCategory.DAILY) {
+            add(form, label("花费分类", 12f, muted, true), 10)
+            Spinner(this).apply {
+                adapter = ArrayAdapter(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_item,
+                    DailyExpenseKind.entries.map { it.title },
+                ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                setSelection((existingDailyKind ?: DailyExpenseKind.OTHER).ordinal)
+                form.addView(this, LinearLayout.LayoutParams(-1, dp(52)))
+            }
+        } else null
+        val amount = field("金额（元，可填 0）", existing?.let { fmt("%.2f", it.amount) } ?: "", true)
+        val initialDetail = if (category == ExpenseCategory.DAILY && existing != null && existingDailyKind == null) {
+            listOf(existing.title, existing.note).filter { it.isNotBlank() }.joinToString(" · ")
+        } else existing?.note.orEmpty()
+        val detail = field(if (category == ExpenseCategory.DAILY) "详细（可选）" else "备注（可选）",
+            initialDetail)
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (existing == null) "记录${category.title}" else "编辑${category.title}记录")
             .setView(ScrollView(this).apply { addView(form) })
@@ -1910,17 +2467,27 @@ class MainActivity : Activity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = title.text.toString().trim()
+                val name = if (category == ExpenseCategory.MAINTENANCE) {
+                    buildList {
+                        MaintenanceServiceKind.entries.forEachIndexed { index, kind ->
+                            if (selectedMaintenanceKinds[index]) add(kind.recordTitle)
+                        }
+                        customMaintenanceTitle?.text?.toString()?.trim()
+                            ?.takeIf { it.isNotEmpty() }?.let(::add)
+                    }.distinct().joinToString("、")
+                } else DailyExpenseKind.entries[
+                    categorySpinner?.selectedItemPosition ?: DailyExpenseKind.OTHER.ordinal
+                ].title
                 val paid = amount.text.toString().replace(',', '.').toDoubleOrNull()
                 val kmText = odometer?.text?.toString()?.trim().orEmpty()
                 val km = kmText.takeIf { it.isNotEmpty() }?.replace(',', '.')?.toDoubleOrNull()
                 if (name.isEmpty() || paid == null || !paid.isFinite() || paid < 0.0 ||
                     (kmText.isNotEmpty() && (km == null || !km.isFinite() || km < 0.0))) {
-                    toast("请填写项目名称和有效金额；里程可留空")
+                    toast("请选择项目并填写有效金额；保养里程可留空")
                     return@setOnClickListener
                 }
                 saveExpenseRecord(ExpenseRecord(existing?.id ?: 0L, expenseDeviceId(),
-                    selectedDate.toEpochDay(), category, paid, name, note.text.toString(), km))
+                    selectedDate.toEpochDay(), category, paid, name, detail.text.toString(), km))
                 dialog.dismiss()
             }
             if (existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -2070,7 +2637,339 @@ class MainActivity : Activity() {
         }
     }
     private fun settings() {
+        if (state.prefs.getBoolean("grouped_settings_ui", true)) settingsGrouped()
+        else settingsLegacy()
+    }
+
+    private fun switchSettingsLayout(grouped: Boolean) {
+        state.prefs.edit().putBoolean("grouped_settings_ui", grouped).apply()
+        settingsSection = 0
+        currentScrollView?.scrollTo(0, 0)
+        pageScrollPositions[3] = 0
+        showTab(3)
+        toast(if (grouped) "已切换到分组设置页" else "已回退到经典设置页")
+    }
+
+    private fun changeSettingsSection(section: Int) {
+        settingsSection = section.coerceIn(0, 2)
+        currentScrollView?.scrollTo(0, 0)
+        pageScrollPositions[3] = 0
+        showTab(3)
+    }
+
+    private fun settingsListRow(
+        icon: SettingsIconView.Icon,
+        title: String,
+        detail: String,
+        color: Int,
+        value: String? = null,
+        action: (() -> Unit)? = null,
+    ): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(68)
+        val iconView = SettingsIconView(this@MainActivity).apply {
+            this.icon = icon
+            iconColor = color
+            contentDescription = title
+            background = rounded(soften(color), 12)
+        }
+        addView(iconView, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
+            marginEnd = dp(12)
+        })
+        val copy = column()
+        add(copy, label(title, 14f, ink, true))
+        add(copy, label(detail, 11f, muted), 4)
+        addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
+        value?.let {
+            addView(label(it, 11f, color, true).apply { gravity = Gravity.END },
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        }
+        if (action != null) {
+            addView(label("›", 22f, Color.rgb(168, 175, 186)).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(dp(22), -1).apply { marginStart = dp(4) })
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { action() }
+        }
+    }
+
+    private fun settingsSwitchRow(
+        icon: SettingsIconView.Icon,
+        title: String,
+        detail: String,
+        color: Int,
+        checked: Boolean,
+        onChanged: (Boolean) -> Unit,
+    ): LinearLayout = settingsListRow(icon, title, detail, color).apply {
+        val toggle = Switch(this@MainActivity).apply {
+            isChecked = checked
+            showText = false
+            trackTintList = android.content.res.ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(color, Color.rgb(211, 216, 225)),
+            )
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnCheckedChangeListener { _, enabled -> onChanged(enabled) }
+        }
+        addView(toggle, LinearLayout.LayoutParams(dp(48), dp(36)).apply { marginStart = dp(8) })
+    }
+
+    private fun settingsListGroup(body: LinearLayout, rows: List<View>) {
+        val group = column().apply {
+            background = rounded(Color.WHITE)
+            setPadding(dp(14), dp(3), dp(14), dp(3))
+        }
+        rows.forEachIndexed { index, row ->
+            if (index > 0) group.addView(View(this).apply {
+                background = ColorDrawable(Color.rgb(233, 237, 242))
+            }, LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(50) })
+            group.addView(row, LinearLayout.LayoutParams(-1, -2))
+        }
+        add(body, group, 12)
+    }
+
+    private fun settingsBackPill(body: LinearLayout, text: String = "返回设置", action: () -> Unit) {
+        add(body, label("‹  $text", 12f, bookkeepingStats, true).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(38)
+            setPadding(dp(13), dp(8), dp(13), dp(8))
+            background = rounded(soften(bookkeepingStats), 13)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { action() }
+        }, 14)
+    }
+
+    private fun settingsSubpageHero(
+        body: LinearLayout,
+        icon: SettingsIconView.Icon,
+        title: String,
+        detail: String,
+        status: String,
+        color: Int,
+    ) {
+        fun darken(channel: Int) = (channel * .72f).roundToInt().coerceIn(0, 255)
+        val darker = Color.rgb(darken(Color.red(color)), darken(Color.green(color)), darken(Color.blue(color)))
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(17), dp(18), dp(17))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(color, darker)).apply { cornerRadius = dp(22).toFloat() }
+            elevation = dp(2).toFloat()
+        }
+        hero.addView(SettingsIconView(this).apply {
+            this.icon = icon
+            iconColor = Color.WHITE
+            contentDescription = title
+            background = rounded(Color.argb(42, 255, 255, 255), 15)
+        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(14) })
+        val copy = column()
+        add(copy, label(title, 18f, Color.WHITE, true))
+        add(copy, label(detail, 11f, Color.argb(220, 255, 255, 255)), 5)
+        copy.addView(label(status, 10f, Color.WHITE, true).apply {
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+            background = rounded(Color.argb(35, 255, 255, 255), 11)
+        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(7) })
+        hero.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
+        add(body, hero, 12)
+    }
+
+    private fun settingsReadOnlyRow(parent: LinearLayout, name: String, value: String?, valueColor: Int? = null) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(52)
+        }
+        row.addView(label(name, 13f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(label(value ?: "等待仪表数据", 12f,
+            if (value == null) muted else valueColor ?: ink,
+            valueColor != null && value != null).apply {
+            gravity = Gravity.END
+            maxWidth = dp(190)
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(14) })
+        parent.addView(row, LinearLayout.LayoutParams(-1, -2))
+        parent.addView(View(this).apply { background = ColorDrawable(Color.rgb(236, 239, 244)) },
+            LinearLayout.LayoutParams(-1, dp(1)))
+    }
+
+    private fun updateAutomaticConnection(enabled: Boolean) {
+        state.automatic = enabled
+        if (enabled) {
+            observePresence()
+            BackgroundBleWake.register(this, force = true)
+            ServiceWatchdogReceiver.schedule(this)
+            permissions(false)
+        } else {
+            BackgroundBleWake.cancel(this)
+            ServiceWatchdogReceiver.cancel(this)
+            stopService(Intent(this, TripSyncService::class.java))
+            stopPresence()
+        }
+    }
+
+    private fun settingsGrouped() {
+        settingsSection = settingsSection.coerceIn(0, 2)
         val body = page("设置", "连接、显示与仪表功能")
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(bookkeepingStats, Color.rgb(109, 82, 159))).apply {
+                cornerRadius = dp(24).toFloat()
+            }
+            setPadding(dp(18), dp(17), dp(14), dp(17))
+            elevation = dp(2).toFloat()
+        }
+        hero.addView(SettingsIconView(this).apply {
+            icon = SettingsIconView.Icon.VEHICLE
+            iconColor = Color.WHITE
+            contentDescription = "当前车辆"
+            background = rounded(Color.argb(42, 255, 255, 255), 16)
+        }, LinearLayout.LayoutParams(dp(54), dp(54)).apply { marginEnd = dp(14) })
+        val vehicleCopy = column()
+        add(vehicleCopy, label(state.vehicleDisplayName, 18f, Color.WHITE, true))
+        add(vehicleCopy, label("${state.selectedVehicleModel.title}  ·  " +
+            fmt("%.0f km", currentMileageEstimate().distanceM / 1000.0),
+            11f, Color.rgb(225, 224, 246)), 6)
+        add(vehicleCopy, label(if (state.connected) "●  SkyGauge 已连接" else "○  仪表未连接",
+            11f, if (state.connected) Color.rgb(204, 248, 229) else Color.rgb(231, 222, 239), true), 7)
+        hero.addView(vehicleCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        add(body, hero, 18)
+
+        val sectionTitles = listOf("车辆", "驾驶", "应用")
+        val sectionColors = listOf(bookkeepingFuel, bookkeepingDaily, bookkeepingMaintenance)
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = rounded(Color.rgb(232, 235, 241), 18)
+        }
+        sectionTitles.forEachIndexed { index, title ->
+            val selected = settingsSection == index
+            tabs.addView(label(title, 13f, if (selected) Color.WHITE else muted, selected).apply {
+                gravity = Gravity.CENTER
+                minHeight = dp(42)
+                background = if (selected) rounded(sectionColors[index], 14) else null
+                if (selected) elevation = dp(1).toFloat()
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { if (settingsSection != index) changeSettingsSection(index) }
+            }, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                if (index > 0) marginStart = dp(2)
+            })
+        }
+        add(body, tabs, 13)
+
+        when (settingsSection) {
+            0 -> renderVehicleSettingsOverview(body)
+            1 -> renderDrivingSettingsOverview(body)
+            else -> renderAppSettingsOverview(body)
+        }
+    }
+
+    private fun renderVehicleSettingsOverview(body: LinearLayout) {
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.VEHICLE, "车型与车辆名称", state.selectedVehicleModel.title,
+                bookkeepingFuel, action = { vehicleSettingsPage() }),
+            settingsListRow(SettingsIconView.Icon.GAUGE, "我的仪表",
+                if (state.address.isEmpty()) "尚未绑定" else "${state.address} · 点击更换或重新绑定",
+                bookkeepingMaintenance, action = { permissions(true) }),
+            settingsListRow(SettingsIconView.Icon.PLATE, "自定义车牌", "生成车牌并安装到首页车辆图",
+                bookkeepingFuel, action = {
+                    startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
+                }),
+            settingsListRow(SettingsIconView.Icon.MILEAGE, "手动校准里程",
+                fmt("当前估算 %.1f km", currentMileageEstimate().distanceM / 1000.0),
+                bookkeepingStats, action = { calibrateMileage() }),
+            settingsSwitchRow(SettingsIconView.Icon.DISPLAY, "显示车辆里程", "同步到仪表设备信息页和 App 首页",
+                bookkeepingStats, state.odometerDisplayEnabled) { checked ->
+                val started = TripSyncService.setOdometerDisplay(this, checked)
+                if (::odometerText.isInitialized)
+                    odometerText.visibility = if (checked) View.VISIBLE else View.GONE
+                toast(if (started) "里程显示设置已排队同步" else "设置已保存，连接仪表后自动同步")
+            },
+        ))
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.FUEL, "油箱与续航估算",
+                fmt("油箱 %.1f L · %s", state.tankLitres, state.rangeConsumptionSource.title),
+                bookkeepingFuel, action = { vehicleSettingsPage() }),
+        ))
+        add(body, label("常用入口已经归入对应栏目，无需先经过“常用”中转。",
+            11f, muted), 9)
+    }
+
+    private fun renderDrivingSettingsOverview(body: LinearLayout) {
+        settingsListGroup(body, listOf(
+            settingsSwitchRow(SettingsIconView.Icon.FUEL, "显示上次加油以来", "首页行程卡片",
+                bookkeepingDaily, state.showSinceRefuelTrip) { state.showSinceRefuelTrip = it },
+            settingsSwitchRow(SettingsIconView.Icon.TRIP, "显示自定义行程", "首页行程卡片",
+                bookkeepingDaily, state.showCustomTrip) {
+                state.showCustomTrip = it
+                if (it) state.customTrip(state.vehicle())
+            },
+            settingsListRow(SettingsIconView.Icon.TRIP, "自定义行程名称", customTripTitle(state.customTripName),
+                bookkeepingDaily, action = { showCustomTripNameDialog(reset = false) }),
+            settingsListRow(SettingsIconView.Icon.TRIP, "自定义行程与历史", "查看、归档或重置当前区间",
+                bookkeepingDaily, action = { showCustomTripDetails() }),
+        ))
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "日间亮度与当前仪表参数",
+                bookkeepingMaintenance, action = { gaugeSettingsPage() }),
+            settingsListRow(SettingsIconView.Icon.FUEL, "自动加油识别阈值", "在车辆设置中调整",
+                bookkeepingFuel, action = { vehicleSettingsPage() }),
+        ))
+    }
+
+    private fun renderAppSettingsOverview(body: LinearLayout) {
+        val appDetail = when {
+            appUpdateChecking -> "正在检查最新版本…"
+            appUpdateCheckError != null -> appUpdateCheckError!!
+            appUpdateCheck != null -> appUpdateCheck!!.message
+            else -> "当前 v${BuildConfig.VERSION_NAME} · 点击检查更新"
+        }
+        val firmwareDetail = state.firmwareVersion?.let { "仪表 v$it · 点击扫描更新" }
+            ?: "等待连接仪表后读取版本"
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.UPDATE, "App 更新", appDetail, bookkeepingStats,
+                action = { checkAppUpdate() }),
+            settingsListRow(SettingsIconView.Icon.FIRMWARE, "仪表固件更新", firmwareDetail, bookkeepingMaintenance,
+                action = { requestGroupedFirmwareCheck() }),
+            settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "查看固件信息和显示参数",
+                bookkeepingMaintenance, action = { gaugeSettingsPage() }),
+        ))
+        settingsListGroup(body, listOf(
+            settingsSwitchRow(SettingsIconView.Icon.AUTOSTART, "开机自启 / 自动连接", "恢复后台服务并等待仪表上电",
+                bookkeepingFuel, state.automatic) { updateAutomaticConnection(it) },
+            settingsListRow(SettingsIconView.Icon.LEGACY, "切换到经典设置页", "完整保留原有设置界面与全部入口",
+                muted, action = { switchSettingsLayout(false) }),
+        ))
+        add(body, label("新版与经典版共用同一份设置数据，切换界面不会重置车辆、行程或记账记录。",
+            11f, muted), 9)
+    }
+
+    private fun requestGroupedFirmwareCheck() {
+        if (!state.connected) {
+            toast("请保持仪表上电，等待连接后再扫描")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("确认已停车")
+            .setMessage("检查固件信息时，仪表可能暂时无法采集 OBD 数据或记录行程。请勿在行驶中操作。")
+            .setPositiveButton("已停车，开始检查") { _, _ ->
+                if (!TripSyncService.checkFirmware(this)) toast("无法启动固件扫描，请检查附近设备权限")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun settingsLegacy() {
+        val body = page("设置", "连接、显示与仪表功能")
+        val style = card(body, "设置页样式")
+        add(style, label("当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。",
+            12f, muted), 8)
+        add(style, button("切换到新版分组设置页") { switchSettingsLayout(true) }, 10)
         val vehicleDisplay = card(body, "我的车辆")
         add(vehicleDisplay, label(state.vehicleDisplayName, 18f, ink, true), 10)
         add(vehicleDisplay, label(state.selectedVehicleModel.title, 13f, muted), 5)
@@ -2170,20 +3069,7 @@ class MainActivity : Activity() {
         val auto = card(body, "开机自启与自动连接")
         add(auto, Switch(this).apply {
             text = "开机自启 / 自动连接"; textSize = 14f; isChecked = state.automatic
-            setOnCheckedChangeListener { _, checked ->
-                state.automatic = checked
-                if (checked) {
-                    observePresence()
-                    BackgroundBleWake.register(this@MainActivity, force = true)
-                    ServiceWatchdogReceiver.schedule(this@MainActivity)
-                    permissions(false)
-                } else {
-                    BackgroundBleWake.cancel(this@MainActivity)
-                    ServiceWatchdogReceiver.cancel(this@MainActivity)
-                    stopService(Intent(this@MainActivity, TripSyncService::class.java))
-                    stopPresence()
-                }
-            }
+            setOnCheckedChangeListener { _, checked -> updateAutomaticConnection(checked) }
         }, 10)
         add(auto, label("开启后，手机重启并首次解锁时自动恢复后台服务；覆盖升级后也会恢复。不自动弹出首页，发现仪表后自动连接授时。首次安装须先打开一次并完成绑定、授权。", 12f, muted), 10)
         add(auto, button("重新注册开机与仪表唤醒") {
@@ -2358,17 +3244,27 @@ class MainActivity : Activity() {
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("车辆设置", "首页名称、车型与自动加油识别")
-        add(body, button("‹ 返回设置") { showTab(3) }, 18)
+        val body = page("车辆设置", "车辆资料、里程与续航")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.VEHICLE,
+            state.vehicleDisplayName,
+            "${state.selectedVehicleModel.title} · ${fmt("%.0f km", currentMileageEstimate().distanceM / 1000.0)}",
+            if (state.connected) "● 仪表已连接" else "○ 仪表未连接",
+            bookkeepingFuel,
+        )
 
-        val name = card(body, "首页车辆名称")
-        add(name, label(state.vehicleDisplayName, 18f, ink, true), 10)
-        add(name, button("修改首页车辆名称") { showVehicleDisplayNameDialog() }, 8)
-        add(name, label(
-            "默认名称：$DEFAULT_VEHICLE_DISPLAY_NAME。最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地。",
-            12f,
-            muted,
-        ), 8)
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.VEHICLE, "首页车辆名称",
+                "最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地",
+                bookkeepingFuel, value = state.vehicleDisplayName,
+                action = { showVehicleDisplayNameDialog() }),
+            settingsListRow(SettingsIconView.Icon.PLATE, "首页车牌", "生成并安装自定义车牌图案",
+                bookkeepingFuel, action = {
+                    startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
+                }),
+        ))
 
         val settings = state.gaugeSettings()
         val model = card(body, "车型设置")
@@ -2382,6 +3278,72 @@ class MainActivity : Activity() {
             11f,
             muted,
         ), 5)
+
+        val range = card(body, "油箱与续航")
+        settingsReadOnlyRow(range, "油箱容量", fmt("%.1f L", state.tankLitres), bookkeepingFuel)
+        settingsReadOnlyRow(range, "油耗来源", state.rangeConsumptionSource.title)
+        if (state.rangeConsumptionSource != RangeConsumptionSource.FUEL_RECORDS) {
+            settingsReadOnlyRow(range, "续航修正系数", fmt("%.2f", state.rangeCorrectionFactor))
+        }
+        add(range, button("调整油箱容量") {
+            val entry = EditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setText(state.tankLitres.toString())
+                selectAll()
+            }
+            AlertDialog.Builder(this).setTitle("油箱容量（升）").setView(entry)
+                .setMessage("默认按 50 L 估算，可按车辆规格校准。")
+                .setPositiveButton("保存") { _, _ ->
+                    val litres = entry.text.toString().replace(',', '.').toDoubleOrNull()
+                    if (litres != null && litres in 1.0..150.0) {
+                        state.tankLitres = litres
+                        vehicleSettingsPage()
+                    } else toast("请输入 1～150 L")
+                }.setNegativeButton("取消", null).show()
+        }, 10)
+        add(range, label("续航估算油耗来源", 12f, muted, true), 14)
+        val sourceGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val sourceById = linkedMapOf<Int, RangeConsumptionSource>()
+        RangeConsumptionSource.entries.forEach { source ->
+            val option = RadioButton(this).apply {
+                id = View.generateViewId()
+                text = source.title
+                textSize = 14f
+                minHeight = dp(46)
+                buttonTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)
+                isChecked = source == state.rangeConsumptionSource
+            }
+            sourceById[option.id] = source
+            sourceGroup.addView(option)
+        }
+        sourceGroup.setOnCheckedChangeListener { _, checkedId ->
+            val selected = sourceById[checkedId] ?: return@setOnCheckedChangeListener
+            if (selected != state.rangeConsumptionSource) {
+                state.rangeConsumptionSource = selected
+                vehicleSettingsPage()
+            }
+        }
+        add(range, sourceGroup, 4)
+        if (state.rangeConsumptionSource != RangeConsumptionSource.FUEL_RECORDS) {
+            add(range, button("调整续航修正系数") {
+                val entry = EditText(this).apply {
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(fmt("%.2f", state.rangeCorrectionFactor))
+                    selectAll()
+                }
+                AlertDialog.Builder(this).setTitle("续航油耗修正系数").setView(entry)
+                    .setMessage("仅用于续航计算，默认 1.06。")
+                    .setPositiveButton("保存") { _, _ ->
+                        val factor = entry.text.toString().replace(',', '.').toDoubleOrNull()
+                        if (factor != null && factor in 0.5..2.0) {
+                            state.rangeCorrectionFactor = factor
+                            vehicleSettingsPage()
+                        } else toast("请输入 0.50～2.00")
+                    }.setNegativeButton("取消", null).show()
+            }, 6)
+        }
+        add(range, label("设置直接在本页完成，不再跳转到经典设置。",
+            11f, muted), 10)
     }
     private fun showVehicleDisplayNameDialog() {
         val entry = EditText(this).apply {
@@ -2403,7 +3365,7 @@ class MainActivity : Activity() {
         val update = card(body, "手机 App 更新")
         val download = AppUpdater.downloadState(this)
         val statusMessage = when {
-            appUpdateChecking -> "正在连接 GitHub 检查最新版本…"
+            appUpdateChecking -> "正在通过 GitHub 官方检查最新版本…"
             appUpdateCheckError != null -> appUpdateCheckError!!
             download.status in setOf(AppDownloadStatus.DOWNLOADING,
                 AppDownloadStatus.READY, AppDownloadStatus.FAILED) -> download.message
@@ -2463,7 +3425,7 @@ class MainActivity : Activity() {
             }, 5)
         }
         add(update, label(
-            "从本项目 GitHub Release 检查更新（包含测试版）。下载完成后会校验包名、版本以及与当前 App 相同的签名，再交给 Android 系统安装；覆盖安装会保留行程和加油记录。",
+            "更新会优先连接本项目 GitHub 官方 Release；官方版本查询或 APK 下载失败时，自动切换国内镜像。下载完成后会校验文件 SHA-256、包名、版本和 BRZ Garage 固定签名，再交给 Android 系统安装；覆盖安装会保留行程和加油记录。",
             12f, muted), 9)
     }
     private fun checkAppUpdate() {
@@ -2487,7 +3449,7 @@ class MainActivity : Activity() {
     private fun confirmAppUpdateDownload(release: AppRelease) {
         AlertDialog.Builder(this)
             .setTitle("下载 BRZ Garage v${release.version}")
-            .setMessage("安装包将从本项目 GitHub Release 下载。下载完成后 App 会先校验版本和签名，再打开 Android 系统安装界面。\n\n请使用稳定网络；覆盖安装会保留现有行程、加油记录和设置。")
+            .setMessage("安装包会先从本项目 GitHub 官方 Release 下载；若官方连接失败，App 会自动切换国内镜像。下载完成后会校验 SHA-256、版本和固定签名，再打开 Android 系统安装界面。\n\n覆盖安装会保留现有行程、加油记录和设置。")
             .setPositiveButton("下载") { _, _ ->
                 try {
                     AppUpdater.startDownload(this, release)
@@ -2688,20 +3650,28 @@ class MainActivity : Activity() {
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("仪表设置", "查看仪表参数并调整日间亮度")
-        add(body, button("‹ 返回连接与设置") { showTab(3) }, 18)
-        val notice = card(body, "受限设置")
-        add(notice, label("当前可由手机调整日间亮度，其余选择框、开关和输入框继续冻结。车型与自动加油识别阈值在“我的车辆 → 车辆设置”中调整；设置命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 14f, accent, true), 10)
+        val body = page("仪表设置", "亮度、显示参数与同步状态")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.GAUGE,
+            "SkyGauge",
+            state.firmwareVersion?.let { "固件 v$it" } ?: "等待读取固件版本",
+            if (state.connected) "● 当前已连接" else "○ 当前未连接",
+            bookkeepingMaintenance,
+        )
+        val notice = card(body, "当前可调整")
+        add(notice, label("手机端可调整日间亮度；其余参数以整洁的只读行展示。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 13f, ink, true), 8)
+        add(notice, label("车型与自动加油识别阈值已归入车辆设置。", 11f, muted), 7)
         val settings = state.gaugeSettings()
         val received = card(body, "同步状态")
-        add(received, label(
-            state.firmwareVersion?.let { "仪表固件版本：v$it" }
-                ?: "仪表固件版本：等待仪表数据",
-            14f, if (state.firmwareVersion == null) muted else accent, true), 10)
+        settingsReadOnlyRow(received, "仪表固件",
+            state.firmwareVersion?.let { "v$it" }, bookkeepingMaintenance)
         add(received, label(if (settings == null) {
             if (state.address.isEmpty()) "尚未绑定仪表。当前先显示完整参数结构，绑定并连接后自动填入实际值。"
             else "等待仪表设置数据。当前先显示完整参数结构；请保持仪表上电并等待自动连接。"
-        } else "已读取仪表设置\n读取时间：${date(state.gaugeSettingsAt)} · 协议版本：${settings.version}", 14f, ink, settings != null), 10)
+        } else "已读取仪表设置 · ${date(state.gaugeSettingsAt)} · 协议 v${settings.version}",
+            12f, if (settings == null) muted else ink, settings != null), 10)
 
         val basic = card(body, "基本设置")
         frozenChoice(basic, "OBD 协议", obdProtocolNames(), settings?.protocol)
@@ -2766,7 +3736,7 @@ class MainActivity : Activity() {
             gaugeModel != null -> "仪表当前车型：${gaugeModel.title}"
             else -> "仪表当前为未开放配置（编号 $gaugeProfile）"
         }, 11f, if (pending != null) accent else muted), 5)
-        add(parent, button("保存并同步车型") {
+        add(parent, primaryBookkeepingAction("保存并同步车型", bookkeepingFuel) {
             val dispatched = TripSyncService.setVehicleModel(this, selected)
             toast(if (dispatched) {
                 "${selected.title} 已保存，将在同步空闲后写入仪表"
@@ -2778,20 +3748,12 @@ class MainActivity : Activity() {
         add(parent, label("切换后首页车辆图立即变化。ZC6 使用与 ZD8 相同的单路 OBD/PID 采集结构，并保留 FA20 专用机油温度请求；车型命令不会打断正在进行的授时、行程或车辆数据同步。", 11f, muted), 5)
     }
     private fun frozenChoice(parent: LinearLayout, name: String, choices: List<String>, selected: Int?) {
-        add(parent, label(name, 12f, muted), 12)
-        val entries: List<String>
-        val position: Int
-        when {
-            selected == null -> { entries = listOf("等待仪表数据") + choices; position = 0 }
-            selected in choices.indices -> { entries = choices; position = selected }
-            else -> { entries = listOf("未知值 ($selected)") + choices; position = 0 }
+        val value = when {
+            selected == null -> null
+            selected in choices.indices -> choices[selected]
+            else -> "未知值 ($selected)"
         }
-        add(parent, Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, entries)
-            setSelection(position)
-            isEnabled = false
-            alpha = 0.82f
-        }, 3)
+        settingsReadOnlyRow(parent, name, value)
     }
     private fun editableBrightness(parent: LinearLayout, value: Int?) {
         add(parent, label("日间亮度", 12f, muted), 12)
@@ -2816,7 +3778,7 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(bar: SeekBar?) = Unit
             })
         }, 3)
-        val apply = button("应用亮度到仪表") {
+        val apply = primaryBookkeepingAction("应用亮度到仪表", bookkeepingMaintenance) {
             if (TripSyncService.setBrightness(this, selected)) {
                 toast("亮度 $selected% 已提交，将在当前同步完成后应用")
             } else {
@@ -2854,7 +3816,7 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
             })
         }, 3)
-        val apply = button("应用加油识别阈值") {
+        val apply = primaryBookkeepingAction("应用加油识别阈值", bookkeepingFuel) {
             if (TripSyncService.setRefuelThreshold(this, selected)) {
                 toast("阈值 $selected L 已提交，将在当前同步完成后应用")
             } else {
@@ -2870,25 +3832,14 @@ class MainActivity : Activity() {
         }, 11f, muted), 5)
     }
     private fun frozenSwitch(parent: LinearLayout, name: String, value: Boolean?) {
-        add(parent, Switch(this).apply {
-            text = name + "  ·  " + when (value) { true -> "开启"; false -> "关闭"; null -> "等待仪表数据" }
-            textSize = 14f
-            isChecked = value == true
-            isEnabled = false
-            alpha = 0.82f
-        }, 12)
+        settingsReadOnlyRow(parent, name, when (value) {
+            true -> "开启"
+            false -> "关闭"
+            null -> null
+        }, bookkeepingMaintenance.takeIf { value == true })
     }
     private fun frozenValue(parent: LinearLayout, name: String, value: String?) {
-        add(parent, label(name, 12f, muted), 12)
-        add(parent, EditText(this).apply {
-            setText(value ?: "等待仪表数据")
-            textSize = 15f
-            setTextColor(if (value == null) muted else ink)
-            isEnabled = false
-            isFocusable = false
-            alpha = 0.82f
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-        }, 3)
+        settingsReadOnlyRow(parent, name, value)
     }
     private fun valueName(index: Int, names: List<String>): String =
         names.getOrNull(index) ?: "未知 ($index)"

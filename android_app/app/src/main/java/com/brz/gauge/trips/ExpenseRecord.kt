@@ -11,6 +11,25 @@ enum class ExpenseCategory(val code: Int, val title: String) {
     }
 }
 
+enum class DailyExpenseKind(val title: String, val iconRes: Int) {
+    PARKING("停车", R.drawable.ic_expense_parking),
+    TOLL("通行", R.drawable.ic_expense_toll),
+    CARE("车辆洗护", R.drawable.ic_expense_care),
+    REPAIR("维修", R.drawable.ic_expense_repair),
+    ACCESSORY("配件用品", R.drawable.ic_expense_accessory),
+    INSURANCE("保险", R.drawable.ic_expense_insurance),
+    PAPERWORK("证件手续", R.drawable.ic_expense_paperwork),
+    OTHER("其他", R.drawable.ic_expense_other);
+
+    companion object {
+        fun matchTitle(value: String): DailyExpenseKind? =
+            entries.firstOrNull { it.title == value } ?:
+                ACCESSORY.takeIf { value == "车辆配件" }
+
+        fun fromTitle(value: String): DailyExpenseKind = matchTitle(value) ?: OTHER
+    }
+}
+
 data class ExpenseRecord(
     val id: Long = 0,
     val deviceId: String,

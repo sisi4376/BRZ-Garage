@@ -39,7 +39,7 @@ class PhoneModelTest(unittest.TestCase):
                                      'com.brz.gauge.trips.Phone_model_host_testKt'],
                                     capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(result.stdout.count('PASS:'), 24)
+            self.assertEqual(result.stdout.count('PASS:'), 25)
 
 
 if __name__ == '__main__':

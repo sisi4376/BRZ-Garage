@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class ExpenseDatabase(context: Context) :
-    SQLiteOpenHelper(context, "brz_expenses.db", null, 1) {
+    SQLiteOpenHelper(context, "brz_expenses.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -26,7 +26,14 @@ class ExpenseDatabase(context: Context) :
         db.execSQL("CREATE INDEX expenses_by_device_date ON expenses(device_id,date_epoch_day DESC,id DESC)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL(
+                "UPDATE expenses SET title=? WHERE category=? AND title=?",
+                arrayOf("配件用品", ExpenseCategory.DAILY.code, "车辆配件"),
+            )
+        }
+    }
 
     fun save(record: ExpenseRecord): Long {
         val values = ContentValues().apply {
@@ -73,4 +80,5 @@ class ExpenseDatabase(context: Context) :
         }
         return result
     }
+
 }

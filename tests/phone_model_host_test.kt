@@ -32,6 +32,14 @@ fun main() {
     check(homeMileageLabel(MileageEstimate(5_000_000L, true)) == "5000km")
     check(homeMileageLabel(MileageEstimate(5_000_000L, false)) == "5000km · 未校准")
     println("PASS: home mileage is compact and only marks uncalibrated values")
+    val splitTrips = listOf(
+        TripRecord("AA:BB", TripRecord.localSplitId(76, 1), 0, 0, 60, 1200, 50, 417, 0),
+        TripRecord("AA:BB", TripRecord.localSplitId(76, 2), 0, 0, 90, 1800, 70, 389, 0),
+    )
+    check(splitTrips[0].displayId == "76-A" && splitTrips[1].displayId == "76-B")
+    check(newestTripId(splitTrips, "AA:BB") == 76L)
+    check(estimateMileage(splitTrips, "AA:BB", 100_000_000L, 75).distanceM == 100_003_000L)
+    println("PASS: local split records retain their parent sequence for mileage calculations")
 
     check(normalizeVehicleDisplayName("") == DEFAULT_VEHICLE_DISPLAY_NAME)
     check(normalizeVehicleDisplayName("  我的\n小跑车  ") == "我的 小跑车")

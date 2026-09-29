@@ -20,7 +20,7 @@ fun estimateMileage(
     }
     val base = calibrationM?.coerceAtLeast(0L)
     val additions = matching
-        .filter { base == null || it.tripId > anchorTripId }
+        .filter { base == null || it.sequenceId > anchorTripId }
         .map { it.distanceM }
         .fold(0L, ::safeDistanceAdd)
     return MileageEstimate(
@@ -31,8 +31,8 @@ fun estimateMileage(
 
 fun newestTripId(trips: List<TripRecord>, deviceId: String): Long = trips.asSequence()
     .filter { deviceId.isBlank() || it.deviceId.equals(deviceId, ignoreCase = true) }
-    .map { it.tripId }
-    .filter { it >= 0L }
+    .map { it.sequenceId }
+    .filter { it > 0L }
     .maxOrNull() ?: 0L
 
 private fun safeDistanceAdd(left: Long, right: Long): Long =

@@ -195,6 +195,81 @@ class TripDatabase(context: Context) :
         ) == 1
     }
 
+    /**
+     * Replaces one gauge record with two phone-local records without changing
+     * its total duration, distance or fuel. The tombstone prevents the gauge's
+     * retained copy from restoring the merged parent on a later sync.
+     */
+    fun splitTrip(original: TripRecord, first: TripRecord, second: TripRecord): Boolean {
+        if (original.tripId <= 0L ||
+            first.deviceId != original.deviceId || second.deviceId != original.deviceId ||
+            first.tripId != TripRecord.localSplitId(original.tripId, 1) ||
+            second.tripId != TripRecord.localSplitId(original.tripId, 2) ||
+            first.durationS <= 0L || second.durationS <= 0L ||
+            first.durationS + second.durationS != original.durationS ||
+            first.distanceM + second.distanceM != original.distanceM ||
+            first.fuelMl + second.fuelMl != original.fuelMl ||
+            !first.hasValidTime || !second.hasValidTime ||
+            first.endEpochS > second.startEpochS ||
+            first.endEpochS - first.startEpochS + 59L < first.durationS ||
+            second.endEpochS - second.startEpochS + 59L < second.durationS) return false
+
+        val db = writableDatabase
+        db.beginTransaction()
+        return try {
+            db.rawQuery(
+                "SELECT 1 FROM trips WHERE device_id=? AND trip_id=? LIMIT 1",
+                arrayOf(original.deviceId, original.tripId.toString())
+            ).use { if (!it.moveToFirst()) return false }
+
+            val marker = ContentValues().apply {
+                put("device_id", original.deviceId)
+                put("trip_id", original.tripId)
+                put("deleted_at_s", System.currentTimeMillis() / 1000L)
+            }
+            if (db.insertWithOnConflict(
+                    "deleted_trips", null, marker, SQLiteDatabase.CONFLICT_REPLACE
+                ) == -1L
+            ) return false
+            if (db.delete(
+                    "trips", "device_id=? AND trip_id=?",
+                    arrayOf(original.deviceId, original.tripId.toString())
+                ) != 1
+            ) return false
+            if (db.insertWithOnConflict(
+                    "trips", null, tripValues(first), SQLiteDatabase.CONFLICT_REPLACE
+                ) == -1L
+            ) return false
+            if (db.insertWithOnConflict(
+                    "trips", null, tripValues(second), SQLiteDatabase.CONFLICT_REPLACE
+                ) == -1L
+            ) return false
+            db.setTransactionSuccessful()
+            true
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun tripValues(record: TripRecord) = ContentValues().apply {
+        put("device_id", record.deviceId)
+        put("trip_id", record.tripId)
+        put("start_epoch_s", record.startEpochS)
+        put("end_epoch_s", record.endEpochS)
+        put("duration_s", record.durationS)
+        put("distance_m", record.distanceM)
+        put("fuel_ml", record.fuelMl)
+        put("avg_l100_x100", record.avgL100X100)
+        put("flags", record.flags)
+        put("synced_at_s", System.currentTimeMillis() / 1000L)
+        put("time_revised", if (record.timeRevised) 1 else 0)
+        put("data_revised", if (record.dataRevised) 1 else 0)
+        if (record.maxSpeedKmh == null) putNull("max_speed_kmh") else put("max_speed_kmh", record.maxSpeedKmh)
+        if (record.maxRpm == null) putNull("max_rpm") else put("max_rpm", record.maxRpm)
+        if (record.maxAccelX100 == null) putNull("max_accel_x100") else put("max_accel_x100", record.maxAccelX100)
+        if (record.maxDecelX100 == null) putNull("max_decel_x100") else put("max_decel_x100", record.maxDecelX100)
+    }
+
     fun deleteTrip(deviceId: String, tripId: Long): Boolean {
         val db = writableDatabase
         db.beginTransaction()
@@ -228,9 +303,9 @@ class TripDatabase(context: Context) :
         readableDatabase.rawQuery(
             """
             SELECT MAX(trip_id) FROM (
-                SELECT trip_id FROM trips WHERE device_id=?
+                SELECT trip_id FROM trips WHERE device_id=? AND trip_id > 0
                 UNION ALL
-                SELECT trip_id FROM deleted_trips WHERE device_id=?
+                SELECT trip_id FROM deleted_trips WHERE device_id=? AND trip_id > 0
             )
             """.trimIndent(),
             arrayOf(deviceId, deviceId)
@@ -250,7 +325,9 @@ class TripDatabase(context: Context) :
             -- trip_id is assigned by the gauge when the trip occurs, so it remains
             -- a stable occurrence sequence even when the absolute clock was unknown.
             -- Keep newest trips first and do not reorder a trip after its time is revised.
-            ORDER BY trip_id DESC, device_id DESC
+            ORDER BY CASE WHEN trip_id < 0 THEN ((-trip_id) - 1) / 2 ELSE trip_id END DESC,
+                     CASE WHEN trip_id < 0 THEN -trip_id ELSE 0 END DESC,
+                     device_id DESC
             """.trimIndent(), null
         ).use { cursor ->
             while (cursor.moveToNext()) {

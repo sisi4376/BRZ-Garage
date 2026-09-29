@@ -60,14 +60,14 @@ object LicensePlateArtwork {
     }
 
     /**
-     * Produces a 4 px/mm intermediate plate for the home-screen perspective pass.
+     * Produces a 6 px/mm intermediate plate for the home-screen perspective pass.
      * The final installed plate is small, but the extra source samples keep the
      * outlined strokes and corners crisp on GPU implementations that minify a
      * perspective texture less accurately than an axis-aligned bitmap.
      */
     fun renderBitmap(context: Context, value: GeneratedLicensePlate): Bitmap =
-        Bitmap.createBitmap(1760, 560, Bitmap.Config.ARGB_8888).also { bitmap ->
-            draw(context, Canvas(bitmap), value, RectF(0f, 0f, 1760f, 560f))
+        Bitmap.createBitmap(2640, 840, Bitmap.Config.ARGB_8888).also { bitmap ->
+            draw(context, Canvas(bitmap), value, RectF(0f, 0f, 2640f, 840f))
             bitmap.setHasMipMap(true)
             bitmap.prepareToDraw()
         }

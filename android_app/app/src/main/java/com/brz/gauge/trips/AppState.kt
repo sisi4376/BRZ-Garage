@@ -83,6 +83,9 @@ class AppState(context: Context) {
     var automatic: Boolean
         get() = prefs.getBoolean("automatic", true)
         set(value) { prefs.edit().putBoolean("automatic", value).apply() }
+    var maintenanceSevereConditions: Boolean
+        get() = compatibleBoolean("maintenance_severe_conditions", false)
+        set(value) { prefs.edit().putBoolean("maintenance_severe_conditions", value).apply() }
     var vehicleDisplayName: String
         get() = normalizeVehicleDisplayName(
             prefs.getString("vehicle_display_name", DEFAULT_VEHICLE_DISPLAY_NAME)

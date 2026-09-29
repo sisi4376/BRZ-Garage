@@ -26,7 +26,10 @@ data class RangeConsumption(
 )
 
 fun recentTripAverage(trips: List<TripRecord>, limit: Int = 5): Double? {
-    val recent = trips.sortedByDescending { it.tripId }.asSequence()
+    val recent = trips.sortedWith(
+        compareByDescending<TripRecord> { it.sequenceId }
+            .thenByDescending { it.splitPartLabel ?: "" }
+    ).asSequence()
         .filter { it.distanceM > 0L && it.fuelMl > 0L && it.avgL100X100 > 0 }
         .take(limit.coerceAtLeast(1))
         .toList()

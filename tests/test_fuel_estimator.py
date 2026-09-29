@@ -74,7 +74,10 @@ class FuelEstimatorTests(unittest.TestCase):
         self.assertIn("normalized.trip_merge_timeout_min = TRIP_MERGE_TIMEOUT_LOCKED_MIN", storage)
         pending_boot = storage.split("static void fuel_prepare_pending_at_boot(void)", 1)[1]
         pending_boot = pending_boot.split("esp_err_t nvs_storage_init(void)", 1)[0]
-        self.assertNotIn("fuel_finish_pending_trip();", pending_boot)
+        self.assertIn("bool can_merge = trip_time_gap_within(", pending_boot)
+        self.assertIn("fuel_finish_pending_trip();", pending_boot)
+        self.assertIn("fuel_move_active_to_pending();", pending_boot)
+        self.assertIn("preserve two unknown-time records instead", pending_boot)
         settings = (ROOT / "main/export_path/screens/ui_ScreenPageSettings.c").read_text(encoding="utf-8")
         self.assertIn("lv_obj_add_state(btn_trip_gap, LV_STATE_DISABLED)", settings)
         header = (ROOT / "main/bsp_obd_dsp/nvs_storage.h").read_text(encoding="utf-8")
