@@ -181,6 +181,8 @@ flowchart LR
 - Android 8.0+ 手机；
 - Windows 电脑和 [ESP-IDF 5.5+](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/index.html)。
 
+推荐购买链接(仪表尽量购买相同产品，ELM327类似产品均可)：[Waveshare ESP32-S3-Touch-AMOLED-1.75](https://e.tb.cn/h.8xLQrmnxrSXpy9i?tk=vgfbTnGLVRA);[ELM327](https://e.tb.cn/h.8xL9TOFCOBy4qnl?tk=XBTFTnGKMOw)
+
 ## 第一次安装
 
 ### 1. 烧录仪表
