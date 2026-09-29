@@ -10,7 +10,7 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 [![Status](https://img.shields.io/badge/Status-Early_Test-orange)](#早期测试版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 Android App 3.8.1](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1) ·
+[下载 Android App 3.8.1](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1) · [💰支持项目💰](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1)
 <!---
 # [查看更新日志](CHANGELOG.md)
 -->
@@ -35,6 +35,7 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 > ❌**为保证仪表安全，目前暂未考虑外接锂电系统。为防止车辆蓄电池异常掉电，目前暂未采用保险盒供电方案**
 > 
 > APP开发过程中仅在鸿蒙6系统进行过测试，安卓兼容性尚且未知（应该不会有大问题）。❌ **暂不支持IOS。**
+>
 
 ## 现有关键问题
 
