@@ -10,7 +10,7 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 [![Status](https://img.shields.io/badge/Status-Early_Test-orange)](#早期测试版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 Android App 3.8.1](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1) · [💰支持项目💰](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1)
+[下载 Android App 3.8.1](https://github.com/sisi4376/BRZ-Garage/releases/tag/v3.8.1) · [💰支持项目💰](https://afdian.com/a/4822y)
 <!---
 # [查看更新日志](CHANGELOG.md)
 -->
@@ -32,9 +32,13 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 >
 > ❌**目前尚未开发GPS功能，如果希望保留GPS拓展，购买ESP32-S3-Touch-AMOLED-1.75-G版本**
 >
-> ❌**为保证仪表安全，目前暂未考虑外接锂电系统。为防止车辆蓄电池异常掉电，目前暂未采用保险盒供电方案**
+> ❌**为保证仪表安全，目前暂未考虑外接锂电系统。为防止车辆蓄电池异常掉电，目前也暂未采用保险盒供电方案**
 > 
 > APP开发过程中仅在鸿蒙6系统进行过测试，安卓兼容性尚且未知（应该不会有大问题）。❌ **暂不支持IOS。**
+> 
+> ❌**目前请勿用不同手机连接同一仪表，这可能导致数据丢失**
+>
+> 如果您愿意支持项目的开发和后续维护，可以[帮忙给作者的Codex账户花费回回血💰](https://afdian.com/a/4822y)
 >
 
 ## 现有关键问题
@@ -44,6 +48,8 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 > APP后台自动唤醒功能仍不稳定（特别是鸿蒙版本），可能导致仪表授时失败，从而导致行程时间缺失。
 >
 > 授时仍需要时刻关注，若无法完成授时请手动重启APP，若仪表未授时可能导致数据缺失
+>
+
 
 ## 这是什么？
 
