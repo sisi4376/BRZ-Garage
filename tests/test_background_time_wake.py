@@ -28,6 +28,24 @@ class BackgroundTimeWakeTest(unittest.TestCase):
         wake = source.index("TripSyncService.wakeFromGaugeSignal(context)")
         self.assertLess(lost, wake)
 
+    def test_companion_privilege_is_required_and_harmony_scan_migrates_to_uuid_mode(self):
+        wake = (JAVA / "BackgroundBleWake.kt").read_text(encoding="utf-8")
+        activity = (JAVA / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('PREF_POLICY_VERSION = "wake_scan_policy_version"', wake)
+        self.assertIn("CURRENT_POLICY_VERSION = 2", wake)
+        self.assertIn("MODE_SERVICE_ALL_MATCHES", wake)
+        self.assertIn("currentPolicy < CURRENT_POLICY_VERSION", wake)
+        self.assertIn("it.device.address.equals(state.address", wake)
+        automatic = activity.split("private fun updateAutomaticConnection", 1)[1].split(
+            "private fun requestSystemBlePrivilege", 1
+        )[0]
+        self.assertIn("GaugePresenceObserver.isSupported(this)", automatic)
+        self.assertIn("!GaugePresenceObserver.hasAssociation(this, state.address)", automatic)
+        self.assertIn("bindGauge(state.address)", automatic)
+        self.assertIn('"系统级 BLE 唤醒"', activity)
+        self.assertIn('"伴生关联有效 · 可从后台启动连接"', activity)
+        self.assertIn("private fun requestSystemBlePrivilege", activity)
+
     def test_signal_uses_direct_connection_and_clock_is_first(self):
         service = (JAVA / "TripSyncService.kt").read_text(encoding="utf-8")
         self.assertIn('ACTION_GAUGE_SIGNAL = "com.brz.gauge.trips.GAUGE_SIGNAL"', service)

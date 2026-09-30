@@ -8,6 +8,61 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-09-30 — App 3.11.1 completes the secondary-page visual refresh
+
+- Adds the same gradient identity/status hero used by modern Settings pages to Trip Detail, Since Refuel and Custom Trip, while keeping their refined metric cards and actions intact.
+- Brings the standalone licence-plate page into the same hierarchy and replaces the remaining default date/time buttons in trip split and time-revision editors.
+
+### 2026-09-30 — App 3.11.0 first-use informed consent and copyright notice
+
+- Adds a versioned, full-screen first-use notice covering driving safety, functional limits, local data, permission purposes, copyright, GPLv3 licensing and the project's unofficial status.
+- Requires separate acknowledgement of the safety/data and copyright/licence sections before continuing; no permission prompt, BLE connection, background service or automatic network request starts beforehand.
+- Keeps the notice available under App Settings, records the notice version and confirmation time locally, and lets the user withdraw confirmation while preserving existing local records.
+
+### 2026-09-30 — App 3.10.6 unified dialogs and secondary-page navigation
+
+- Applies a rounded, elevated dialog surface with consistent typography and action colour to confirmation, editing, date selection, update and firmware prompts throughout the app.
+- Restyles dialog input fields and moves secondary-page return controls above the page title, including trip, refuelling, custom-trip, vehicle, gauge, firmware, feedback and licence-plate pages.
+- Completes the versioned first-run Safety, Data & Permissions, Copyright, GPLv3 and Unofficial Project notice before any permission request or background runtime starts; it remains reviewable and withdrawable from Settings.
+
+### 2026-09-30 — App 3.10.5 complete firmware controls in grouped Settings
+
+- Changes the grouped Settings firmware row from a scan-only shortcut into a complete secondary page containing version scan, safe OTA installation and explicit historical rollback controls.
+- Keeps scan results and OTA progress on the firmware page and refreshes the available Update action as soon as compatibility assessment completes.
+
+### 2026-09-30 — App 3.10.4 stronger system BLE wake qualification
+
+- Promotes Android Companion Device association from an optional repair path to a prerequisite when enabling automatic connection on supported systems, ensuring the app receives the strongest legitimate background foreground-service exemption available to third-party BLE accessories.
+- Migrates existing wake registrations to a system-owned service-UUID all-matches scan that verifies the bound public MAC in the receiver, avoiding HarmonyOS silently suspending an accepted exact-address controller filter.
+- Adds a System BLE Wake row to the grouped App settings so association state can be inspected, repaired and reactivated without switching to Classic Settings.
+
+### 2026-09-30 — App 3.10.3 refined bottom navigation icons
+
+- Replaces the temporary text-symbol navigation glyphs with density-independent outline icons for Vehicle, Trips, Bookkeeping and Settings.
+- Adds a compact tinted indicator behind the selected icon and keeps every tab position, label and navigation action unchanged.
+
+### 2026-09-30 — App 3.10.2 unified Home secondary pages
+
+- Aligns Current Trip, Since Refuel and Custom Trip secondary pages with the refined Home, Driving Footprint and Bookkeeping visual language using compact return controls, colour-coded metric cards and clearer section hierarchy.
+- Restyles revision, split, reset and node-management actions without changing their stored data, synchronization or confirmation behaviour.
+
+### 2026-09-29 — App 3.10.1 larger home vehicle artwork
+
+- Raises the refined Home vehicle-artwork area from 148 dp to 184 dp, making the car roughly one quarter larger while preserving the surrounding range, fuel and trip-card layout.
+- Keeps the 3.10.0 APK and the in-app 3.9.0 Classic Home fallback unchanged.
+
+### 2026-09-29 — App 3.10.0 unified vehicle home
+
+- Refines the Vehicle home without changing its information order: the vehicle hero now includes compact model and connection states, while range and fuel data share a clearer hierarchy.
+- Replaces multiline trip summaries with colour-coded three-column metric cards matching Driving Footprint and Bookkeeping, while retaining consumed-fuel details and every existing drill-down action.
+- Keeps the complete 3.9.0 Classic Home layout in the same APK. The Vehicle settings category can switch between the new and classic layouts without changing trips, bookkeeping records or vehicle settings.
+
+### 2026-09-29 — App 3.9.0 in-app issue feedback
+
+- Adds a Feedback entry to the App settings category and the complete Classic Settings page, with a dedicated secondary page matching the current settings design.
+- Opens a prefilled GitHub Issue containing reproduction prompts and a privacy-safe diagnostic summary; users can review or remove every field before submitting, or copy the same template when a browser is unavailable.
+- Excludes trips, location, license plate, bookkeeping records, log contents and the full Bluetooth address, and never uploads feedback in the background.
+
 ### 2026-09-29 — App 3.8.1 settings-entry cleanup
 
 - Hides manual remaining-fuel setup, recalibration and clearing actions from the new Vehicle Settings page without deleting an existing stored estimate.
@@ -637,6 +692,60 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-09-30 — App 3.11.1 补齐二级页面视觉统一
+
+- 为行程详情、上次加油以来和自定义行程补上与新版设置二级页一致的渐变身份/状态头，保留已有数据卡与操作逻辑。
+- 自定义车牌独立页面同步采用同一信息层级，并替换行程拆分、时间修订中最后残留的系统默认日期/时间按钮。
+
+### 2026-09-30 — App 3.11.0 首次使用知情同意与版权声明
+
+- 新增版本化的全屏首次使用说明，集中说明驾驶安全、功能边界、本地数据、权限用途、版权、GPLv3 开源许可和非官方项目身份。
+- 用户必须分别确认安全 / 数据部分和版权 / 许可部分才能继续；确认前不请求系统权限、不连接 BLE、不启动后台服务，也不自动发起网络请求。
+- 声明可从“设置 → 应用”随时复查，App 会在本地记录声明版本和确认时间；撤回确认会停止后台能力，但不会删除已有本地记录。
+
+### 2026-09-30 — App 3.10.6 统一弹窗与二级页导航
+
+- 为全 App 的确认、编辑、日期选择、App 更新和仪表固件弹窗统一圆角悬浮面板、字体与操作色。
+- 优化弹窗输入框，并将行程、加油以来、自定义行程、车辆、仪表、固件、反馈和车牌页面的返回入口统一移到标题上方。
+
+### 2026-09-30 — App 3.10.5 补全新版设置的固件更新操作
+
+- 将新版分组设置中的固件入口从“点击即扫描”改为完整二级页，统一提供版本扫描、安全 OTA 更新和历史版本回滚。
+- 扫描结果与 OTA 进度会留在固件页实时刷新，兼容性检查完成后立即显示可用的更新操作。
+
+### 2026-09-30 — App 3.10.4 强化系统级 BLE 唤醒资格
+
+- 在支持的系统上，将 Android 伴生设备关联从可选修复项提升为开启自动连接的前置条件，使 App 获得第三方 BLE 配件可用的最高级后台前台服务启动资格。
+- 现有唤醒注册自动迁移为系统托管的服务 UUID 全匹配扫描，并在接收端继续校验绑定公共 MAC，避免鸿蒙静默暂停已接受的精确地址硬件过滤器。
+- 新版“应用”设置直接增加“系统级 BLE 唤醒”入口，可查看、修复并重新激活伴生关联，无需切换经典设置页。
+
+### 2026-09-30 — App 3.10.3 优化底部导航图标
+
+- 将底部车辆、行程、记账、设置的临时文字符号替换为可随屏幕密度清晰缩放的统一细线矢量图标。
+- 当前栏目使用紧凑的浅色胶囊强调，保留四个栏目的位置、文字与切换逻辑。
+
+### 2026-09-30 — App 3.10.2 统一首页二级界面
+
+- 本次行程、上次加油以来和自定义行程三个首页二级界面，统一采用紧凑返回入口、彩色三列指标卡和更清晰的区块层级，与新版首页、驾驶足迹和记账风格一致。
+- 修订、拆分、重置和加油节点管理按钮同步优化样式，不改变本地数据、同步和确认逻辑。
+
+### 2026-09-29 — App 3.10.1 放大首页车辆主视觉
+
+- 新版首页车辆图片区域从 148 dp 提升到 184 dp，车辆约放大四分之一，续航、油量和行程卡片布局保持不变。
+- 继续保留 3.10.0 安装包以及 App 内的 3.9.0 经典首页回退。
+
+### 2026-09-29 — App 3.10.0 统一车辆首页
+
+- 在不改变信息顺序的前提下精修车辆首页：车辆主视觉新增紧凑的车型与连接状态，续航和油量采用更清晰的同层布局。
+- 本次、累计、上次加油以来和自定义行程改为与驾驶足迹、记账一致的彩色三列数据卡，继续保留燃油消耗信息及原有详情入口。
+- 同一 APK 内完整保留 3.9.0 经典首页，可在“设置 → 车辆”即时切换；两种布局共用车辆设置、行程与账目数据。
+
+### 2026-09-29 — App 3.9.0 应用内问题反馈
+
+- 在“应用”设置栏目和完整经典设置页增加问题反馈入口，并使用与现有设置一致的独立二级页面。
+- 可打开预填复现步骤与脱敏诊断摘要的 GitHub Issue；用户提交前可检查或删除任意内容，没有可用浏览器时也能复制同一反馈模板。
+- 诊断摘要不包含行程、位置、车牌、账目、日志正文或完整蓝牙地址，App 不会在后台自动上传反馈。
 
 ### 2026-09-29 — App 3.8.1 设置入口收敛
 

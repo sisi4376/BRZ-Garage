@@ -81,8 +81,29 @@ class AppState(context: Context) {
         get() = prefs.getString("address", "") ?: ""
         set(value) { prefs.edit().putString("address", value).apply() }
     var automatic: Boolean
-        get() = prefs.getBoolean("automatic", true)
+        get() = compatibleBoolean("automatic", true) && hasAcceptedCurrentUserNotice
         set(value) { prefs.edit().putBoolean("automatic", value).apply() }
+    val acceptedUserNoticeVersion: Int
+        get() = compatibleInt("accepted_user_notice_version", 0)
+    val acceptedUserNoticeAt: Long
+        get() = compatibleLongOrNull("accepted_user_notice_at") ?: 0L
+    val hasAcceptedCurrentUserNotice: Boolean
+        get() = acceptedUserNoticeVersion >= UserNotice.VERSION
+    fun acceptCurrentUserNotice() {
+        prefs.edit()
+            .putInt("accepted_user_notice_version", UserNotice.VERSION)
+            .putLong("accepted_user_notice_at", System.currentTimeMillis())
+            .putString("accepted_user_notice_app_version", BuildConfig.VERSION_NAME)
+            .apply()
+    }
+    fun withdrawUserNotice() {
+        prefs.edit()
+            .remove("accepted_user_notice_version")
+            .remove("accepted_user_notice_at")
+            .remove("accepted_user_notice_app_version")
+            .putBoolean("automatic", false)
+            .apply()
+    }
     var maintenanceSevereConditions: Boolean
         get() = compatibleBoolean("maintenance_severe_conditions", false)
         set(value) { prefs.edit().putBoolean("maintenance_severe_conditions", value).apply() }

@@ -60,16 +60,44 @@ class LicensePlateGeneratorActivity : Activity() {
         }
         setContentView(scroll)
 
-        add(body, Button(this).apply {
-            text = "‹ 返回设置"
-            isAllCaps = false
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setTextColor(ink)
-            backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+        add(body, label("‹  返回车辆设置", 12f, Color.rgb(86, 92, 169), true).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(40)
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = rounded(Color.rgb(236, 237, 249), 14)
+            isClickable = true
+            isFocusable = true
             setOnClickListener { finish() }
         })
         add(body, label("自定义车牌", 30f, ink, true), 8)
         add(body, label("小型燃油汽车 · GA 36-2018", 13f, muted), 4)
+
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(17), dp(18), dp(17))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.rgb(54, 143, 181), Color.rgb(37, 103, 145))).apply {
+                cornerRadius = dp(22).toFloat()
+            }
+            elevation = dp(2).toFloat()
+        }
+        hero.addView(SettingsIconView(this).apply {
+            icon = SettingsIconView.Icon.PLATE
+            iconColor = Color.WHITE
+            contentDescription = "自定义车牌"
+            background = rounded(Color.argb(42, 255, 255, 255), 15)
+        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(14) })
+        val heroCopy = column()
+        add(heroCopy, label("首页车牌", 18f, Color.WHITE, true))
+        add(heroCopy, label("生成、预览并安装到当前车型", 11f,
+            Color.argb(220, 255, 255, 255)), 5)
+        heroCopy.addView(label("仅保存在本机", 10f, Color.WHITE, true).apply {
+            setPadding(dp(9), dp(5), dp(9), dp(5))
+            background = rounded(Color.argb(35, 255, 255, 255), 11)
+        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(7) })
+        hero.addView(heroCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        add(body, hero, 12)
 
         val previewCard = card(body, "号牌预览")
         preview = LicensePlatePreviewView(this)

@@ -27,7 +27,9 @@ object BackgroundBleWake {
     private const val PREF_STATUS = "wake_scan_status"
     private const val PREF_AT = "wake_scan_at"
     private const val PREF_MODE = "wake_scan_mode"
+    private const val PREF_POLICY_VERSION = "wake_scan_policy_version"
     private const val PREF_ERROR_AT = "wake_scan_error_at"
+    private const val CURRENT_POLICY_VERSION = 2
     private const val MODE_EXACT_AGGRESSIVE = 0
     private const val MODE_EXACT_FIRST_MATCH = 1
     private const val MODE_SERVICE_FIRST_MATCH = 2
@@ -66,13 +68,24 @@ object BackgroundBleWake {
         }
         val intent = pendingIntent(app)
         val registeredAddress = state.prefs.getString(PREF_ADDRESS, "")
-        if (!force && registeredAddress.equals(address, true)) return true
+        val currentPolicy = state.prefs.getInt(PREF_POLICY_VERSION, 0)
+        if (!force && currentPolicy >= CURRENT_POLICY_VERSION &&
+            registeredAddress.equals(address, true)) return true
 
         // One PendingIntent identifies one scan registration. Replace the old filter
         // after re-binding, reboot, Bluetooth restart, or watchdog recovery.
         try { scanner.stopScan(intent) } catch (_: RuntimeException) { }
-        var compatibilityMode = state.prefs.getInt(PREF_MODE, MODE_EXACT_AGGRESSIVE)
-            .coerceIn(MODE_EXACT_AGGRESSIVE, MODE_SERVICE_ALL_MATCHES)
+        // A foreground callback scan can use an exact controller filter, but
+        // Huawei/HarmonyOS may silently accept and then suspend that filter
+        // after the app process is reclaimed. New policy registrations start
+        // with the most conservative system-owned UUID scan. The receiver still
+        // verifies the bound public MAC before waking the connection service.
+        var compatibilityMode = if (currentPolicy < CURRENT_POLICY_VERSION) {
+            MODE_SERVICE_ALL_MATCHES
+        } else {
+            state.prefs.getInt(PREF_MODE, MODE_SERVICE_ALL_MATCHES)
+                .coerceIn(MODE_EXACT_AGGRESSIVE, MODE_SERVICE_ALL_MATCHES)
+        }
         fun filters(mode: Int): List<ScanFilter> = listOf(
             if (mode >= MODE_SERVICE_FIRST_MATCH) {
                 // Huawei/HarmonyOS may reject the controller's exact-address
@@ -125,7 +138,8 @@ object BackgroundBleWake {
         val ok = result == 0 || result == ScanCallback.SCAN_FAILED_ALREADY_STARTED
         if (ok) {
             state.prefs.edit().putString(PREF_ADDRESS, address)
-                .putInt(PREF_MODE, compatibilityMode).apply()
+                .putInt(PREF_MODE, compatibilityMode)
+                .putInt(PREF_POLICY_VERSION, CURRENT_POLICY_VERSION).apply()
             record(state, when (compatibilityMode) {
                 MODE_EXACT_FIRST_MATCH -> "已启用（兼容模式）· 仪表出现时唤醒"
                 MODE_SERVICE_FIRST_MATCH -> "已启用（华为 UUID 兼容模式）· 仪表出现时唤醒"

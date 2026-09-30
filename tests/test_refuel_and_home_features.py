@@ -15,7 +15,8 @@ class RefuelAndHomeFeaturesTest(unittest.TestCase):
         self.assertIn("未更新 · 上次更新", main)
         self.assertIn("显示上次加油以来", main)
         self.assertIn("显示自定义行程", main)
-        self.assertIn('listOf("车辆", "行程", "记账", "设置")', main)
+        for title in ("车辆", "行程", "记账", "设置"):
+            self.assertIn(f'Triple("{title}"', main)
         self.assertIn("floor(currentMileageEstimate().distanceM / 1000.0)", main)
         self.assertIn("暂存，不参与统计", main)
         self.assertIn("records.filter { !it.draft", fuel)
@@ -62,7 +63,7 @@ class RefuelAndHomeFeaturesTest(unittest.TestCase):
         state = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt").read_text(encoding="utf-8")
         database = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/RefuelIntervalDatabase.kt").read_text(encoding="utf-8")
         storage = (ROOT / "main/bsp_obd_dsp/nvs_storage.c").read_text(encoding="utf-8")
-        self.assertIn('button("删除第一个节点以前的数据")', main)
+        self.assertIn('homeDetailAction("删除第一个节点以前的数据"', main)
         self.assertIn("discardRefuelBeforeFirstNode", service)
         self.assertIn("pendingRefuelDiscardOldestId", state)
         self.assertIn("discardBeforeFirstNode", database)

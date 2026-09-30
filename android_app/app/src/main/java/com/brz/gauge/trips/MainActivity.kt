@@ -33,8 +33,18 @@ import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
+private const val FEEDBACK_ISSUES_URL = "https://github.com/sisi4376/BRZ-Garage/issues/new"
+
 @Suppress("DEPRECATION", "MissingPermission")
 class MainActivity : Activity() {
+    private data class HomeStatsViews(
+        val distance: TextView,
+        val duration: TextView,
+        val average: TextView,
+        val fuelHint: TextView,
+        val content: LinearLayout,
+    )
+
     private lateinit var state: AppState
     private lateinit var database: TripDatabase
     private lateinit var fuelDatabase: FuelDatabase
@@ -55,6 +65,12 @@ class MainActivity : Activity() {
     private lateinit var totalStats: TextView
     private var sinceRefuelStats: TextView? = null
     private var customStats: TextView? = null
+    private var refinedCurrentStats: HomeStatsViews? = null
+    private var refinedTotalStats: HomeStatsViews? = null
+    private var refinedSinceRefuelStats: HomeStatsViews? = null
+    private var refinedCustomStats: HomeStatsViews? = null
+    private var homeConnectionChip: TextView? = null
+    private var homeStatusDot: View? = null
     private lateinit var clockText: TextView
     private lateinit var countText: TextView
     private var homeVehicleHero: VehicleHeroView? = null
@@ -81,8 +97,13 @@ class MainActivity : Activity() {
     private var fallbackStop: (() -> Unit)? = null
     private var historyLoading = false
     private var historyRevisionMode = false
+    private var appInitialized = false
+    private var showingFirstRunNotice = false
+    private var showingLegalNotice = false
     private var showingGaugeSettings = false
     private var showingVehicleSettings = false
+    private var showingFeedback = false
+    private var showingFirmwareUpdate = false
     private var showingTripDetail = false
     private var showingRefuelDetail = false
     private var showingCustomTripDetail = false
@@ -137,16 +158,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         configureSystemBars()
         state = AppState(this)
-        if (state.firmwareUpdateStage == "checking" && !TripSyncService.running) {
-            state.firmwareUpdate("failed", "上次检查已中断，请重新扫描；正常数据未受影响")
-        }
-        database = TripDatabase(this)
-        fuelDatabase = FuelDatabase(this)
-        expenseDatabase = ExpenseDatabase(this)
-        refuelDatabase = RefuelIntervalDatabase(this)
-        customTripDatabase = CustomTripDatabase(this)
-        tripAdapter = TripAdapter(this, { reviseTripTime(it) }, { confirmDeleteTrip(it) },
-            { showTripDetails(it) })
         val root = column().apply { setBackgroundColor(pageColor) }
         // Respect system bars on edge-to-edge Android 15+ and retain gesture navigation space.
         root.setOnApplyWindowInsetsListener { v, insets ->
@@ -163,9 +174,35 @@ class MainActivity : Activity() {
         historyRevisionMode = savedInstanceState?.getBoolean("history_revision_mode") ?: false
         accountingSection = savedInstanceState?.getInt("accounting_section") ?: 0
         calendarYear = savedInstanceState?.getInt("calendar_year") ?: LocalDate.now().year
+        if (!state.hasAcceptedCurrentUserNotice) {
+            userNoticePage(firstRun = true)
+            return
+        }
+        initializeApp(savedInstanceState)
+    }
+    private fun initializeApp(savedInstanceState: Bundle? = null) {
+        if (appInitialized) return
+        appInitialized = true
+        showingFirstRunNotice = false
+        showingLegalNotice = savedInstanceState?.getBoolean("legal_notice_page") ?: false
+        if (state.firmwareUpdateStage == "checking" && !TripSyncService.running) {
+            state.firmwareUpdate("failed", "上次检查已中断，请重新扫描；正常数据未受影响")
+        }
+        database = TripDatabase(this)
+        fuelDatabase = FuelDatabase(this)
+        expenseDatabase = ExpenseDatabase(this)
+        refuelDatabase = RefuelIntervalDatabase(this)
+        customTripDatabase = CustomTripDatabase(this)
+        tripAdapter = TripAdapter(this, { reviseTripTime(it) }, { confirmDeleteTrip(it) },
+            { showTripDetails(it) })
         showingGaugeSettings = savedInstanceState?.getBoolean("gauge_settings_page") ?: false
         showingVehicleSettings = savedInstanceState?.getBoolean("vehicle_settings_page") ?: false
+        showingFeedback = savedInstanceState?.getBoolean("feedback_page") ?: false
+        showingFirmwareUpdate = savedInstanceState?.getBoolean("firmware_update_page") ?: false
         when {
+            showingLegalNotice -> userNoticePage(firstRun = false)
+            showingFirmwareUpdate -> firmwareUpdatePage()
+            showingFeedback -> feedbackPage()
             showingVehicleSettings -> vehicleSettingsPage()
             showingGaugeSettings -> gaugeSettingsPage()
             else -> showTab(tab)
@@ -190,17 +227,24 @@ class MainActivity : Activity() {
         outState.putBoolean("history_revision_mode", historyRevisionMode)
         outState.putInt("accounting_section", accountingSection)
         outState.putInt("calendar_year", calendarYear)
+        outState.putBoolean("legal_notice_page", showingLegalNotice)
         outState.putBoolean("gauge_settings_page", showingGaugeSettings)
         outState.putBoolean("vehicle_settings_page", showingVehicleSettings)
+        outState.putBoolean("feedback_page", showingFeedback)
+        outState.putBoolean("firmware_update_page", showingFirmwareUpdate)
         super.onSaveInstanceState(outState)
     }
     @Deprecated("Android framework callback retained for Android 8+ compatibility")
     @SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
         when {
+            showingFirstRunNotice -> confirmDeclineUserNotice()
+            showingLegalNotice -> showTab(3)
             showingTripDetail -> showTab(tripDetailReturnTab)
             showingRefuelDetail -> showTab(0)
             showingCustomTripDetail -> showTab(0)
+            showingFirmwareUpdate -> showTab(3)
+            showingFeedback -> showTab(3)
             showingVehicleSettings -> showTab(3)
             showingGaugeSettings -> showTab(3)
             else -> super.onBackPressed()
@@ -209,16 +253,24 @@ class MainActivity : Activity() {
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onStart() {
         super.onStart()
+        startAcceptedRuntime()
+    }
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private fun startAcceptedRuntime() {
+        if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
         TripSyncService.foregroundUi = true
-        val filter = IntentFilter(TripSyncService.ACTION_STATUS)
-        try {
-            if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            else registerReceiver(statusReceiver, filter)
-            statusReceiverRegistered = true
-        } catch (_: RuntimeException) {
-            statusReceiverRegistered = false
-            state.status("系统暂时无法注册状态回调，请重新打开应用", false)
+        if (!statusReceiverRegistered) {
+            val filter = IntentFilter(TripSyncService.ACTION_STATUS)
+            try {
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                else registerReceiver(statusReceiver, filter)
+                statusReceiverRegistered = true
+            } catch (_: RuntimeException) {
+                statusReceiverRegistered = false
+                state.status("系统暂时无法注册状态回调，请重新打开应用", false)
+            }
         }
+        handler.removeCallbacks(refresh)
         handler.post(refresh)
         try { BackgroundBleWake.register(this) } catch (_: RuntimeException) { }
         try { ServiceWatchdogReceiver.schedule(this) } catch (_: RuntimeException) { }
@@ -227,6 +279,7 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
+        if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
         if (appUpdateInstallAfterPermission &&
             (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
             appUpdateInstallAfterPermission = false
@@ -248,9 +301,11 @@ class MainActivity : Activity() {
         fallbackStop?.invoke()
         handler.removeCallbacksAndMessages(null)
         vehicleHeroBitmaps.clear()
-        io.execute {
-            database.close(); fuelDatabase.close(); expenseDatabase.close()
-            refuelDatabase.close(); customTripDatabase.close()
+        if (appInitialized) {
+            io.execute {
+                database.close(); fuelDatabase.close(); expenseDatabase.close()
+                refuelDatabase.close(); customTripDatabase.close()
+            }
         }
         io.shutdown()
         super.onDestroy()
@@ -271,7 +326,18 @@ class MainActivity : Activity() {
     private fun button(text: String, action: () -> Unit) = Button(this).apply {
         this.text = text; isAllCaps = false; textSize = 14f; setTextColor(ink)
         backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(233, 237, 242))
+        minHeight = dp(46)
         setOnClickListener { action() }
+    }
+    private fun EditText.refineDialogField(): EditText = apply {
+        textSize = 15f
+        setTextColor(ink)
+        setHintTextColor(Color.rgb(150, 158, 170))
+        minHeight = dp(52)
+        setPadding(dp(14), dp(11), dp(14), dp(11))
+        background = rounded(Color.rgb(247, 248, 251), 13).apply {
+            setStroke(dp(1), Color.rgb(218, 223, 231))
+        }
     }
     private fun card(parent: LinearLayout, title: String): LinearLayout = column().apply {
         background = rounded(Color.WHITE); setPadding(dp(20), dp(18), dp(20), dp(18))
@@ -317,11 +383,15 @@ class MainActivity : Activity() {
         return body
     }
     private fun currentPageKey(): Int = when {
+        showingFirstRunNotice -> 12
+        showingLegalNotice -> 11
         showingTripDetail -> 5
         showingRefuelDetail -> 6
         showingCustomTripDetail -> 7
         showingVehicleSettings -> 8
         showingGaugeSettings -> 4
+        showingFeedback -> 9
+        showingFirmwareUpdate -> 10
         else -> tab
     }
     private fun rememberCurrentScroll() {
@@ -341,6 +411,10 @@ class MainActivity : Activity() {
         rememberCurrentScroll()
         showingGaugeSettings = false
         showingVehicleSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = false
+        showingFirstRunNotice = false
+        showingLegalNotice = false
         showingTripDetail = false
         showingRefuelDetail = false
         showingCustomTripDetail = false
@@ -348,18 +422,322 @@ class MainActivity : Activity() {
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.VISIBLE
-        listOf("车辆", "行程", "记账", "设置").forEachIndexed { i, name ->
-            navigation.addView(TextView(this).apply {
-                text = (when (i) { 0 -> "◉\n"; 1 -> "≡\n"; 2 -> "＋\n"; else -> "◎\n" }) + name
-                textSize = 13f; gravity = Gravity.CENTER; setPadding(0, dp(9), 0, dp(9))
-                setTextColor(if (i == index) accent else muted)
-                if (i == index) background = rounded(Color.rgb(253, 235, 240), 15)
-                setOnClickListener { showTab(i) }
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+        val tabs = listOf(
+            Triple("车辆", SettingsIconView.Icon.VEHICLE, bookkeepingFuel),
+            Triple("行程", SettingsIconView.Icon.TRIP, bookkeepingStats),
+            Triple("记账", SettingsIconView.Icon.ACCOUNTING, bookkeepingDaily),
+            Triple("设置", SettingsIconView.Icon.SETTINGS, bookkeepingMaintenance),
+        )
+        tabs.forEachIndexed { i, item ->
+            navigation.addView(bottomNavigationItem(item.first, item.second, item.third,
+                selected = i == index) { showTab(i) }, LinearLayout.LayoutParams(0, -2, 1f))
         }
         when (index) { 0 -> home(); 1 -> history(); 2 -> bookkeeping(); else -> settings() }
     }
+
+    private fun bottomNavigationItem(
+        title: String,
+        icon: SettingsIconView.Icon,
+        color: Int,
+        selected: Boolean,
+        action: () -> Unit,
+    ): LinearLayout = column().apply {
+        gravity = Gravity.CENTER
+        minimumHeight = dp(58)
+        setPadding(0, dp(4), 0, dp(3))
+        isClickable = true
+        isFocusable = true
+        contentDescription = title
+        setOnClickListener { action() }
+
+        val indicator = FrameLayout(this@MainActivity).apply {
+            if (selected) background = rounded(soften(color), 15)
+            addView(SettingsIconView(this@MainActivity).apply {
+                this.icon = icon
+                iconColor = if (selected) color else muted
+            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }
+        addView(indicator, LinearLayout.LayoutParams(dp(50), dp(30)))
+        addView(label(title, 11f, if (selected) color else muted, selected).apply {
+            gravity = Gravity.CENTER
+            setSingleLine(true)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+    }
+    private fun usesRefinedHome(): Boolean = state.prefs.getBoolean("refined_home_ui", true)
+
+    private fun setRefinedHome(enabled: Boolean) {
+        state.prefs.edit().putBoolean("refined_home_ui", enabled).apply()
+        toast(if (enabled) "已启用新版首页" else "已回退到经典首页")
+    }
+
     private fun home() {
+        if (usesRefinedHome()) homeRefined() else homeClassic()
+    }
+
+    private fun homeStatsCard(
+        parent: LinearLayout,
+        title: String,
+        color: Int,
+        action: (() -> Unit)? = null,
+    ): HomeStatsViews {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(Color.WHITE)
+            elevation = dp(1).toFloat()
+            if (action != null) {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { action() }
+            }
+        }
+        card.addView(View(this).apply { background = rounded(color, 3) },
+            LinearLayout.LayoutParams(dp(3), dp(66)).apply { marginStart = dp(1) })
+        val content = column().apply { setPadding(dp(13), dp(12), dp(13), dp(13)) }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(label(title, 12f, color, true), LinearLayout.LayoutParams(0, -2, 1f))
+        if (action != null) head.addView(label("›", 22f, color, true).apply {
+            gravity = Gravity.CENTER
+            contentDescription = "查看详情"
+        }, LinearLayout.LayoutParams(dp(28), dp(28)))
+        add(content, head)
+
+        fun metric(name: String): Triple<LinearLayout, TextView, TextView> {
+            val value = label("—", 14f, color, true).apply { setSingleLine(true) }
+            val hint = label("", 9f, muted).apply { setSingleLine(true) }
+            return Triple(column().apply {
+                background = rounded(Color.rgb(247, 248, 251), 12)
+                setPadding(dp(9), dp(9), dp(9), dp(9))
+                add(this, label(name, 10f, muted, true).apply { setSingleLine(true) })
+                add(this, value, 4)
+                add(this, hint, 2)
+            }, value, hint)
+        }
+        val distance = metric("里程")
+        val duration = metric("驾驶时长")
+        val average = metric("平均油耗")
+        val metrics = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        metrics.addView(distance.first, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(3) })
+        metrics.addView(duration.first, LinearLayout.LayoutParams(0, -2, 1f).apply {
+            marginStart = dp(3); marginEnd = dp(3)
+        })
+        metrics.addView(average.first, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(3) })
+        add(content, metrics, 8)
+        card.addView(content, LinearLayout.LayoutParams(0, -2, 1f))
+        add(parent, card, 10)
+        return HomeStatsViews(distance.second, duration.second, average.second, average.third, content)
+    }
+
+    private fun homeDetailBackAction(text: String, color: Int = bookkeepingFuel, action: () -> Unit): TextView =
+        label("‹  $text", 12f, color, true).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(40)
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = rounded(soften(color), 14)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { action() }
+        }
+
+    private fun homeDetailBackPill(
+        body: LinearLayout,
+        text: String,
+        color: Int = bookkeepingFuel,
+        action: () -> Unit,
+    ) {
+        body.addView(homeDetailBackAction(text, color, action), 0,
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+    }
+
+    private fun homeDetailAction(
+        text: String,
+        color: Int,
+        filled: Boolean = false,
+        action: () -> Unit,
+    ): TextView = label(text, 12f, if (filled) Color.WHITE else color, true).apply {
+        gravity = Gravity.CENTER
+        minHeight = dp(44)
+        setPadding(dp(13), dp(10), dp(13), dp(10))
+        background = rounded(if (filled) color else soften(color), 14)
+        if (filled) elevation = dp(1).toFloat()
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { action() }
+    }
+
+    private fun homeDetailNote(text: String, color: Int): TextView = label(text, 11f, muted).apply {
+        setPadding(dp(13), dp(11), dp(13), dp(11))
+        background = rounded(soften(color, .92f), 14)
+    }
+
+    private fun homeDuration(seconds: Long): String =
+        String.format(Locale.US, "%02d:%02d", seconds / 3600, seconds / 60 % 60)
+
+    private fun updateHomeStats(
+        views: HomeStatsViews?,
+        distanceM: Long?,
+        durationS: Long?,
+        fuelMl: Long?,
+    ) {
+        views ?: return
+        if (distanceM == null || durationS == null || fuelMl == null) {
+            views.distance.text = "—"
+            views.duration.text = "—"
+            views.average.text = "—"
+            views.fuelHint.text = "等待数据"
+            return
+        }
+        views.distance.text = fmt("%.1f km", distanceM / 1000.0)
+        views.duration.text = homeDuration(durationS)
+        views.average.text = if (distanceM > 0L) fmt("%.1f L/100km", fuelMl.toDouble() / distanceM * 100.0) else "—"
+        views.fuelHint.text = fmt("消耗 %.2f L", fuelMl / 1000.0)
+    }
+
+    private fun homeRefined() {
+        val model = state.selectedVehicleModel
+        renderedHomeVehicleProfile = model.profileIndex
+        sinceRefuelStats = null
+        customStats = null
+        val body = page(state.vehicleDisplayName, model.homeSubtitle, singleLineTitle = true)
+
+        val odometerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        odometerRow.addView(SettingsIconView(this).apply {
+            icon = SettingsIconView.Icon.MILEAGE
+            iconColor = bookkeepingFuel
+            contentDescription = "车辆里程"
+        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(7) })
+        odometerText = label("", 13f, ink, true)
+        odometerRow.addView(odometerText)
+        add(body, odometerRow, 9)
+
+        val hero = column().apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(37, 50, 70), Color.rgb(15, 21, 32))).apply {
+                cornerRadius = dp(24).toFloat()
+            }
+            setPadding(dp(18), dp(14), dp(18), dp(17))
+            elevation = dp(2).toFloat()
+        }
+        add(body, hero, 17)
+        val heroTop = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        heroTop.addView(label("${model.name} · 6MT", 10f, Color.rgb(201, 237, 248), true).apply {
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = rounded(Color.argb(48, 54, 143, 181), 13)
+        }, LinearLayout.LayoutParams(-2, -2))
+        heroTop.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        val connectionChip = label("", 10f, Color.rgb(200, 246, 227), true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            background = rounded(Color.argb(22, 255, 255, 255), 13)
+        }
+        homeConnectionChip = connectionChip
+        heroTop.addView(connectionChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        add(hero, heroTop)
+
+        val heroView = VehicleHeroView(this).apply {
+            loadVehicleHero(this, model, when (model) {
+                SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
+                SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
+            })
+            showInstalledPlate(
+                state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
+                state.showCustomLicensePlate,
+            )
+        }
+        homeVehicleHero = heroView
+        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(184)).apply {
+            topMargin = dp(2); bottomMargin = dp(1)
+        })
+
+        val rangeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+        }
+        val rangeCopy = column()
+        add(rangeCopy, label("预估剩余续航", 11f, Color.rgb(174, 189, 208)))
+        rangeText = label("— km", 42f, Color.WHITE, true)
+        add(rangeCopy, rangeText, 1)
+        rangeRow.addView(rangeCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        fuelText = label("剩余油量暂不可用", 12f, Color.rgb(209, 221, 234), true).apply {
+            gravity = Gravity.END
+        }
+        rangeRow.addView(fuelText, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+        add(hero, rangeRow)
+        fuelBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 10000
+            progressTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(60, 76, 96))
+        }
+        hero.addView(fuelBar, LinearLayout.LayoutParams(-1, dp(6)).apply { topMargin = dp(10) })
+        dataAge = label("连接仪表后显示车辆数据", 10f, Color.rgb(174, 189, 208))
+        add(hero, dataAge, 9)
+
+        refinedCurrentStats = homeStatsCard(body, "本次行程 · 仪表统计", bookkeepingFuel) {
+            state.vehicle()?.let { showCurrentTripDetails(it) }
+        }
+        refinedTotalStats = homeStatsCard(body, "累计驾驶 · 自仪表开始记录", bookkeepingStats)
+        refinedSinceRefuelStats = if (state.showSinceRefuelTrip) {
+            homeStatsCard(body, "上次加油以来 · 仪表自动判断", bookkeepingMaintenance) {
+                showRefuelDetails()
+            }
+        } else null
+        refinedCustomStats = if (state.showCustomTrip) {
+            homeStatsCard(body, customTripTitle(state.customTripName), bookkeepingDaily) {
+                showCustomTripDetails()
+            }
+        } else null
+
+        val connection = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(12), dp(14))
+            background = rounded(Color.WHITE)
+            elevation = dp(1).toFloat()
+        }
+        val statusDot = View(this).apply { background = rounded(Color.rgb(40, 185, 120), 10) }
+        homeStatusDot = statusDot
+        connection.addView(statusDot, LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginEnd = dp(12) })
+        val statusCopy = column()
+        statusText = label("", 13f, ink, true)
+        clockText = label("", 10f, muted)
+        add(statusCopy, statusText)
+        add(statusCopy, clockText, 4)
+        connection.addView(statusCopy, LinearLayout.LayoutParams(0, -2, 1f))
+        connection.addView(label(if (state.address.isEmpty()) "绑定仪表" else "立即同步", 11f, ink, true).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(38)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = rounded(Color.rgb(233, 237, 242), 12)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (state.address.isEmpty()) permissions(true) else {
+                    state.automatic = true
+                    permissions(false)
+                    if (!TripSyncService.start(this@MainActivity, true)) showTab(3)
+                }
+            }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(10) })
+        add(body, connection, 10)
+        refreshHome()
+    }
+
+    private fun homeClassic() {
+        refinedCurrentStats = null
+        refinedTotalStats = null
+        refinedSinceRefuelStats = null
+        refinedCustomStats = null
+        homeConnectionChip = null
+        homeStatusDot = null
         val model = state.selectedVehicleModel
         renderedHomeVehicleProfile = model.profileIndex
         val body = page(state.vehicleDisplayName, model.homeSubtitle, singleLineTitle = true)
@@ -462,8 +840,11 @@ class MainActivity : Activity() {
         try {
             if (!state.firmwareUpdateActive) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (updated) { loadTrips(); loadRefuelIntervals() }
-            if (updated && showingVehicleSettings) vehicleSettingsPage()
+            if (updated && showingFirmwareUpdate) firmwareUpdatePage()
+            else if (updated && showingVehicleSettings) vehicleSettingsPage()
             else if (updated && showingGaugeSettings) gaugeSettingsPage()
+            else if (updated && showingFeedback) Unit
+            else if (updated && showingLegalNotice) Unit
             else if (updated && tab == 3) showTab(3)
             else refreshHome()
         } catch (error: RuntimeException) {
@@ -523,14 +904,24 @@ class MainActivity : Activity() {
             else if (state.address.isEmpty()) "首次使用，请绑定自己的仪表"
             else if (recentService) state.prefs.getString("status", "等待仪表上电")
             else "当前离线 · 打开连接页检查后台运行权限"
+        homeConnectionChip?.text = if (state.connected) "●  仪表已连接" else "○  仪表离线"
+        homeConnectionChip?.setTextColor(if (state.connected) Color.rgb(200, 246, 227)
+            else Color.rgb(209, 221, 234))
+        homeStatusDot?.background = rounded(when {
+            state.connected -> Color.rgb(40, 185, 120)
+            recentService -> bookkeepingFuel
+            else -> Color.rgb(174, 183, 195)
+        }, 10)
         clockText.text = if (state.timeAt == 0L) "尚未收到成功授时记录"
             else "上次授时 ${date(state.timeAt)} · " + if (state.timeVerified) "已回读校验" else "仅写入确认（旧固件）"
         rangeText.text = estimateRangeKm(state.tankLitres, effectiveFuel, rangeConsumption)?.let { "$it km" } ?: "— km"
         rangeText.setTextColor(if (isLowFuel(effectiveFuel)) lowFuelYellow else Color.WHITE)
         fuelText.text = effectiveFuel?.let {
-            fmt("剩余 %.0f%%   ·   约 %.1f L%s", it, state.tankLitres * it / 100.0,
+            if (usesRefinedHome()) fmt("剩余 %.0f%%%s\n约 %.1f L", it,
+                if (manualFuel) " · App 估算" else "", state.tankLitres * it / 100.0)
+            else fmt("剩余 %.0f%%   ·   约 %.1f L%s", it, state.tankLitres * it / 100.0,
                 if (manualFuel) "   ·   App 估算" else "")
-        } ?: "车辆未提供油量 · 可在连接页设置当前油量"
+        } ?: if (usesRefinedHome()) "油量暂不可用" else "车辆未提供油量 · 可在连接页设置当前油量"
         fuelBar.progress = effectiveFuel?.let { (it * 100).toInt().coerceIn(0, 10000) } ?: 0
         fuelBar.visibility = if (effectiveFuel == null) View.INVISIBLE else View.VISIBLE
         val rangeBasis = rangeConsumption?.let {
@@ -544,8 +935,12 @@ class MainActivity : Activity() {
             else "未更新 · 尚未收到油量"
         dataAge.text = (if (v == null) "尚未收到车辆数据 · 需要配套新版仪表固件"
             else fuelUpdateText) +
-            "\n按 ${fmt("%.0f", state.tankLitres)} L油箱 · $rangeBasis"
-        if (v == null) {
+            "\n按 ${fmt("%.0f", state.tankLitres)} L油箱 · $rangeBasis" +
+            if (usesRefinedHome()) "\n续航仅为估计结果，请合理规划加油。" else ""
+        if (usesRefinedHome()) {
+            updateHomeStats(refinedCurrentStats, v?.currentDistanceM, v?.currentDurationS, v?.currentFuelMl)
+            updateHomeStats(refinedTotalStats, v?.totalDistanceM, v?.totalDurationS, v?.totalFuelMl)
+        } else if (v == null) {
             currentStats.text = "— km    ·    — 分钟\n消耗燃油 — L\n平均油耗 —"
             totalStats.text = "— km    ·    — 小时\n累计消耗 — L\n平均油耗 —"
         } else {
@@ -563,11 +958,18 @@ class MainActivity : Activity() {
             )
         }
         val since = state.currentRefuelMeta()
-        sinceRefuelStats?.text = if (since == null) {
-            "等待仪表同步加油以来统计"
-        } else statsText(since.currentDistanceM, since.currentDurationS, since.currentFuelMl)
-        customStats?.text = state.customTrip(v)?.let { statsText(it.first, it.second, it.third) }
-            ?: "等待车辆数据"
+        if (usesRefinedHome()) {
+            updateHomeStats(refinedSinceRefuelStats, since?.currentDistanceM, since?.currentDurationS,
+                since?.currentFuelMl)
+            val custom = state.customTrip(v)
+            updateHomeStats(refinedCustomStats, custom?.first, custom?.second, custom?.third)
+        } else {
+            sinceRefuelStats?.text = if (since == null) {
+                "等待仪表同步加油以来统计"
+            } else statsText(since.currentDistanceM, since.currentDurationS, since.currentFuelMl)
+            customStats?.text = state.customTrip(v)?.let { statsText(it.first, it.second, it.third) }
+                ?: "等待车辆数据"
+        }
     }
 
     private fun statsText(distanceM: Long, durationS: Long, fuelMl: Long): String {
@@ -765,17 +1167,31 @@ class MainActivity : Activity() {
             start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " · #${trip.displayId}"
         } else "时间未知 · #${trip.displayId}"
         val body = page("行程详情", subtitle)
-        add(body, primaryBookkeepingAction(if (current) "‹  返回首页" else "‹  返回驾驶足迹",
+        homeDetailBackPill(body, if (current) "返回首页" else "返回驾驶足迹",
             bookkeepingFuel) {
             showTab(if (current) 0 else 1)
-        }, 18)
-        if (!current) add(body, primaryBookkeepingAction("修订这条测试数据", bookkeepingMaintenance) {
-            reviseTripData(trip)
-        }, 8)
-        if (!current && !trip.isLocalSplit) add(body,
-            primaryBookkeepingAction("手动拆分这条行程", bookkeepingFuel) {
-                splitTripRecord(trip)
-            }, 8)
+        }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.TRIP,
+            if (current) "本次行程" else "行程 #${trip.displayId}",
+            if (trip.hasValidTime) subtitle.substringBefore(" · #") else "时间信息尚不完整",
+            "${fmt("%.1f km", trip.distanceM / 1000.0)} · ${durationDetailed(trip.durationS)}",
+            bookkeepingFuel,
+        )
+        if (!current) {
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            actions.addView(homeDetailAction("修订测试数据", bookkeepingMaintenance) {
+                reviseTripData(trip)
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            if (!trip.isLocalSplit) actions.addView(
+                homeDetailAction("手动拆分这条行程", bookkeepingFuel) { splitTripRecord(trip) },
+                LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
+            add(body, actions, 8)
+        }
         if (!current && trip.dataRevised) {
             val revisionText = if (trip.isLocalSplit)
                 "由行程 #${trip.splitParentId} 手动拆分 · 不会写回仪表"
@@ -787,19 +1203,12 @@ class MainActivity : Activity() {
             }, 10)
         }
 
-        val overview = card(body, "行程概览")
-        val distanceHero = column().apply {
-            background = rounded(soften(bookkeepingFuel), 17)
-            setPadding(dp(16), dp(15), dp(16), dp(15))
-        }
-        add(distanceHero, label("本次行程", 11f, bookkeepingFuel, true))
-        add(distanceHero, label(fmt("%.1f km", trip.distanceM / 1000.0), 30f,
-            bookkeepingFuel, true), 4)
-        add(distanceHero, label("消耗 ${fmt("%.2f L", trip.fuelMl / 1000.0)} 燃油", 11f, muted), 3)
-        add(overview, distanceHero, 10)
-        addMetricPair(overview,
-            tripDetailMetric("驾驶时长", durationDetailed(trip.durationS)),
-            tripDetailMetric("平均时速", trip.averageSpeedKmh?.let { fmt("%.1f km/h", it) }), 10)
+        val overview = homeStatsCard(body,
+            if (current) "本次行程 · 实时快照" else "行程概览", bookkeepingFuel)
+        updateHomeStats(overview, trip.distanceM, trip.durationS, trip.fuelMl)
+        add(overview.content, label(
+            "平均时速 ${trip.averageSpeedKmh?.let { fmt("%.1f km/h", it) } ?: "旧记录未采集"}",
+            11f, muted), 7)
 
         val performance = card(body, "速度与转速")
         addMetricPair(performance,
@@ -862,43 +1271,55 @@ class MainActivity : Activity() {
         navigation.visibility = View.GONE
         val currentTitle = customTripTitle(state.customTripName)
         val body = page("自定义行程", "$currentTitle · 名称仅保存在手机")
-        add(body, button("‹ 返回首页") { showTab(0) }, 18)
+        homeDetailBackPill(body, "返回首页", bookkeepingDaily) { showTab(0) }
+
+        val stats = state.customTrip(state.vehicle())
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.TRIP,
+            currentTitle,
+            "可独立重置并保留历史区间",
+            stats?.let { "${fmt("%.1f km", it.first / 1000.0)} · ${durationDetailed(it.second)}" }
+                ?: "等待仪表数据",
+            bookkeepingDaily,
+        )
+        val current = homeStatsCard(body, "当前 · $currentTitle", bookkeepingDaily)
+        if (stats == null) updateHomeStats(current, null, null, null)
+        else updateHomeStats(current, stats.first, stats.second, stats.third)
+        val startedAt = state.customTripResetAtMs
+        add(current.content, label(if (startedAt > 0L) "开始于 ${date(startedAt)}" else "等待起始时间",
+            11f, muted), 7)
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        controls.addView(button("修改名称") { showCustomTripNameDialog(reset = false) },
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(6) })
-        controls.addView(button("重置并归档") {
+        controls.addView(homeDetailAction("修改名称", bookkeepingDaily) {
+            showCustomTripNameDialog(reset = false)
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        controls.addView(homeDetailAction("重置并归档", bookkeepingDaily, filled = true) {
             val vehicle = state.vehicle()
             if (vehicle == null) toast("尚未收到车辆数据")
             else showCustomTripNameDialog(reset = true, vehicle = vehicle)
-        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(6) })
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
         add(body, controls, 12)
-        add(body, label("重置时会先把当前区间保存到下方历史，再从仪表当前累计值开始新的区间；自定义名称不会发送到仪表。", 11f, muted), 8)
+        add(body, homeDetailNote(
+            "重置时会先把当前区间保存到下方历史，再从仪表当前累计值开始新的区间；自定义名称不会发送到仪表。",
+            bookkeepingDaily), 8)
 
-        val current = card(body, "当前 · $currentTitle")
-        val stats = state.customTrip(state.vehicle())
-        add(current, label(stats?.let { statsText(it.first, it.second, it.third) }
-            ?: "等待车辆数据", 16f, ink, true), 10)
-        val startedAt = state.customTripResetAtMs
-        if (startedAt > 0L) add(current, label("开始于 ${date(startedAt)}", 11f, muted), 6)
-
-        val historyCard = card(body, "历次自定义行程")
-        if (customTripLoading) add(historyCard, label("正在读取…", 13f, muted), 10)
-        else if (customTripIntervals.isEmpty()) add(historyCard, label("暂无已完成的自定义行程", 13f, muted), 10)
+        add(body, label("历次自定义行程", 19f, ink, true), 22)
+        add(body, label("已完成并归档的自定义统计区间", 11f, muted), 3)
+        if (customTripLoading) add(body, homeDetailNote("正在读取…", bookkeepingDaily), 10)
+        else if (customTripIntervals.isEmpty()) add(body,
+            homeDetailNote("暂无已完成的自定义行程", bookkeepingDaily), 10)
         else customTripIntervals.forEach { interval ->
-            val row = column().apply {
-                background = rounded(Color.rgb(247, 248, 250), 14)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-            }
             val format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             fun time(epoch: Long): String = if (epoch in 1704067200L..4102444800L)
                 format.format(Instant.ofEpochSecond(epoch).atZone(ZoneId.systemDefault())) else "时间未知"
-            add(row, label(customTripTitle(interval.name), 14f, ink, true))
-            add(row, label("${time(interval.startEpochS)}  →  ${time(interval.endEpochS)}", 11f, muted), 5)
-            add(row, label(statsText(interval.distanceM, interval.durationS, interval.fuelMl), 13f, muted), 7)
-            add(historyCard, row, 9)
+            val item = homeStatsCard(body, customTripTitle(interval.name), bookkeepingDaily)
+            updateHomeStats(item, interval.distanceM, interval.durationS, interval.fuelMl)
+            add(item.content, label("${time(interval.startEpochS)}\n至 ${time(interval.endEpochS)}",
+                11f, muted), 7)
         }
     }
 
@@ -930,7 +1351,7 @@ class MainActivity : Activity() {
             filters = arrayOf(InputFilter.LengthFilter(MAX_CUSTOM_TRIP_NAME_LENGTH))
             setText(if (customOption.isChecked) currentName else "")
             visibility = if (customOption.isChecked) View.VISIBLE else View.GONE
-        }
+        }.refineDialogField()
         add(form, customInput, 4)
         group.setOnCheckedChangeListener { radioGroup, checkedId ->
             val value = radioGroup.findViewById<RadioButton>(checkedId)?.tag as? String
@@ -1026,44 +1447,52 @@ class MainActivity : Activity() {
         navigation.removeAllViews()
         navigation.visibility = View.GONE
         val body = page("上次加油以来", "按当前识别阈值连续确认并独立记录")
-        add(body, button("‹ 返回首页") { showTab(0) }, 18)
+        homeDetailBackPill(body, "返回首页", bookkeepingMaintenance) { showTab(0) }
+
+        val meta = state.currentRefuelMeta()
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.FUEL,
+            "上次加油以来",
+            "由仪表自动识别或手动重置",
+            meta?.let { "${fmt("%.1f km", it.currentDistanceM / 1000.0)} · ${durationDetailed(it.currentDurationS)}" }
+                ?: "等待仪表数据",
+            bookkeepingMaintenance,
+        )
+        val current = homeStatsCard(body, "当前 · 上次重置以来", bookkeepingMaintenance)
+        if (meta == null) updateHomeStats(current, null, null, null)
+        else updateHomeStats(current, meta.currentDistanceM, meta.currentDurationS, meta.currentFuelMl)
+
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        controls.addView(Switch(this).apply {
-            text = "修订模式"
-            textSize = 13f
-            isChecked = refuelRevisionMode
-            setOnCheckedChangeListener { _, checked -> refuelRevisionMode = checked; showRefuelDetails() }
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        controls.addView(button("手动重置") { confirmManualRefuelReset() }, LinearLayout.LayoutParams(dp(120), -2))
+        controls.addView(homeDetailAction(if (refuelRevisionMode) "完成修订" else "修订记录",
+            bookkeepingMaintenance, filled = refuelRevisionMode) {
+            refuelRevisionMode = !refuelRevisionMode
+            showRefuelDetails()
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        controls.addView(homeDetailAction("手动重置", bookkeepingMaintenance, filled = true) {
+            confirmManualRefuelReset()
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
         add(body, controls, 12)
         val refuelThresholdText = state.gaugeSettings()?.refuelThresholdMl?.let {
             "当前设置为 ${it / 1000} L"
         } ?: "默认值为 10 L；连接仪表后显示实际设置"
-        add(body, label(
+        add(body, homeDetailNote(
             "仪表需要两次独立油位样本均确认油量上升达到自动加油识别阈值，才会建立新重置点；$refuelThresholdText，可在“设置 → 我的车辆 → 车辆设置”中调整。这里的记录与手动加油记录完全独立。",
-            11f,
-            muted,
+            bookkeepingMaintenance,
         ), 8)
 
         refuelIntervals.minByOrNull { it.id }?.let { oldest ->
-            add(body, button("删除第一个节点以前的数据") {
+            add(body, homeDetailAction("删除第一个节点以前的数据", bookkeepingMaintenance) {
                 confirmDiscardBeforeFirstRefuelNode(oldest)
             }, 10)
         }
 
-        val current = card(body, "当前 · 上次重置以来")
-        val meta = state.currentRefuelMeta()
-        add(current, label(if (meta == null) "等待仪表同步" else
-            statsText(meta.currentDistanceM, meta.currentDurationS, meta.currentFuelMl), 16f, ink, true), 10)
-
-        val historyCard = card(body, "历次加油以来")
-        if (refuelLoading) add(historyCard, label("正在读取…", 13f, muted), 10)
-        else if (refuelIntervals.isEmpty()) add(historyCard, label("暂无已完成的加油以来区间", 13f, muted), 10)
+        add(body, label("历次加油以来", 19f, ink, true), 22)
+        add(body, label("每个加油节点之间的独立统计", 11f, muted), 3)
+        if (refuelLoading) add(body, homeDetailNote("正在读取…", bookkeepingMaintenance), 10)
+        else if (refuelIntervals.isEmpty()) add(body,
+            homeDetailNote("暂无已完成的加油以来区间", bookkeepingMaintenance), 10)
         else refuelIntervals.forEachIndexed { index, interval ->
-            val row = column().apply {
-                background = rounded(Color.rgb(247, 248, 250), 14)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-            }
             val dateText = interval.endEpochS.takeIf { it in 1704067200L..4102444800L }?.let {
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(
                     Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault()))
@@ -1074,20 +1503,24 @@ class MainActivity : Activity() {
                 interval.manual -> "手动重置"
                 else -> "重置记录"
             }
-            add(row, label("$dateText   ·   $reason", 13f, ink, true))
-            add(row, label(statsText(interval.distanceM, interval.durationS, interval.fuelMl), 13f, muted), 7)
-            if (interval.dataRevised) add(row, label("测试数据已在手机端修订", 11f, accent, true), 6)
+            val item = homeStatsCard(body, reason, bookkeepingMaintenance)
+            updateHomeStats(item, interval.distanceM, interval.durationS, interval.fuelMl)
+            add(item.content, label(dateText, 11f, muted), 7)
+            if (interval.dataRevised) add(item.content,
+                label("测试数据已在手机端修订", 11f, accent, true), 6)
             if (refuelRevisionMode) {
-                add(row, button("修订测试数据") { reviseRefuelInterval(interval) }, 8)
+                add(item.content, homeDetailAction("修订测试数据", bookkeepingMaintenance) {
+                    reviseRefuelInterval(interval)
+                }, 8)
             }
             // History is newest first. Keep the most recent node directly
             // removable so an accidental refuel detection can be undone
             // without enabling the broader test-data revision mode.
-            if (index == 0 || refuelRevisionMode) add(row,
-                button(if (index == 0) "删除最近加油节点" else "删除此加油节点") {
+            if (index == 0 || refuelRevisionMode) add(item.content,
+                homeDetailAction(if (index == 0) "删除最近加油节点" else "删除此加油节点",
+                    bookkeepingMaintenance) {
                     confirmDeleteRefuelNode(interval)
                 }, 6)
-            add(historyCard, row, 9)
         }
     }
 
@@ -1135,7 +1568,7 @@ class MainActivity : Activity() {
             return EditText(this).apply {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setText(value); form.addView(this)
-            }
+            }.refineDialogField()
         }
         val distance = field("区间里程（km）", fmt("%.1f", interval.distanceM / 1000.0))
         val minutes = field("驾驶时长（分钟）", fmt("%.1f", interval.durationS / 60.0))
@@ -1198,7 +1631,7 @@ class MainActivity : Activity() {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
                     if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0
                 editor.addView(this, LinearLayout.LayoutParams(-1, -2))
-            }
+            }.refineDialogField()
         }
         val distance = numberField("行程里程（km，0～10000）", fmt("%.3f", trip.distanceM / 1000.0))
         val duration = numberField("驾驶时长（秒，1～604800）", trip.durationS.toString())
@@ -1322,33 +1755,27 @@ class MainActivity : Activity() {
                 isSingleLine = true
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 editor.addView(this, LinearLayout.LayoutParams(-1, -2))
-            }
+            }.refineDialogField()
         }
         val firstDistance = numberField("第一段里程（km）", fmt("%.3f", trip.distanceM / 2000.0))
         val firstDuration = numberField("第一段驾驶时长（秒）", (trip.durationS / 2L).toString())
         val firstFuel = numberField("第一段消耗燃油（L）", fmt("%.3f", trip.fuelMl / 2000.0))
 
         fun addDateTimeRows(prefix: String, value: Selection) {
-            val dateButton = Button(this).apply {
-                text = value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                isAllCaps = false
-                setOnClickListener {
-                    DatePickerDialog(this@MainActivity, { _, year, month, day ->
-                        value.date = LocalDate.of(year, month + 1, day)
-                        text = value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                    }, value.date.year, value.date.monthValue - 1, value.date.dayOfMonth).show()
-                }
+            val dateButton = button(value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) { }
+            dateButton.setOnClickListener {
+                DatePickerDialog(this@MainActivity, { _, year, month, day ->
+                    value.date = LocalDate.of(year, month + 1, day)
+                    dateButton.text = value.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                }, value.date.year, value.date.monthValue - 1, value.date.dayOfMonth).show()
             }
-            val timeButton = Button(this).apply {
-                text = fmt("%02d:%02d", value.hour, value.minute)
-                isAllCaps = false
-                setOnClickListener {
-                    TimePickerDialog(this@MainActivity, { _, hour, minute ->
-                        value.hour = hour
-                        value.minute = minute
-                        text = fmt("%02d:%02d", hour, minute)
-                    }, value.hour, value.minute, true).show()
-                }
+            val timeButton = button(fmt("%02d:%02d", value.hour, value.minute)) { }
+            timeButton.setOnClickListener {
+                TimePickerDialog(this@MainActivity, { _, hour, minute ->
+                    value.hour = hour
+                    value.minute = minute
+                    timeButton.text = fmt("%02d:%02d", hour, minute)
+                }, value.hour, value.minute, true).show()
             }
             add(editor, LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1482,27 +1909,21 @@ class MainActivity : Activity() {
         val editor = column().apply { setPadding(dp(20), dp(2), dp(20), dp(2)) }
         add(editor, label("开始和结束时间可分别修订；结束不能早于开始，时间跨度不能明显短于仪表记录的驾驶时长。", 12f, muted), 8)
         fun addDateTimeRows(prefix: String, selection: Selection) {
-            val dateButton = Button(this).apply {
-                text = selection.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                isAllCaps = false
-                setOnClickListener {
-                    DatePickerDialog(this@MainActivity, { _, year, month, day ->
-                        selection.date = LocalDate.of(year, month + 1, day)
-                        text = selection.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                    }, selection.date.year, selection.date.monthValue - 1,
-                        selection.date.dayOfMonth).show()
-                }
+            val dateButton = button(selection.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) { }
+            dateButton.setOnClickListener {
+                DatePickerDialog(this@MainActivity, { _, year, month, day ->
+                    selection.date = LocalDate.of(year, month + 1, day)
+                    dateButton.text = selection.date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                }, selection.date.year, selection.date.monthValue - 1,
+                    selection.date.dayOfMonth).show()
             }
-            val timeButton = Button(this).apply {
-                text = fmt("%02d:%02d", selection.hour, selection.minute)
-                isAllCaps = false
-                setOnClickListener {
-                    TimePickerDialog(this@MainActivity, { _, hour, minute ->
-                        selection.hour = hour
-                        selection.minute = minute
-                        text = fmt("%02d:%02d", selection.hour, selection.minute)
-                    }, selection.hour, selection.minute, true).show()
-                }
+            val timeButton = button(fmt("%02d:%02d", selection.hour, selection.minute)) { }
+            timeButton.setOnClickListener {
+                TimePickerDialog(this@MainActivity, { _, hour, minute ->
+                    selection.hour = hour
+                    selection.minute = minute
+                    timeButton.text = fmt("%02d:%02d", selection.hour, selection.minute)
+                }, selection.hour, selection.minute, true).show()
             }
             add(editor, LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1615,7 +2036,7 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(fmt("%.1f", estimate.distanceM / 1000.0))
             selectAll()
-        }
+        }.refineDialogField()
         val dialog = AlertDialog.Builder(this)
             .setTitle("手动校准车辆里程")
             .setMessage("请输入车辆当前里程。保存后会先更新 App，并在正常同步空闲时校准仪表；不会暂停或重置 OBD 采集与行程统计。")
@@ -2363,7 +2784,7 @@ class MainActivity : Activity() {
                 if (decimal) inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setText(value)
                 form.addView(this, LinearLayout.LayoutParams(-1, -2))
-            }
+            }.refineDialogField()
         }
         val suggestedKm = if (category == ExpenseCategory.MAINTENANCE && state.odometerDisplayEnabled)
             currentMileageEstimate().distanceM / 1000.0 else null
@@ -2552,7 +2973,7 @@ class MainActivity : Activity() {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setText(value)
                 form.addView(this, LinearLayout.LayoutParams(-1, -2))
-            }
+            }.refineDialogField()
         }
         add(form, label("日期", 12f, muted, true), 12)
         add(form, dateButton, 4)
@@ -2730,7 +3151,7 @@ class MainActivity : Activity() {
     }
 
     private fun settingsBackPill(body: LinearLayout, text: String = "返回设置", action: () -> Unit) {
-        add(body, label("‹  $text", 12f, bookkeepingStats, true).apply {
+        val back = label("‹  $text", 12f, bookkeepingStats, true).apply {
             gravity = Gravity.CENTER
             minHeight = dp(38)
             setPadding(dp(13), dp(8), dp(13), dp(8))
@@ -2738,7 +3159,10 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { action() }
-        }, 14)
+        }
+        body.addView(back, 0, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(16)
+        })
     }
 
     private fun settingsSubpageHero(
@@ -2795,18 +3219,61 @@ class MainActivity : Activity() {
     }
 
     private fun updateAutomaticConnection(enabled: Boolean) {
-        state.automatic = enabled
         if (enabled) {
+            if (state.address.isEmpty()) {
+                state.automatic = false
+                toast("请先绑定自己的仪表")
+                return
+            }
+            state.automatic = true
+            if (!TripSyncService.hasPermissions(this)) {
+                permissions(false)
+                return
+            }
+            if (GaugePresenceObserver.isSupported(this) &&
+                !GaugePresenceObserver.hasAssociation(this, state.address)) {
+                state.automatic = false
+                toast("需要确认系统伴生关联，才能获得最高级后台 BLE 唤醒资格")
+                bindGauge(state.address)
+                return
+            }
             observePresence()
             BackgroundBleWake.register(this, force = true)
             ServiceWatchdogReceiver.schedule(this)
-            permissions(false)
+            TripSyncService.start(this, reason = "系统伴生 BLE 已授权")
         } else {
+            state.automatic = false
             BackgroundBleWake.cancel(this)
             ServiceWatchdogReceiver.cancel(this)
             stopService(Intent(this, TripSyncService::class.java))
             stopPresence()
         }
+    }
+
+    private fun requestSystemBlePrivilege() {
+        if (state.address.isEmpty()) {
+            toast("请先绑定自己的仪表")
+            return
+        }
+        if (!GaugePresenceObserver.isSupported(this)) {
+            state.automatic = true
+            BackgroundBleWake.register(this, force = true)
+            TripSyncService.start(this, reason = "系统不支持伴生设备 · 使用 BLE 兼容唤醒")
+            toast("当前系统不提供伴生设备资格，已启用最高可用的 BLE 兼容唤醒")
+            return
+        }
+        if (!GaugePresenceObserver.hasAssociation(this, state.address)) {
+            toast("请在系统界面确认当前仪表")
+            bindGauge(state.address)
+            return
+        }
+        state.automatic = true
+        val presenceReady = GaugePresenceObserver.start(this)
+        val scanReady = BackgroundBleWake.register(this, force = true)
+        ServiceWatchdogReceiver.schedule(this)
+        val serviceReady = TripSyncService.start(this, reason = "重新激活系统伴生 BLE")
+        toast("伴生资格有效；设备出现唤醒${if (presenceReady) "已启用" else "待系统恢复"}；" +
+            "BLE 广播${if (scanReady) "已注册" else "注册失败"}；连接服务${if (serviceReady) "已启动" else "被系统限制"}")
     }
 
     private fun settingsGrouped() {
@@ -2883,6 +3350,8 @@ class MainActivity : Activity() {
             settingsListRow(SettingsIconView.Icon.MILEAGE, "手动校准里程",
                 fmt("当前估算 %.1f km", currentMileageEstimate().distanceM / 1000.0),
                 bookkeepingStats, action = { calibrateMileage() }),
+            settingsSwitchRow(SettingsIconView.Icon.DISPLAY, "新版首页界面", "关闭后恢复 3.9.0 经典首页布局",
+                bookkeepingFuel, usesRefinedHome()) { setRefinedHome(it) },
             settingsSwitchRow(SettingsIconView.Icon.DISPLAY, "显示车辆里程", "同步到仪表设备信息页和 App 首页",
                 bookkeepingStats, state.odometerDisplayEnabled) { checked ->
                 val started = TripSyncService.setOdometerDisplay(this, checked)
@@ -2929,19 +3398,35 @@ class MainActivity : Activity() {
             appUpdateCheck != null -> appUpdateCheck!!.message
             else -> "当前 v${BuildConfig.VERSION_NAME} · 点击检查更新"
         }
-        val firmwareDetail = state.firmwareVersion?.let { "仪表 v$it · 点击扫描更新" }
-            ?: "等待连接仪表后读取版本"
+        val firmwareDetail = when {
+            state.firmwareUpdateActive -> state.firmwareUpdateMessage
+            state.firmwareUpdateStage == "available" -> state.firmwareUpdateMessage
+            state.firmwareUpdateStage == "failed" -> state.firmwareUpdateMessage
+            state.firmwareVersion != null -> "仪表 v${state.firmwareVersion} · 查看更新与回滚"
+            else -> "等待连接仪表后读取版本"
+        }
         settingsListGroup(body, listOf(
             settingsListRow(SettingsIconView.Icon.UPDATE, "App 更新", appDetail, bookkeepingStats,
                 action = { checkAppUpdate() }),
             settingsListRow(SettingsIconView.Icon.FIRMWARE, "仪表固件更新", firmwareDetail, bookkeepingMaintenance,
-                action = { requestGroupedFirmwareCheck() }),
+                action = { firmwareUpdatePage() }),
             settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "查看固件信息和显示参数",
                 bookkeepingMaintenance, action = { gaugeSettingsPage() }),
         ))
         settingsListGroup(body, listOf(
             settingsSwitchRow(SettingsIconView.Icon.AUTOSTART, "开机自启 / 自动连接", "恢复后台服务并等待仪表上电",
                 bookkeepingFuel, state.automatic) { updateAutomaticConnection(it) },
+            settingsListRow(SettingsIconView.Icon.BLUETOOTH, "系统级 BLE 唤醒",
+                when {
+                    state.address.isEmpty() -> "尚未绑定仪表"
+                    !GaugePresenceObserver.isSupported(this) -> "系统不支持伴生设备 · 使用兼容唤醒"
+                    GaugePresenceObserver.hasAssociation(this, state.address) -> "伴生关联有效 · 可从后台启动连接"
+                    else -> "需要系统确认 · 点击获取后台启动资格"
+                }, bookkeepingFuel, action = { requestSystemBlePrivilege() }),
+            settingsListRow(SettingsIconView.Icon.FEEDBACK, "问题反馈", "报告异常、提出建议并附带脱敏诊断信息",
+                bookkeepingStats, action = { feedbackPage() }),
+            settingsListRow(SettingsIconView.Icon.LEGAL, "使用须知与版权", "安全边界、数据权限、开源许可与非官方声明",
+                bookkeepingStats, action = { userNoticePage(firstRun = false) }),
             settingsListRow(SettingsIconView.Icon.LEGACY, "切换到经典设置页", "完整保留原有设置界面与全部入口",
                 muted, action = { switchSettingsLayout(false) }),
         ))
@@ -2962,6 +3447,37 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun firmwareUpdatePage() {
+        rememberCurrentScroll()
+        showingTripDetail = false
+        showingRefuelDetail = false
+        showingCustomTripDetail = false
+        showingVehicleSettings = false
+        showingGaugeSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = true
+        tab = 3
+        content.removeAllViews()
+        navigation.removeAllViews()
+        navigation.visibility = View.GONE
+
+        val body = page("仪表固件更新", "版本检查、安全 OTA 与历史版本回滚")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.FIRMWARE,
+            "SkyGauge",
+            state.firmwareVersion?.let { "当前固件 v$it" } ?: "等待读取固件版本",
+            when {
+                state.firmwareUpdateActive -> state.firmwareUpdateMessage
+                state.connected -> "● 仪表已连接"
+                else -> "○ 仪表未连接"
+            },
+            bookkeepingMaintenance,
+        )
+        firmwareUpdateCard(body)
     }
 
     private fun settingsLegacy() {
@@ -3007,6 +3523,12 @@ class MainActivity : Activity() {
             "校准前，里程为已记录行程的累计估算；校准后，App 与仪表使用同一当前里程并分别累加后续行程。显示开关和校准命令只在正常数据同步空闲时发送。",
             12f, muted), 8)
         val homeTrips = card(body, "首页行程")
+        add(homeTrips, Switch(this).apply {
+            text = "使用新版首页界面"
+            textSize = 14f
+            isChecked = usesRefinedHome()
+            setOnCheckedChangeListener { _, checked -> setRefinedHome(checked) }
+        }, 10)
         add(homeTrips, Switch(this).apply {
             text = "显示上次加油以来"
             textSize = 14f
@@ -3163,7 +3685,7 @@ class MainActivity : Activity() {
             val entry = EditText(this).apply {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setText(state.tankLitres.toString())
-            }
+            }.refineDialogField()
             AlertDialog.Builder(this).setTitle("油箱容量（升）").setView(entry)
                 .setMessage("默认按 50 L 估算，可按车辆规格校准。不会修改车辆或仪表数据。")
                 .setPositiveButton("保存") { _, _ ->
@@ -3199,7 +3721,7 @@ class MainActivity : Activity() {
                     inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                     setText(fmt("%.2f", state.rangeCorrectionFactor))
                     selectAll()
-                }
+                }.refineDialogField()
                 AlertDialog.Builder(this).setTitle("续航油耗修正系数").setView(entry)
                     .setMessage("仅在续航计算时用所选油耗乘此系数；页面显示的油耗保持原值。默认 1.06。")
                     .setPositiveButton("保存") { _, _ ->
@@ -3216,7 +3738,7 @@ class MainActivity : Activity() {
             val entry = EditText(this).apply {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 state.manualFuelPercent?.let { setText(fmt("%.1f", it)) }
-            }
+            }.refineDialogField()
             AlertDialog.Builder(this).setTitle("当前剩余油量（%）").setView(entry)
                 .setMessage("当车辆不支持 OBD PID 01 2F 时，App 会从此油量扣除仪表统计的燃油消耗。每次加油后重新校准即可。")
                 .setPositiveButton("保存") { _, _ ->
@@ -3230,15 +3752,282 @@ class MainActivity : Activity() {
             state.clearManualFuel(); showTab(3)
         }, 6)
         add(estimate, label("优先读取车辆 PID 01 2F；若车型不输出油箱液位，可人工校准一次，之后按累计耗油量递减。", 12f, muted), 10)
+        val feedback = card(body, "问题反馈")
+        add(feedback, label("遇到异常或有功能建议时，可生成不含车辆记录和完整蓝牙地址的诊断摘要，并前往 GitHub Issues 提交。", 12f, muted), 8)
+        add(feedback, button("打开问题反馈") { feedbackPage() }, 10)
+        val legal = card(body, "使用须知与版权")
+        add(legal, label("查看安全边界、本地数据与权限说明、版权归属、GPLv3 开源许可和非官方声明。", 12f, muted), 8)
+        add(legal, button("查看使用须知与版权") { userNoticePage(firstRun = false) }, 10)
         add(body, label("BRZ Garage ${BuildConfig.VERSION_NAME} · 本地优先\n保留原有历史数据库。不将车辆数据上传云端，不控制车锁或发动机。", 12f, muted), 20)
         resumeAppUpdateDownloadPolling()
     }
+
+    private fun openUserNoticeLink(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: RuntimeException) {
+            toast("无法打开链接，请稍后在浏览器中访问项目仓库")
+        }
+    }
+
+    private fun userNoticePage(firstRun: Boolean) {
+        rememberCurrentScroll()
+        showingTripDetail = false
+        showingRefuelDetail = false
+        showingCustomTripDetail = false
+        showingVehicleSettings = false
+        showingGaugeSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = false
+        showingFirstRunNotice = firstRun
+        showingLegalNotice = !firstRun
+        if (!firstRun) tab = 3
+        content.removeAllViews()
+        navigation.removeAllViews()
+        navigation.visibility = View.GONE
+
+        val body = page(if (firstRun) "知情同意与版权声明" else "使用须知与版权", if (firstRun)
+            "首次使用前请完整阅读，确认后才会请求系统权限"
+        else "安全边界、数据权限、开源许可与非官方声明")
+        if (!firstRun) settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.LEGAL,
+            if (firstRun) "开始使用 BRZ Garage" else "BRZ Garage 使用说明",
+            "测试版车辆辅助工具 · 本地优先",
+            if (state.hasAcceptedCurrentUserNotice) "● 已确认第 ${UserNotice.VERSION} 版须知"
+            else "○ 尚未确认",
+            bookkeepingStats,
+        )
+
+        fun noticeCard(title: String, text: String) {
+            val section = card(body, title)
+            add(section, label(text, 13f, ink).apply {
+                setLineSpacing(dp(4).toFloat(), 1.05f)
+            }, 9)
+        }
+        noticeCard("安全与功能边界", UserNotice.SAFETY)
+        noticeCard("本地数据与系统权限", UserNotice.DATA_AND_PERMISSIONS)
+        noticeCard("版权与开源许可", UserNotice.COPYRIGHT_AND_LICENSE)
+        noticeCard("非官方声明", UserNotice.UNOFFICIAL)
+        noticeCard("确认说明", UserNotice.ACKNOWLEDGEMENT)
+
+        val links = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        links.addView(homeDetailAction("项目源码", bookkeepingStats) {
+            openUserNoticeLink(UserNotice.SOURCE_URL)
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        links.addView(homeDetailAction("GPLv3 许可", bookkeepingStats) {
+            openUserNoticeLink(UserNotice.LICENSE_URL)
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
+        add(body, links, 14)
+        add(body, homeDetailAction("查看完整 NOTICE", bookkeepingStats) {
+            openUserNoticeLink(UserNotice.NOTICE_URL)
+        }, 8)
+
+        if (firstRun) {
+            val safetyConsent = CheckBox(this).apply {
+                text = "我已阅读并理解，并同意 App 按上述方式在本地处理数据"
+                textSize = 13f
+                setTextColor(ink)
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+            }
+            val copyrightConsent = CheckBox(this).apply {
+                text = "我已阅读版权归属、GPLv3 开源许可和非官方声明"
+                textSize = 13f
+                setTextColor(ink)
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+            }
+            val confirmation = card(body, "请分别确认")
+            add(confirmation, safetyConsent, 5)
+            add(confirmation, copyrightConsent)
+            add(confirmation, label(
+                "勾选版权项仅表示已阅读相关声明；运行本软件本身不以接受 GPLv3 为前提。",
+                11f,
+                muted,
+            ), 5)
+
+            val accept = primaryBookkeepingAction("同意并继续", bookkeepingStats) {
+                state.acceptCurrentUserNotice()
+                showingFirstRunNotice = false
+                initializeApp()
+                startAcceptedRuntime()
+            }.apply {
+                isEnabled = false
+                alpha = .45f
+            }
+            val updateAcceptState = {
+                accept.isEnabled = safetyConsent.isChecked && copyrightConsent.isChecked
+                accept.alpha = if (accept.isEnabled) 1f else .45f
+            }
+            safetyConsent.setOnCheckedChangeListener { _, _ -> updateAcceptState() }
+            copyrightConsent.setOnCheckedChangeListener { _, _ -> updateAcceptState() }
+            add(body, accept, 18)
+            add(body, homeDetailAction("不同意并退出", bookkeepingMaintenance) {
+                confirmDeclineUserNotice()
+            }, 8)
+        } else {
+            val accepted = state.acceptedUserNoticeAt.takeIf { it > 0L }?.let(::date)
+            add(body, homeDetailNote(
+                accepted?.let { "已于 $it 确认第 ${state.acceptedUserNoticeVersion} 版使用须知。" }
+                    ?: "当前版本的使用须知已确认。",
+                bookkeepingStats,
+            ), 14)
+            add(body, homeDetailAction("撤回确认并停止使用", bookkeepingMaintenance) {
+                confirmDeclineUserNotice()
+            }, 8)
+        }
+    }
+
+    private fun confirmDeclineUserNotice() {
+        val withdrawing = state.hasAcceptedCurrentUserNotice
+        AlertDialog.Builder(this)
+            .setTitle(if (withdrawing) "撤回确认并停止使用？" else "不同意使用须知？")
+            .setMessage(if (withdrawing)
+                "撤回后将关闭自动连接、BLE 唤醒和后台同步并退出 App；手机中的现有行程与账目不会自动删除。下次启动仍可重新阅读并确认。"
+            else "App 不会请求蓝牙等系统权限，也不会启动连接、后台同步或网络请求。你可以退出，之后重新打开再阅读。")
+            .setNegativeButton("返回阅读", null)
+            .setPositiveButton(if (withdrawing) "撤回并退出" else "退出 App") { _, _ ->
+                if (withdrawing) {
+                    state.withdrawUserNotice()
+                    GaugePresenceObserver.stop(this)
+                    BackgroundBleWake.cancel(this)
+                    ServiceWatchdogReceiver.cancel(this)
+                    stopService(Intent(this, TripSyncService::class.java))
+                }
+                finishAffinity()
+            }
+            .show()
+    }
+
+    private fun feedbackDiagnostics(): String {
+        val phoneName = listOf(Build.MANUFACTURER, Build.MODEL)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .joinToString(" ")
+            .ifBlank { "未知" }
+        val firmware = state.firmwareInfo()
+        val gaugeHardware = firmware?.let {
+            listOf(it.board, it.variant).filter(String::isNotBlank).joinToString(" / ")
+        }.orEmpty().ifBlank { "未读取" }
+        return listOf(
+            "App：BRZ Garage ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            "Android：${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            "手机：$phoneName",
+            "车型：${state.selectedVehicleModel.title}",
+            "仪表绑定：${if (state.address.isBlank()) "未绑定" else "已绑定（蓝牙地址未包含）"}",
+            "仪表连接：${if (state.connected) "已连接" else "未连接"}",
+            "同步服务：${if (TripSyncService.running) "运行中" else "未运行"}",
+            "自动连接：${if (state.automatic) "已开启" else "已关闭"}",
+            "仪表固件：${state.firmwareVersion ?: "未读取"}",
+            "仪表硬件：$gaugeHardware",
+        ).joinToString("\n")
+    }
+
+    private fun feedbackTemplate(): String = """
+        ### 问题描述
+        请简要说明遇到的问题或建议。
+
+        ### 复现步骤
+        1. 请填写第一步
+        2. 请填写第二步
+        3. 请填写出现问题的操作
+
+        ### 期望结果
+        请填写期望结果
+
+        ### 实际结果
+        请填写实际结果
+
+        ### 附件
+        如方便，请补充截图或录屏；提交前请遮挡车牌、蓝牙地址等个人信息。
+
+        ### 诊断信息
+        ```text
+        ${feedbackDiagnostics()}
+        ```
+    """.trimIndent()
+
+    private fun copyFeedbackTemplate() {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("BRZ Garage 问题反馈", feedbackTemplate()))
+        toast("反馈模板已复制，可粘贴到 GitHub 或其他沟通渠道")
+    }
+
+    private fun openFeedbackIssue() {
+        val uri = android.net.Uri.parse(FEEDBACK_ISSUES_URL).buildUpon()
+            .appendQueryParameter("title", "[问题反馈] 请简要描述问题")
+            .appendQueryParameter("body", feedbackTemplate())
+            .build()
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: RuntimeException) {
+            copyFeedbackTemplate()
+            AlertDialog.Builder(this)
+                .setTitle("无法打开浏览器")
+                .setMessage("反馈模板已经复制。你可以稍后打开项目 GitHub Issues 并粘贴提交。")
+                .setPositiveButton("知道了", null)
+                .show()
+        }
+    }
+
+    private fun feedbackPage() {
+        rememberCurrentScroll()
+        showingTripDetail = false
+        showingRefuelDetail = false
+        showingCustomTripDetail = false
+        showingVehicleSettings = false
+        showingGaugeSettings = false
+        showingFirmwareUpdate = false
+        showingFeedback = true
+        tab = 3
+        content.removeAllViews()
+        navigation.removeAllViews()
+        navigation.visibility = View.GONE
+
+        val body = page("问题反馈", "报告异常、提出建议或补充兼容性信息")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.FEEDBACK,
+            "帮助我们改进",
+            "通过 GitHub Issues 跟踪处理进度",
+            "提交前可检查和修改全部内容",
+            bookkeepingStats,
+        )
+
+        val guide = card(body, "怎样反馈更容易定位")
+        add(guide, label("请尽量写明发生场景、复现步骤、期望结果和实际结果；界面或显示问题可附截图，连接问题可说明仪表是否上电及手机系统版本。", 13f, ink, true), 8)
+        add(guide, label("反馈入口会打开外部 GitHub 页面，需要网络和 GitHub 账号。点击按钮不会直接提交，仍可在网页中检查和删除预填内容。", 11f, muted), 8)
+
+        val diagnostics = card(body, "脱敏诊断信息")
+        add(diagnostics, label(feedbackDiagnostics(), 12f, ink).apply {
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(Color.rgb(247, 248, 251), 13)
+        }, 8)
+        add(diagnostics, label("不会包含行程、位置、车牌、账目、日志正文或完整蓝牙地址，也不会在后台自动上传。", 11f, muted), 8)
+
+        add(body, primaryBookkeepingAction("在 GitHub 提交问题", bookkeepingStats) {
+            openFeedbackIssue()
+        }, 14)
+        add(body, button("复制反馈模板") { copyFeedbackTemplate() }, 8)
+        add(body, label("如果问题涉及安全、隐私或不适合公开的信息，请不要在公开 Issue 中填写敏感数据。", 11f, muted), 14)
+    }
+
     private fun vehicleSettingsPage() {
         rememberCurrentScroll()
         showingTripDetail = false
         showingRefuelDetail = false
         showingCustomTripDetail = false
         showingGaugeSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = false
         showingVehicleSettings = true
         tab = 3
         content.removeAllViews()
@@ -3290,7 +4079,7 @@ class MainActivity : Activity() {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setText(state.tankLitres.toString())
                 selectAll()
-            }
+            }.refineDialogField()
             AlertDialog.Builder(this).setTitle("油箱容量（升）").setView(entry)
                 .setMessage("默认按 50 L 估算，可按车辆规格校准。")
                 .setPositiveButton("保存") { _, _ ->
@@ -3330,7 +4119,7 @@ class MainActivity : Activity() {
                     inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                     setText(fmt("%.2f", state.rangeCorrectionFactor))
                     selectAll()
-                }
+                }.refineDialogField()
                 AlertDialog.Builder(this).setTitle("续航油耗修正系数").setView(entry)
                     .setMessage("仅用于续航计算，默认 1.06。")
                     .setPositiveButton("保存") { _, _ ->
@@ -3353,7 +4142,7 @@ class MainActivity : Activity() {
             maxLines = 1
             filters = arrayOf(InputFilter.LengthFilter(MAX_VEHICLE_DISPLAY_NAME_LENGTH))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        }
+        }.refineDialogField()
         AlertDialog.Builder(this).setTitle("首页车辆名称").setView(entry)
             .setMessage("最多 $MAX_VEHICLE_DISPLAY_NAME_LENGTH 个字符，仅保存在手机本地；换行会自动移除。")
             .setPositiveButton("保存") { _, _ ->
@@ -3637,7 +4426,7 @@ class MainActivity : Activity() {
             toast("无法启动固件更新，请确认仪表已连接且权限完整")
         } else {
             toast("已进入安全更新流程，请保持仪表供电并让 App 留在前台")
-            showTab(3)
+            if (showingFirmwareUpdate) firmwareUpdatePage() else showTab(3)
         }
     }
     private fun gaugeSettingsPage() {
@@ -3646,6 +4435,8 @@ class MainActivity : Activity() {
         showingRefuelDetail = false
         showingCustomTripDetail = false
         showingVehicleSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = false
         showingGaugeSettings = true
         content.removeAllViews()
         navigation.removeAllViews()
@@ -3892,7 +4683,8 @@ class MainActivity : Activity() {
         }
         if (code != 100) return
         if (TripSyncService.hasPermissions(this)) {
-            if (bindAfterPermission) bindGauge() else TripSyncService.start(this)
+            if (bindAfterPermission) bindGauge()
+            else if (state.automatic) updateAutomaticConnection(true)
         } else toast("需要附近设备权限才能发现仪表")
     }
     private fun bindGauge(addressHint: String? = null) {
@@ -3963,6 +4755,9 @@ class MainActivity : Activity() {
         }
         state.address = address
         state.automatic = true
+        if (GaugePresenceObserver.hasAssociation(this, address)) {
+            state.prefs.edit().putLong("companion_privilege_granted_at", System.currentTimeMillis()).apply()
+        }
         observePresence()
         BackgroundBleWake.register(this, force = true)
         ServiceWatchdogReceiver.schedule(this)

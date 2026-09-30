@@ -23,6 +23,21 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn('return "${kilometres}km"', source)
         self.assertIn('if (estimate.calibrated) "" else " · 未校准"', source)
 
+    def test_refined_home_keeps_classic_in_app_fallback(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('state.prefs.getBoolean("refined_home_ui", true)', source)
+        self.assertIn('if (usesRefinedHome()) homeRefined() else homeClassic()', source)
+        self.assertIn('private fun homeRefined()', source)
+        self.assertIn('private fun homeClassic()', source)
+        self.assertIn('"新版首页界面", "关闭后恢复 3.9.0 经典首页布局"', source)
+        self.assertIn('toast(if (enabled) "已启用新版首页" else "已回退到经典首页")', source)
+        self.assertIn('homeStatsCard(body, "本次行程 · 仪表统计"', source)
+        self.assertIn('homeStatsCard(body, "累计驾驶 · 自仪表开始记录"', source)
+        self.assertIn('progressTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)', source)
+        self.assertIn('LinearLayout.LayoutParams(-1, dp(184))', source)
+
     def test_page_rebuild_restores_scroll_position(self):
         source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
             encoding="utf-8"
@@ -67,7 +82,7 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("state.odometerDisplayEnabled", activity)
         self.assertIn("TripSyncService.setOdometerDisplay", activity)
         self.assertIn("TripSyncService.calibrateGaugeOdometer", activity)
-        self.assertIn('button("修订测试数据")', activity)
+        self.assertIn('homeDetailAction("修订测试数据", bookkeepingMaintenance)', activity)
         self.assertIn("fun requestOdometerDisplay", state)
         self.assertIn("fun requestGaugeOdometerCalibration", state)
         self.assertIn("ODOMETER_CONFIG", service)
@@ -142,8 +157,8 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         for state in ("已同步", "已修订", "测试数据", "时间未知", "待核实"):
             self.assertIn(state, adapter)
         self.assertIn("tripDetailMetric", activity)
-        self.assertIn('primaryBookkeepingAction(if (current)', activity)
-        self.assertIn('background = rounded(soften(bookkeepingFuel), 17)', activity)
+        self.assertIn('homeDetailBackPill(body, if (current)', activity)
+        self.assertIn('if (current) "本次行程 · 实时快照" else "行程概览"', activity)
 
     def test_vehicle_settings_page_owns_name_model_and_refuel_threshold(self):
         source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
@@ -178,6 +193,122 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("两次独立油位样本均确认", source)
         self.assertNotIn("按 50 L 标称油箱折算达到 5 L", source)
 
+    def test_home_secondary_pages_share_refined_cards_and_actions(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("private fun homeDetailBackAction", source)
+        self.assertIn("private fun homeDetailBackPill", source)
+        self.assertIn("private fun homeDetailAction", source)
+        self.assertIn('if (current) "本次行程 · 实时快照" else "行程概览"', source)
+        self.assertIn('homeStatsCard(body, "当前 · $currentTitle", bookkeepingDaily)', source)
+        self.assertIn('homeStatsCard(body, "当前 · 上次重置以来", bookkeepingMaintenance)', source)
+        self.assertIn('homeStatsCard(body, customTripTitle(interval.name), bookkeepingDaily)', source)
+        self.assertIn('homeStatsCard(body, reason, bookkeepingMaintenance)', source)
+        self.assertIn('homeDetailAction("手动拆分这条行程", bookkeepingFuel)', source)
+        self.assertIn('homeDetailAction("手动重置", bookkeepingMaintenance, filled = true)', source)
+        trip_page = source.split("private fun showTripDetails", 1)[1].split(
+            "private fun tripDetailMetric", 1
+        )[0]
+        custom_page = source.split("private fun showCustomTripDetails", 1)[1].split(
+            "private fun showCustomTripNameDialog", 1
+        )[0]
+        refuel_page = source.split("private fun showRefuelDetails", 1)[1].split(
+            "private fun confirmDeleteRefuelNode", 1
+        )[0]
+        for page in (trip_page, custom_page, refuel_page):
+            self.assertIn("settingsSubpageHero(", page)
+        self.assertIn("SettingsIconView.Icon.TRIP", trip_page)
+        self.assertIn("SettingsIconView.Icon.FUEL", refuel_page)
+
+    def test_trip_editors_do_not_fall_back_to_default_system_buttons(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        split_editor = source.split("private fun splitTripRecord", 1)[1].split(
+            "private fun reviseTripTime", 1
+        )[0]
+        time_editor = source.split("private fun reviseTripTime", 1)[1].split(
+            "private fun confirmDeleteTrip", 1
+        )[0]
+        for editor in (split_editor, time_editor):
+            self.assertNotIn("Button(this).apply", editor)
+            self.assertIn("val dateButton = button(", editor)
+            self.assertIn("val timeButton = button(", editor)
+
+    def test_dialogs_and_secondary_headers_share_refined_ui(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        styles = (ROOT / "android_app/app/src/main/res/values/styles.xml").read_text(
+            encoding="utf-8"
+        )
+        surface = (ROOT / "android_app/app/src/main/res/drawable/dialog_surface.xml").read_text(
+            encoding="utf-8"
+        )
+        plate = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlateGeneratorActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('android:alertDialogTheme">@style/BrzAlertDialogTheme', styles)
+        self.assertIn('android:datePickerDialogTheme">@style/BrzAlertDialogTheme', styles)
+        self.assertIn('android:windowBackground">@drawable/dialog_surface', styles)
+        self.assertIn('android:radius="24dp"', surface)
+        self.assertIn("private fun EditText.refineDialogField()", source)
+        self.assertGreaterEqual(source.count(".refineDialogField()"), 13)
+        self.assertIn("body.addView(back, 0", source)
+        self.assertIn("body.addView(homeDetailBackAction(text, color, action), 0", source)
+        self.assertIn('label("‹  返回车辆设置"', plate)
+
+    def test_first_run_notice_precedes_permissions_and_runtime_work(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        state = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt").read_text(
+            encoding="utf-8"
+        )
+        notice = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/UserNotice.kt").read_text(
+            encoding="utf-8"
+        )
+        on_create = source.split("override fun onCreate", 1)[1].split(
+            "private fun initializeApp", 1
+        )[0]
+        self.assertIn("if (!state.hasAcceptedCurrentUserNotice)", on_create)
+        self.assertLess(on_create.index("userNoticePage(firstRun = true)"), on_create.index("initializeApp(savedInstanceState)"))
+        self.assertIn('primaryBookkeepingAction("同意并继续"', source)
+        self.assertGreaterEqual(source.count("CheckBox(this)"), 2)
+        self.assertIn("accept.isEnabled = safetyConsent.isChecked && copyrightConsent.isChecked", source)
+        self.assertIn("isEnabled = false", source)
+        self.assertIn("state.acceptCurrentUserNotice()", source)
+        self.assertIn("state.withdrawUserNotice()", source)
+        self.assertIn("BackgroundBleWake.cancel(this)", source)
+        self.assertIn("GaugePresenceObserver.stop(this)", source)
+        self.assertIn("ServiceWatchdogReceiver.cancel(this)", source)
+        self.assertIn('"使用须知与版权"', source)
+        self.assertIn("accepted_user_notice_version", state)
+        self.assertIn('compatibleBoolean("automatic", true) && hasAcceptedCurrentUserNotice', state)
+        self.assertIn("const val SAFETY", notice)
+        self.assertIn("const val DATA_AND_PERMISSIONS", notice)
+        self.assertIn("const val COPYRIGHT_AND_LICENSE", notice)
+        self.assertIn("运行本软件本身不以接受 GPL 为前提", notice)
+        self.assertIn("SettingsIconView.Icon.LEGAL", source)
+
+    def test_bottom_navigation_uses_unified_vector_icons(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        icons = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/SettingsIconView.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("private fun bottomNavigationItem", source)
+        self.assertIn("SettingsIconView.Icon.VEHICLE", source)
+        self.assertIn("SettingsIconView.Icon.TRIP", source)
+        self.assertIn("SettingsIconView.Icon.ACCOUNTING", source)
+        self.assertIn("SettingsIconView.Icon.SETTINGS", source)
+        self.assertIn("if (selected) background = rounded(soften(color), 15)", source)
+        self.assertNotIn('0 -> "◉\\n"', source)
+        self.assertIn("private fun drawAccounting", icons)
+        self.assertIn("private fun drawSettings", icons)
+
     def test_grouped_settings_ui_keeps_an_in_app_classic_fallback(self):
         source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
             encoding="utf-8"
@@ -204,8 +335,32 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("SettingsIconView(this@MainActivity)", source)
         self.assertIn("class SettingsIconView", icons)
         for icon in ("VEHICLE", "MILEAGE", "GAUGE", "FUEL", "TRIP", "BLUETOOTH",
-                     "UPDATE", "FIRMWARE", "DISPLAY", "AUTOSTART", "HEALTH", "LEGACY", "PLATE"):
+                     "UPDATE", "FIRMWARE", "DISPLAY", "AUTOSTART", "HEALTH", "FEEDBACK",
+                     "LEGAL", "LEGACY", "PLATE"):
             self.assertIn(icon, icons)
+
+    def test_feedback_channel_prefills_reviewable_privacy_safe_report(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        page = source.split("private fun feedbackPage()", 1)[1].split(
+            "private fun vehicleSettingsPage()", 1
+        )[0]
+        diagnostics = source.split("private fun feedbackDiagnostics()", 1)[1].split(
+            "private fun feedbackTemplate()", 1
+        )[0]
+        self.assertIn('"问题反馈"', source)
+        self.assertIn("https://github.com/sisi4376/BRZ-Garage/issues/new", source)
+        self.assertIn('appendQueryParameter("body", feedbackTemplate())', source)
+        self.assertIn('ClipData.newPlainText("BRZ Garage 问题反馈", feedbackTemplate())', source)
+        self.assertIn('page("问题反馈"', page)
+        self.assertIn('primaryBookkeepingAction("在 GitHub 提交问题"', page)
+        self.assertIn('button("复制反馈模板")', page)
+        self.assertIn("不会包含行程、位置、车牌、账目、日志正文或完整蓝牙地址", page)
+        self.assertIn('"已绑定（蓝牙地址未包含）"', diagnostics)
+        self.assertNotIn('"${state.address}"', diagnostics)
+        self.assertIn('outState.putBoolean("feedback_page", showingFeedback)', source)
+        self.assertIn('showingFeedback -> showTab(3)', source)
 
 
 if __name__ == "__main__":

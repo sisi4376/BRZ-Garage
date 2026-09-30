@@ -137,6 +137,25 @@ class EmbeddedFirmwareUpdateTest(unittest.TestCase):
         self.assertIn("固件回滚风险提示", source)
         self.assertIn("已停车并了解风险，确认回滚", source)
 
+    def test_grouped_settings_opens_complete_firmware_update_page(self):
+        source = (ROOT / "android_app" / "app" / "src" / "main" / "java" /
+                  "com" / "brz" / "gauge" / "trips" / "MainActivity.kt").read_text(encoding="utf-8")
+        grouped = source.split("private fun renderAppSettingsOverview", 1)[1].split(
+            "private fun requestGroupedFirmwareCheck", 1
+        )[0]
+        page = source.split("private fun firmwareUpdatePage()", 1)[1].split(
+            "private fun settingsLegacy", 1
+        )[0]
+        self.assertIn('action = { firmwareUpdatePage() }', grouped)
+        self.assertNotIn('action = { requestGroupedFirmwareCheck() }', grouped)
+        self.assertIn('page("仪表固件更新"', page)
+        self.assertIn("firmwareUpdateCard(body)", page)
+        self.assertIn('button("扫描是否需要更新")', source)
+        self.assertIn('button("手动进入 OTA 并更新")', source)
+        self.assertIn('button("选择历史版本回滚")', source)
+        self.assertIn("showingFirmwareUpdate -> firmwareUpdatePage()", source)
+        self.assertIn("if (updated && showingFirmwareUpdate) firmwareUpdatePage()", source)
+
     def test_rollback_is_explicitly_selected_and_never_used_by_normal_scan(self):
         embedded = (ROOT / "android_app" / "app" / "src" / "main" / "java" /
                     "com" / "brz" / "gauge" / "trips" / "EmbeddedFirmware.kt").read_text(encoding="utf-8")

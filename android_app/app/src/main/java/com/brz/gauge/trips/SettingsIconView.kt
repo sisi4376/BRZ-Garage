@@ -13,7 +13,7 @@ import kotlin.math.min
 class SettingsIconView(context: Context) : View(context) {
     enum class Icon {
         VEHICLE, MILEAGE, GAUGE, FUEL, TRIP, BLUETOOTH, UPDATE, FIRMWARE,
-        DISPLAY, AUTOSTART, HEALTH, LEGACY, PLATE,
+        DISPLAY, AUTOSTART, HEALTH, FEEDBACK, LEGAL, LEGACY, PLATE, ACCOUNTING, SETTINGS,
     }
 
     var icon: Icon = Icon.VEHICLE
@@ -58,8 +58,12 @@ class SettingsIconView(context: Context) : View(context) {
             Icon.DISPLAY -> drawDisplay(canvas)
             Icon.AUTOSTART -> drawAutostart(canvas)
             Icon.HEALTH -> drawHealth(canvas)
+            Icon.FEEDBACK -> drawFeedback(canvas)
+            Icon.LEGAL -> drawLegal(canvas)
             Icon.LEGACY -> drawLegacy(canvas)
             Icon.PLATE -> drawPlate(canvas)
+            Icon.ACCOUNTING -> drawAccounting(canvas)
+            Icon.SETTINGS -> drawSettings(canvas)
         }
         canvas.restore()
     }
@@ -186,6 +190,35 @@ class SettingsIconView(context: Context) : View(context) {
         canvas.drawPath(path, paint)
     }
 
+    private fun drawFeedback(canvas: Canvas) {
+        path.reset()
+        path.moveTo(5f, 5f)
+        path.lineTo(19f, 5f)
+        path.quadTo(21f, 5f, 21f, 7f)
+        path.lineTo(21f, 15f)
+        path.quadTo(21f, 17f, 19f, 17f)
+        path.lineTo(11f, 17f)
+        path.lineTo(6f, 21f)
+        path.lineTo(7f, 17f)
+        path.lineTo(5f, 17f)
+        path.quadTo(3f, 17f, 3f, 15f)
+        path.lineTo(3f, 7f)
+        path.quadTo(3f, 5f, 5f, 5f)
+        path.close()
+        canvas.drawPath(path, paint)
+        canvas.drawLine(12f, 8f, 12f, 12.5f, paint)
+        canvas.drawCircle(12f, 14.8f, .35f, paint)
+    }
+
+    private fun drawLegal(canvas: Canvas) {
+        canvas.drawRoundRect(5f, 3f, 19f, 21f, 2f, 2f, paint)
+        canvas.drawLine(8f, 7f, 16f, 7f, paint)
+        canvas.drawLine(8f, 10f, 14f, 10f, paint)
+        canvas.drawCircle(12f, 15f, 3.1f, paint)
+        canvas.drawLine(12f, 14f, 12f, 17f, paint)
+        canvas.drawCircle(12f, 12.8f, .3f, paint)
+    }
+
     private fun drawLegacy(canvas: Canvas) {
         canvas.drawRoundRect(5f, 5f, 19f, 19f, 2f, 2f, paint)
         canvas.drawRoundRect(3f, 3f, 17f, 17f, 2f, 2f, paint)
@@ -199,5 +232,26 @@ class SettingsIconView(context: Context) : View(context) {
         canvas.drawCircle(18f, 12f, .8f, paint)
         canvas.drawLine(9f, 10f, 15f, 10f, paint)
         canvas.drawLine(9f, 14f, 15f, 14f, paint)
+    }
+
+    private fun drawAccounting(canvas: Canvas) {
+        canvas.drawRoundRect(3.5f, 6f, 20.5f, 18.5f, 2.2f, 2.2f, paint)
+        canvas.drawLine(5f, 9f, 18f, 9f, paint)
+        canvas.drawRoundRect(14f, 10.5f, 21f, 16f, 1.8f, 1.8f, paint)
+        canvas.drawCircle(17.2f, 13.2f, .7f, paint)
+        canvas.drawLine(6.5f, 14f, 10.5f, 14f, paint)
+    }
+
+    private fun drawSettings(canvas: Canvas) {
+        canvas.drawCircle(12f, 12f, 6.1f, paint)
+        canvas.drawCircle(12f, 12f, 2.2f, paint)
+        canvas.drawLine(12f, 2.5f, 12f, 5.8f, paint)
+        canvas.drawLine(12f, 18.2f, 12f, 21.5f, paint)
+        canvas.drawLine(2.5f, 12f, 5.8f, 12f, paint)
+        canvas.drawLine(18.2f, 12f, 21.5f, 12f, paint)
+        canvas.drawLine(5.3f, 5.3f, 7.6f, 7.6f, paint)
+        canvas.drawLine(16.4f, 16.4f, 18.7f, 18.7f, paint)
+        canvas.drawLine(18.7f, 5.3f, 16.4f, 7.6f, paint)
+        canvas.drawLine(7.6f, 16.4f, 5.3f, 18.7f, paint)
     }
 }

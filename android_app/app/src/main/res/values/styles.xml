@@ -2,12 +2,24 @@
     <style name="BaseAppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#DC3156</item>
+        <item name="android:alertDialogTheme">@style/BrzAlertDialogTheme</item>
+        <item name="android:datePickerDialogTheme">@style/BrzAlertDialogTheme</item>
         <item name="android:windowBackground">#F4F5F7</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:navigationBarColor">#F4F5F7</item>
         <item name="android:statusBarColor">#F4F5F7</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
+    </style>
+
+    <style name="BrzAlertDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#565CA9</item>
+        <item name="android:windowBackground">@drawable/dialog_surface</item>
+        <item name="android:windowElevation">14dp</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowNoTitle">false</item>
     </style>
 
     <style name="AppTheme" parent="BaseAppTheme" />
