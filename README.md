@@ -180,6 +180,21 @@ flowchart LR
 
 ### 1. 烧录仪表
 
+#### Windows 一键烧录（免安装开发环境）
+
+在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。每次发布 Beta / 正式版后自动构建、测试并附加烧录包；附件需等待发布工作流成功完成。下载完整烧录包后：
+
+1. 将 ZIP **完整解压**，用 USB 数据线连接仪表。
+2. 双击 `Start-Flasher.cmd`，等待自动识别 USB 串口并确认开发板型号。工具每 2 秒监测插拔、显示设备名称并排除蓝牙虚拟串口；多个 USB 候选设备需要手动选择。
+3. 新板或原厂/其他固件勾选“首次安装”，已有 BRZ 仪表重装通常不用勾选。
+4. 点击“开始烧录”，查看实时备份百分比、已读取容量和耗时，等待写入、校验与重启完成。写入时显示当前分区进度，不代表整次操作已完成。
+
+支持 Windows 10/11 x64，无需安装 Python、ESP-IDF 或编译工具。工具先核验固件、检查 ESP32-S3 和 16 MB Flash，再完整备份原始 Flash；不执行整片擦除。同分区 BRZ 固件普通重装保留 NVS 数据和开机动画。具体开发板型号仍需人工确认，不能只凭芯片型号判断兼容。
+
+备份和日志位于 `%LOCALAPPDATA%\BRZ-Garage\Flasher\backups\`，可在界面中直接打开。备份包含设备与行程数据，请妥善保存。维护者的打包命令及验证方式见 [烧录包说明](firmware/README.md)。
+
+#### 从源码构建并烧录（开发者）
+
 如果电脑尚未安装该环境，请先按照乐鑫官方的 [ESP-IDF 5.5.2 Windows 工具链安装说明](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/windows-setup.html) 完成安装，并在安装结束时选择 **Run ESP-IDF PowerShell Environment**。**ESP-IDF PowerShell** 不是需要单独下载的软件，而是安装器创建的、已经配置好 ESP-IDF 环境变量的 PowerShell 入口。
 
 从开始菜单打开 **ESP-IDF PowerShell**。不要使用普通 PowerShell，因为其中通常没有配置 `idf.py` 和 `esptool.py`。

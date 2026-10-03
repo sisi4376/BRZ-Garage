@@ -1,0 +1,56 @@
+BRZ Garage Windows 一键烧录包 r3
+
+适用 Windows 10/11 x64。离线使用，不需要安装 Python、ESP-IDF 或编译工具链。
+开发板：微雪 ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G，16 MB Flash。
+不适用于 1.85 英寸 LCD 或其他 ESP32 开发板。工具只能检查芯片与 Flash 容量，无法自动识别屏幕型号。
+
+使用方法
+1. 将 ZIP 完整解压到本地文件夹，不要直接在压缩包中运行。
+2. 在停车状态下，用支持数据传输的 USB 线连接仪表。
+3. 双击 Start-Flasher.cmd，等待自动检测 USB 仪表串口，勾选型号确认。
+4. 新板或原厂/其他固件请选择“首次安装”；已有 BRZ 仪表重装通常不用勾选。
+5. 点击“开始烧录”，等待备份、写入、校验、重启全部完成。
+
+工具会先校验固件与烧录工具的 SHA-256，检测 ESP32-S3 和 16 MB Flash，
+完整备份 16 MB Flash 后才执行写入。不执行整片擦除，不写 NVS 数据区域。
+同分区 BRZ 固件正常重装保留设置、累计数据及开机动画；首次安装会写入配套开机动画。
+替换其他固件时，旧系统的数据不保证能在新固件里使用；完整备份仍会保留。
+烧录中不要断电、拔线或关闭进程。全量备份和首次写入可能需要数分钟。
+界面实时显示备份百分比、已读取 MB 和耗时；写入进度为当前分区百分比，切换分区会重新计数。
+校验和重启阶段显示滚动进度，只有全部成功才显示“烧录并验证成功”。
+长时间未收到新进度会显示提示，但不会擅自取消或重复写入。传输失败请先查看日志。
+
+下载新版
+每次发布后，在 https://github.com/sisi4376/BRZ-Garage/releases 对应版本的 Assets 中
+下载 BRZ-Garage-Flasher-...-Windows-x64.zip 和同名 .zip.sha256 校验文件。
+固件包含在完整 ZIP 中，更新时请重新下载和解压整包，不要手工替换其中的 bin 文件。
+
+自动识别串口
+程序每 2 秒监测一次插拔，显示 COM 编号、设备名称和 USB 类型，自动排除蓝牙虚拟串口。
+只有一个 Espressif USB 设备时优先选中；没有原生 Espressif USB 时，可选中唯一 USB 转串口设备。
+发现多个候选设备时请手动选择，程序不会逐个尝试未知串口。
+拔出设备后自动清除选择；重新插入后需要重新确认型号，之后再点击开始。
+自动监测只读取 Windows 设备信息，不打开串口、不复位设备，也不会自动烧录。
+显示“未检测到 USB 仪表”时，即使电脑有蓝牙 COM3/COM4 等，也不能用于 USB 烧录。
+
+备份与日志
+保存在 %LOCALAPPDATA%\BRZ-Garage\Flasher\backups\，可点击“打开备份目录”。
+每次运行有独立目录：flash-before.bin（16 MB 原始备份）、SHA256SUMS.txt、flash.log。
+备份可能包含蓝牙配对信息、车辆设置和行程，不要公开上传。
+备份失败、大小不符、固件校验失败、芯片/容量不符时会停止，不执行写入。
+若写入过程中失败，请保留备份及日志，排除问题后重新烧录。
+备份恢复会覆盖当前数据，应由熟悉 esptool 的维护者确认设备与备份后操作。
+
+连接失败
+关闭串口监视器和其他占用串口的软件。尝试另一条数据线和 USB 接口。
+卡在 Connecting 时：按住 BOOT → 短按 RESET/RST → 松开 BOOT → 等待串口自动更新后重试。
+若设备管理器显示未知设备，请安装开发板官方驱动；本工具不会自动安装驱动。
+
+验证方式（开发者，无设备写入）
+powershell -NoProfile -ExecutionPolicy Bypass -File flash_worker.ps1 -PackageRoot . -ValidateOnly
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File Flasher.ps1 -SelfTest
+
+版权与来源
+BRZ Garage 源码：https://github.com/sisi4376/BRZ-Garage
+esptool 4.12.0 官方独立工具：https://github.com/espressif/esptool/releases/tag/v4.12.0
+对应许可证及声明在 licenses/ 目录。该工具不联网、不自动上传日志或备份。

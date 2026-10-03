@@ -8,6 +8,23 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-04 — Flasher r3 live progress and Release integration
+
+- Streams native output without waiting for newlines; shows backup percentage, capacity and elapsed time, with separate write/verify/restart stages and safe error handling.
+- Automatically builds and tests Windows flasher ZIPs for published Beta and stable releases, using the release-tag firmware and maintained flasher sources; attaches ZIP and SHA-256 only after validation.
+
+### 2026-10-04 — Windows flasher r2 USB detection
+
+- Filters Bluetooth virtual COM ports, displays USB device names and passively watches plug/unplug changes every two seconds.
+- Selects a unique Espressif USB device first, requires manual choice for ambiguous candidates and clears board confirmation when the selected device disappears or changes.
+- Adds a worker-side rejection for missing/Bluetooth ports and regression coverage for detection and UI reconnect behavior. Firmware remains the published 4.0.0 image.
+
+### 2026-10-04 — Windows offline one-click flasher
+
+- Adds a portable Windows graphical flasher package with pinned official esptool, firmware checksums, explicit board confirmation and serial-port selection.
+- Backs up the entire 16 MB Flash before writing, validates the installed partition layout, preserves NVS and existing boot animation on normal reinstalls, then verifies written regions before restarting.
+- Adds a reproducible packager and simulated failure-path tests without accessing a physical gauge; the first package uses the published 4.0.0 gauge image.
+
 ### 2026-10-03 — App 4.0.0 / Firmware 4.0.0 public Beta
 
 - Starts the public Beta with Android and gauge firmware both versioned 4.0.0; the GitHub Release is explicitly marked as a prerelease.
@@ -742,6 +759,23 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-04 — 烧录器 r3 实时进度与 Release 集成
+
+- 实时读取底层进度，不再等到换行才显示；备份显示百分比、容量和耗时，区分写入、校验、重启阶段，并安全处理错误。
+- Beta / 正式 Release 发布后自动构建测试 Windows 烧录包，固件取自发布标签、工具取自维护分支；通过验证后附加 ZIP 与 SHA-256。
+
+### 2026-10-04 — Windows 烧录工具 r2 自动识别 USB
+
+- 排除蓝牙虚拟 COM 口，显示 USB 设备名称，每 2 秒被动监测插拔。
+- 优先选择唯一的 Espressif USB 设备；多个候选需手动选择，设备拔出或改变时清除型号确认。
+- 后台烧录入口同样拒绝消失或蓝牙串口，新增识别与界面重连回归测试；固件仍为已发布的 4.0.0 镜像。
+
+### 2026-10-04 — Windows 离线一键烧录工具
+
+- 新增免安装 Python / ESP-IDF 的图形烧录包，内置固定版本官方 esptool，校验固件并要求确认开发板型号和串口。
+- 写入前完整备份 16 MB Flash、检查设备分区布局；普通重装保留 NVS 与开机动画，写入后校验并重启。
+- 新增可复现打包工具与无设备的模拟故障流程测试；首个烧录包使用已发布的 4.0.0 仪表镜像。
 
 ### 2026-10-03 — App 4.0.0 / 固件 4.0.0 Beta 公测
 

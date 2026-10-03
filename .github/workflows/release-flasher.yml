@@ -1,0 +1,139 @@
+name: Release Windows flasher
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build or repair (e.g. v4.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-flasher-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: espressif/idf:v5.5.3
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      tools_sha: ${{ steps.tools.outputs.sha }}
+    steps:
+      - name: Resolve existing release and immutable firmware commit
+        id: release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            if (!tag || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) throw new Error('Invalid release tag');
+            const repo = context.repo;
+            const release = (await github.rest.repos.getReleaseByTag({...repo, tag})).data;
+            if (release.draft) throw new Error('Publish the release before attaching a flasher');
+            const commit = (await github.rest.repos.getCommit({...repo, ref: `refs/tags/${tag}`})).data;
+            core.setOutput('tag', tag);
+            core.setOutput('source_sha', commit.sha);
+      # Use the maintained tool even when repairing an older release. Firmware
+      # always comes from that release's immutable tag, NEVER from moving main.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: release-tools
+          persist-credentials: false
+      - name: Pin tool revision
+        id: tools
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/release-tools"
+          echo "sha=$(git -C release-tools rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.source_sha }}
+          fetch-depth: 0
+          path: firmware-source
+          persist-credentials: false
+      - name: Build release firmware from clean board defaults
+        shell: bash
+        working-directory: firmware-source
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/firmware-source"
+          . "$IDF_PATH/export.sh"
+          python -m pip install 'Pillow==11.3.0'
+          idf.py -B build set-target esp32s3
+          idf.py -B build build
+      - name: Package verified firmware and official esptool
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          python release-tools/tools/build_release_flasher.py --firmware-source firmware-source --build-dir firmware-source/build --output-dir release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-flasher-candidate
+          path: |
+            release-assets/*.zip
+            release-assets/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  test-and-publish:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build.outputs.tools_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-flasher-candidate
+          path: release-assets
+      - name: Test failure paths, USB selection and streaming progress (no device)
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_windows_flasher.py -v
+      - name: Verify ZIP, firmware hashes and packaged Windows UI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archives = @(Get-ChildItem release-assets/*.zip)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one flasher ZIP' }
+          $archive = $archives[0]
+          $expected = (Get-Content ($archive.FullName + '.sha256')).Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash -ne $expected) { throw 'ZIP checksum mismatch' }
+          Expand-Archive $archive.FullName -DestinationPath verified-package
+          $package = @(Get-ChildItem verified-package -Directory)
+          if ($package.Count -ne 1) { throw 'Invalid package structure' }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$($package[0].FullName)/flash_worker.ps1" -PackageRoot $package[0].FullName -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged firmware validation failed' }
+          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$($package[0].FullName)/Flasher.ps1" -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged UI test failed' }
+      - name: Attach tested ZIP and checksum to the same release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $current = gh api "repos/$env:GH_REPO/commits/refs/tags/$env:RELEASE_TAG" --jq .sha
+          if ($LASTEXITCODE -ne 0 -or $current -ne $env:SOURCE_SHA) { throw 'Release tag changed during build; refusing upload' }
+          $files = @(Get-ChildItem release-assets -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.zip.sha256' } | ForEach-Object FullName)
+          if ($files.Count -ne 2) { throw 'Missing tested release assets' }
+          gh release upload $env:RELEASE_TAG @files --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          "Flasher ZIP and SHA-256 attached to release $env:RELEASE_TAG; firmware source $env:SOURCE_SHA." >> $env:GITHUB_STEP_SUMMARY
