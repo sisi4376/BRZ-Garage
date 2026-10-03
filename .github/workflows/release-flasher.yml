@@ -67,7 +67,9 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/firmware-source"
           . "$IDF_PATH/export.sh"
-          python -m pip install 'Pillow==11.3.0'
+          # Match the successfully tested local resolver. The image's older
+          # resolver inspects LVGL 9-only optional Kconfig rules in an LVGL 8 build.
+          python -m pip install 'Pillow==11.3.0' 'idf-component-manager==2.5.0'
           idf.py -B build set-target esp32s3
           idf.py -B build build
       - name: Package verified firmware and official esptool
