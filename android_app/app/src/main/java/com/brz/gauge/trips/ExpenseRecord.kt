@@ -19,6 +19,7 @@ enum class DailyExpenseKind(val title: String, val iconRes: Int) {
     ACCESSORY("配件用品", R.drawable.ic_expense_accessory),
     INSURANCE("保险", R.drawable.ic_expense_insurance),
     PAPERWORK("证件手续", R.drawable.ic_expense_paperwork),
+    VIOLATION("违章", R.drawable.ic_expense_violation),
     OTHER("其他", R.drawable.ic_expense_other);
 
     companion object {

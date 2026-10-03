@@ -19,6 +19,7 @@ import android.provider.Settings
 import android.text.InputFilter
 import android.text.InputType
 import android.util.Log
+import android.util.TypedValue
 import android.view.*
 import android.widget.*
 import java.time.Instant
@@ -498,7 +499,11 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        head.addView(label(title, 12f, color, true), LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(label(title, 12f, color, true).apply {
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setAutoSizeTextTypeUniformWithConfiguration(10, 12, 1, TypedValue.COMPLEX_UNIT_SP)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         if (action != null) head.addView(label("›", 22f, color, true).apply {
             gravity = Gravity.CENTER
             contentDescription = "查看详情"
@@ -506,12 +511,27 @@ class MainActivity : Activity() {
         add(content, head)
 
         fun metric(name: String): Triple<LinearLayout, TextView, TextView> {
-            val value = label("—", 14f, color, true).apply { setSingleLine(true) }
-            val hint = label("", 9f, muted).apply { setSingleLine(true) }
+            val value = label("—", 13f, color, true).apply {
+                setSingleLine(true)
+                gravity = Gravity.CENTER_HORIZONTAL
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setAutoSizeTextTypeUniformWithConfiguration(9, 13, 1, TypedValue.COMPLEX_UNIT_SP)
+            }
+            val hint = label("", 9f, muted).apply {
+                setSingleLine(true)
+                gravity = Gravity.CENTER_HORIZONTAL
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setAutoSizeTextTypeUniformWithConfiguration(8, 9, 1, TypedValue.COMPLEX_UNIT_SP)
+            }
             return Triple(column().apply {
                 background = rounded(Color.rgb(247, 248, 251), 12)
-                setPadding(dp(9), dp(9), dp(9), dp(9))
-                add(this, label(name, 10f, muted, true).apply { setSingleLine(true) })
+                setPadding(dp(6), dp(9), dp(6), dp(9))
+                add(this, label(name, 10f, muted, true).apply {
+                    setSingleLine(true)
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setAutoSizeTextTypeUniformWithConfiguration(9, 10, 1, TypedValue.COMPLEX_UNIT_SP)
+                })
                 add(this, value, 4)
                 add(this, hint, 2)
             }, value, hint)
@@ -603,18 +623,8 @@ class MainActivity : Activity() {
         customStats = null
         val body = page(state.vehicleDisplayName, model.homeSubtitle, singleLineTitle = true)
 
-        val odometerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        odometerRow.addView(SettingsIconView(this).apply {
-            icon = SettingsIconView.Icon.MILEAGE
-            iconColor = bookkeepingFuel
-            contentDescription = "车辆里程"
-        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(7) })
         odometerText = label("", 13f, ink, true)
-        odometerRow.addView(odometerText)
-        add(body, odometerRow, 9)
+        add(body, odometerText, 9)
 
         val hero = column().apply {
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
@@ -2083,6 +2093,7 @@ class MainActivity : Activity() {
         DailyExpenseKind.ACCESSORY -> Color.rgb(222, 122, 50)
         DailyExpenseKind.INSURANCE -> Color.rgb(139, 88, 176)
         DailyExpenseKind.PAPERWORK -> Color.rgb(184, 91, 102)
+        DailyExpenseKind.VIOLATION -> Color.rgb(211, 78, 55)
         DailyExpenseKind.OTHER -> Color.rgb(105, 115, 130)
     }
 
@@ -2511,7 +2522,7 @@ class MainActivity : Activity() {
             bookkeepingMetric("本月日常花费", fmt("¥%.2f", monthTotal), bookkeepingDaily),
             bookkeepingMetric("$year 年日常花费", fmt("¥%.2f", yearTotal), ink,
                 "${yearRecords.size} 笔记录"))
-        add(summary, label("从停车、通行、车辆洗护、配件用品、保险、证件手续或其他中选择分类。", 12f, muted), 7)
+        add(summary, label("从停车、通行、车辆洗护、维修、配件用品、保险、证件手续、违章或其他中选择分类。", 12f, muted), 7)
 
         val slices = DailyExpenseKind.entries.map { kind ->
             DailyExpenseSlice(kind.title,
@@ -3596,11 +3607,32 @@ class MainActivity : Activity() {
         add(auto, label("开启后，手机重启并首次解锁时自动恢复后台服务；覆盖升级后也会恢复。不自动弹出首页，发现仪表后自动连接授时。首次安装须先打开一次并完成绑定、授权。", 12f, muted), 10)
         add(auto, button("重新注册开机与仪表唤醒") {
             state.automatic = true
-            val scanReady = BackgroundBleWake.register(this, force = true)
-            val presenceReady = GaugePresenceObserver.start(this)
-            ServiceWatchdogReceiver.schedule(this, 60_000L)
-            val serviceReady = TripSyncService.start(this, reason = "用户重新注册后台唤醒")
-            toast("BLE 唤醒${if (scanReady) "已注册" else "未注册"}；系统伴生唤醒${if (presenceReady) "已启用" else "使用兼容模式"}；后台服务${if (serviceReady) "已请求启动" else "被系统限制"}")
+            if (!GaugeBondManager.isBonded(this)) {
+                BackgroundBleWake.cancel(this)
+                stopPresence()
+                ServiceWatchdogReceiver.cancel(this)
+                stopService(Intent(this, TripSyncService::class.java))
+            }
+            val bond = GaugeBondManager.ensureBond(this)
+            val (scanReady, presenceReady, serviceReady) = if (
+                bond == GaugeBondManager.SetupResult.STARTED
+            ) {
+                Triple(false, false, false)
+            } else {
+                val scan = BackgroundBleWake.register(this, force = true)
+                val presence = GaugePresenceObserver.start(this)
+                ServiceWatchdogReceiver.schedule(this, 60_000L)
+                Triple(
+                    scan,
+                    presence,
+                    TripSyncService.start(this, reason = "用户重新注册后台唤醒"),
+                )
+            }
+            toast("系统配对${when (bond) {
+                GaugeBondManager.SetupResult.READY -> "已就绪"
+                GaugeBondManager.SetupResult.STARTED -> "正在进行"
+                GaugeBondManager.SetupResult.UNAVAILABLE -> "使用兼容模式"
+            }}；BLE 唤醒${if (scanReady) "已注册" else "未注册"}；系统伴生唤醒${if (presenceReady) "已启用" else "使用兼容模式"}；后台服务${if (bond == GaugeBondManager.SetupResult.STARTED) "等待配对完成" else if (serviceReady) "已请求启动" else "被系统限制"}")
         }, 8)
         val broadcastAt = state.prefs.getLong("autostart_broadcast_at", 0)
         if (broadcastAt > 0) add(auto, label(
@@ -3632,6 +3664,7 @@ class MainActivity : Activity() {
                 companionAssociated -> "有效"
                 else -> "缺失"
             }) +
+            "\n仪表系统配对：" + GaugeBondManager.status(this, state.address) +
             "\n系统伴生唤醒：" + state.prefs.getString("presence", "尚未设置") +
             "\n系统 BLE 唤醒：" + state.prefs.getString("wake_scan_status", "尚未设置") +
             (if (wakeScanAt > 0) "（${date(wakeScanAt)}）" else "") +
@@ -4758,10 +4791,29 @@ class MainActivity : Activity() {
         if (GaugePresenceObserver.hasAssociation(this, address)) {
             state.prefs.edit().putLong("companion_privilege_granted_at", System.currentTimeMillis()).apply()
         }
-        observePresence()
-        BackgroundBleWake.register(this, force = true)
-        ServiceWatchdogReceiver.schedule(this)
-        TripSyncService.start(this, true)
+        if (!GaugeBondManager.isBonded(this, address)) {
+            BackgroundBleWake.cancel(this)
+            stopPresence()
+            ServiceWatchdogReceiver.cancel(this)
+            stopService(Intent(this, TripSyncService::class.java))
+        }
+        val bond = GaugeBondManager.ensureBond(this, address)
+        if (bond == GaugeBondManager.SetupResult.STARTED) {
+            // Some vendor stacks accept createBond() but never deliver a final
+            // broadcast. Reuse the existing watchdog as a bounded fallback so
+            // normal synchronization cannot remain disabled indefinitely.
+            ServiceWatchdogReceiver.schedule(this, 60_000L)
+            toast("已绑定仪表，正在建立系统 LE 配对；完成后会自动启动 BRZ Garage 后台连接")
+        } else {
+            observePresence()
+            BackgroundBleWake.register(this, force = true)
+            ServiceWatchdogReceiver.schedule(this)
+            TripSyncService.start(this, true, reason = if (bond == GaugeBondManager.SetupResult.READY) {
+                "仪表已完成系统配对"
+            } else {
+                "系统配对不可用，兼容模式"
+            })
+        }
         showTab(0)
     }
     private fun observePresence() {

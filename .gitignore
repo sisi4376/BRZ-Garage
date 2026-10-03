@@ -4,6 +4,8 @@
 /.lfs/
 /managed_components/
 /tools/.cache/
+/.local/hvigor-home/
+/.local/npm-cache/
 
 # Local-only visual calibrator. Its saved coordinates are applied to the app
 # source, while the calibrator itself and its machine-local draft stay private.
@@ -32,6 +34,15 @@
 *.idsig
 /android_app/*.zip
 
+# HarmonyOS/DevEco generated files and local signing material
+/harmony_ble_bridge/.hvigor/
+/harmony_ble_bridge/.idea/
+/harmony_ble_bridge/oh_modules/
+/harmony_ble_bridge/entry/build/
+/harmony_ble_bridge/entry/oh_modules/
+/harmony_ble_bridge/signing/
+*.hap
+
 # Never commit the private Android update-signing material. Keep the public
 # certificate fingerprint/instructions in signing/README.md.
 /android_app/signing/*
@@ -43,6 +54,8 @@
 /tmp_ai_inspect/
 /backups/
 /logs/
+/tmp/
+/.tmp-brz-*
 /nvs_*.bin
 *.core
 

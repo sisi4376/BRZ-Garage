@@ -96,7 +96,9 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertIn('field(if (category == ExpenseCategory.DAILY) "详细（可选）"', main)
         self.assertIn("DailyExpenseKind.entries.map { it.title }", main)
         self.assertIn('REPAIR("维修", R.drawable.ic_expense_repair)', (ANDROID / "ExpenseRecord.kt").read_text(encoding="utf-8"))
+        self.assertIn('VIOLATION("违章", R.drawable.ic_expense_violation)', (ANDROID / "ExpenseRecord.kt").read_text(encoding="utf-8"))
         self.assertTrue((ROOT / "android_app/app/src/main/res/drawable/ic_expense_repair.xml").exists())
+        self.assertTrue((ROOT / "android_app/app/src/main/res/drawable/ic_expense_violation.xml").exists())
         self.assertIn('label("${date.monthValue}月"', main)
         self.assertIn("setImageResource(iconRes)", main)
         self.assertIn("CREATE TABLE expenses", database)
@@ -134,7 +136,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertNotIn("DROP TABLE", expense_database)
         self.assertNotIn("DELETE FROM expenses", expense_database)
         expense_record = (ANDROID / "ExpenseRecord.kt").read_text(encoding="utf-8")
-        for category in ("停车", "通行", "车辆洗护", "维修", "配件用品", "保险", "证件手续", "其他"):
+        for category in ("停车", "通行", "车辆洗护", "维修", "配件用品", "保险", "证件手续", "违章", "其他"):
             self.assertIn(f'("{category}", R.drawable.ic_expense_', expense_record)
 
     def test_protocol_three_keeps_history_for_independent_phone_cursors(self):

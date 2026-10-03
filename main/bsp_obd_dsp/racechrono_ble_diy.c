@@ -49,6 +49,7 @@
 #define DEVICE_INFO_CHAR_REFUEL_CONTROL 0x000C
 #define DEVICE_INFO_CHAR_REFUEL_DATA 0x000D
 #define DEVICE_INFO_CHAR_CUSTOM_TRIP_CONTROL 0x000E
+#define DEVICE_INFO_CHAR_HARMONY_TIME_SYNC 0x000F
 #define VEHICLE_STATE_WIRE_SIZE 84
 #define GAUGE_SETTINGS_WIRE_SIZE 106
 #define BRIGHTNESS_CONTROL_WIRE_SIZE 6
@@ -170,6 +171,8 @@ enum {
     IDX_INFO_CHAR_VAL_REFUEL_DATA,
     IDX_INFO_CHAR_CUSTOM_TRIP_CONTROL,
     IDX_INFO_CHAR_VAL_CUSTOM_TRIP_CONTROL,
+    IDX_INFO_CHAR_HARMONY_TIME_SYNC,
+    IDX_INFO_CHAR_VAL_HARMONY_TIME_SYNC,
     IDX_INFO_NB,
 };
 
@@ -226,6 +229,9 @@ static uint32_t s_refuel_request_after_id;
 static uint16_t s_char_uuid_custom_trip_control = DEVICE_INFO_CHAR_CUSTOM_TRIP_CONTROL;
 static uint16_t s_handle_custom_trip_control;
 static uint8_t s_custom_trip_control_value[CUSTOM_TRIP_CONTROL_WIRE_SIZE];
+static uint16_t s_char_uuid_harmony_time_sync = DEVICE_INFO_CHAR_HARMONY_TIME_SYNC;
+static uint16_t s_handle_harmony_time_sync;
+static uint8_t s_harmony_time_sync_value[8];
 static uint8_t s_manifest_blob[512] = {0};
 static uint16_t s_manifest_len = 0;
 static uint16_t s_handle_manifest = 0;
@@ -239,6 +245,57 @@ static uint8_t s_trip_control_value[5] = {0};
 static uint8_t s_trip_data_value[TRIP_DATA_WIRE_SIZE] = {0};
 static uint32_t s_trip_request_after_id = 0;
 static uint32_t s_trip_highest_sent_id = 0;
+
+static void configure_phone_bonding(void)
+{
+    /* HarmonyOS PartnerAgent can cold-start the bridge only for a device that
+     * has completed system Bluetooth pairing. The gauge has no keyboard or
+     * display flow dedicated to pairing, so use LE Secure Connections with
+     * Just Works authentication and persist the exchanged bond keys in the
+     * Bluedroid/NVS store. This does not initiate security on the independent
+     * outbound ELM327 connection; it only defines how this peripheral answers
+     * a phone-initiated SMP pairing request. */
+    esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
+    esp_ble_io_cap_t io_capability = ESP_IO_CAP_NONE;
+    uint8_t key_size = 16;
+    uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t response_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+    uint8_t auth_option = ESP_BLE_ONLY_ACCEPT_SPECIFIED_AUTH_DISABLE;
+    uint8_t oob_support = ESP_BLE_OOB_DISABLE;
+
+    esp_err_t err = esp_ble_gap_set_security_param(
+        ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, sizeof(auth_req));
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_IOCAP_MODE, &io_capability, sizeof(io_capability));
+    }
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(key_size));
+    }
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_ONLY_ACCEPT_SPECIFIED_SEC_AUTH, &auth_option, sizeof(auth_option));
+    }
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_OOB_SUPPORT, &oob_support, sizeof(oob_support));
+    }
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(init_key));
+    }
+    if (err == ESP_OK) {
+        err = esp_ble_gap_set_security_param(
+            ESP_BLE_SM_SET_RSP_KEY, &response_key, sizeof(response_key));
+    }
+
+    if (err == ESP_OK) {
+        ESP_LOGI(RC_TAG, "BLE Secure Connections bonding enabled for phone partner wake");
+    } else {
+        ESP_LOGW(RC_TAG, "BLE bonding configuration failed: %s", esp_err_to_name(err));
+    }
+}
 
 static void put_le16(uint8_t *dst, uint16_t value)
 {
@@ -752,6 +809,17 @@ static const esp_gatts_attr_db_t s_gatt_db_info[IDX_INFO_NB] = {
     {{ESP_GATT_RSP_BY_APP},
      {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_custom_trip_control, ESP_GATT_PERM_WRITE,
       sizeof(s_custom_trip_control_value), 0, s_custom_trip_control_value}},
+    /* Dedicated one-shot clock path for the HarmonyOS PartnerAgent bridge.
+     * It intentionally is not treated as an Android phone/data connection:
+     * no stream state, history cursor, settings or ELM327 task is touched. */
+    [IDX_INFO_CHAR_HARMONY_TIME_SYNC] =
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_attr_uuid_char_declare, ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(uint8_t), (uint8_t *)&s_char_prop_write}},
+    [IDX_INFO_CHAR_VAL_HARMONY_TIME_SYNC] =
+    {{ESP_GATT_RSP_BY_APP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_harmony_time_sync, ESP_GATT_PERM_WRITE,
+      sizeof(s_harmony_time_sync_value), 0, s_harmony_time_sync_value}},
 };
 
 static int32_t read_rpm(bool *valid)
@@ -1157,6 +1225,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             s_handle_refuel_control = h[IDX_INFO_CHAR_VAL_REFUEL_CONTROL];
             s_handle_refuel_data = h[IDX_INFO_CHAR_VAL_REFUEL_DATA];
             s_handle_custom_trip_control = h[IDX_INFO_CHAR_VAL_CUSTOM_TRIP_CONTROL];
+            s_handle_harmony_time_sync = h[IDX_INFO_CHAR_VAL_HARMONY_TIME_SYNC];
             esp_ble_gatts_start_service(h[IDX_INFO_SVC]);
             s_time_attr_ready = true;
             ESP_LOGD(RC_TAG, "Info attr table ready, service=0x%04X time=0x%04X trip=%04X/%04X/%04X",
@@ -1212,7 +1281,8 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             ESP_LOGD(RC_TAG, "CAN main cccd=0x%04X stream %s", cccd, s_notify_enabled ? "EN" : "DIS");
         } else if (s_attr_ready && param->write.handle == s_handle_filter) {
             process_filter_write(param->write.value, param->write.len);
-        } else if (param->write.handle == s_handle_time_sync) {
+        } else if (param->write.handle == s_handle_time_sync ||
+                   param->write.handle == s_handle_harmony_time_sync) {
             esp_gatt_status_t status = ESP_GATT_INVALID_ATTR_LEN;
             if (param->write.len == 8 && param->write.offset == 0) {
                 uint64_t epoch_s = 0;
@@ -1226,8 +1296,10 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                     const char *action = resolved == NVS_TRIP_TIME_SYNC_MERGED ? "merged" :
                                          resolved == NVS_TRIP_TIME_SYNC_NEW_TRIP ? "new-trip" :
                                          "no-pending";
-                    ESP_LOGI(RC_TAG, "Phone time accepted: epoch=%" PRIu64 " trip=%s",
-                             epoch_s, action);
+                    const char *source = param->write.handle == s_handle_harmony_time_sync ?
+                                         "Harmony bridge" : "Phone";
+                    ESP_LOGI(RC_TAG, "%s time accepted: epoch=%" PRIu64 " trip=%s",
+                             source, epoch_s, action);
                 } else {
                     status = ESP_GATT_INVALID_PDU;
                     ESP_LOGW(RC_TAG, "Rejected phone time packet: epoch=%" PRIu64 " err=%s",
@@ -1488,7 +1560,6 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
 void racechrono_ble_diy_handle_gap_event(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
-    (void)param;
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
         ESP_LOGI(RC_TAG, "Adv raw data applied");
@@ -1524,6 +1595,25 @@ void racechrono_ble_diy_handle_gap_event(esp_gap_ble_cb_event_t event, esp_ble_g
             ESP_LOGW(RC_TAG, "Advertising start failed status=%d", param->adv_start_cmpl.status);
         }
         break;
+    case ESP_GAP_BLE_SEC_REQ_EVT:
+        esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+        ESP_LOGI(RC_TAG, "Accepted phone BLE security request");
+        break;
+    case ESP_GAP_BLE_AUTH_CMPL_EVT:
+        if (param->ble_security.auth_cmpl.success) {
+            ESP_LOGI(RC_TAG,
+                     "Phone BLE pairing complete: %02x:%02x:%02x:%02x:%02x:%02x",
+                     param->ble_security.auth_cmpl.bd_addr[0],
+                     param->ble_security.auth_cmpl.bd_addr[1],
+                     param->ble_security.auth_cmpl.bd_addr[2],
+                     param->ble_security.auth_cmpl.bd_addr[3],
+                     param->ble_security.auth_cmpl.bd_addr[4],
+                     param->ble_security.auth_cmpl.bd_addr[5]);
+        } else {
+            ESP_LOGW(RC_TAG, "Phone BLE pairing failed: reason=0x%02x",
+                     param->ble_security.auth_cmpl.fail_reason);
+        }
+        break;
     default:
         break;
     }
@@ -1555,6 +1645,8 @@ void racechrono_ble_diy_start(bool enable_racechrono)
         ESP_LOGE(RC_TAG, "gatts app register failed: %s", esp_err_to_name(err));
         return;
     }
+
+    configure_phone_bonding();
 
     if (s_rc_enabled && !s_stream_task) {
         xTaskCreate(stream_task, "rc_stream", 4096, NULL, 4, &s_stream_task);

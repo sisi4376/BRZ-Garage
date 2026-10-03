@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "通过鸿蒙 PartnerAgent 为 BRZ 仪表提供一次性兜底授时" },
+    { "name": "ability_desc", "value": "BRZ Garage 鸿蒙原生授时设置" },
+    { "name": "partner_agent_desc", "value": "在已配对仪表上电时由鸿蒙系统触发一次性授时" },
+    { "name": "bluetooth_permission_reason", "value": "用于注册已配对的 BRZ 仪表，并在 Android 未连接时完成一次性授时。" }
+  ]
+}

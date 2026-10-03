@@ -8,6 +8,56 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-03 — App 4.0.0 / Firmware 4.0.0 public Beta
+
+- Starts the public Beta with Android and gauge firmware both versioned 4.0.0; the GitHub Release is explicitly marked as a prerelease.
+- Includes the latest UI refinements, violation bookkeeping category, system LE bonding, isolated HarmonyOS fallback time synchronization and restored original typography.
+- Increments Android versionCode to 128, retains the existing update certificate and bundles the rebuilt 4.0.0 OTA image.
+
+### 2026-10-03 — App 3.12.3 restore original App typography
+
+- Removes the bundled BRZ UI Sans font from APK resources and restores the original system sans and sans-serif-medium choices in text, dialogs and charts.
+- Keeps the restored gauge firmware 3.3.2 unchanged.
+
+### 2026-10-03 — App 3.12.2 / Firmware 3.3.2 gauge font restoration
+
+- Rebuilds the embedded OTA image from the restored original gauge UI and font sources. The previous APK still contained the earlier font-modified binary despite the source rollback.
+- Preserves the Android App's bundled UI font and the existing BLE bonding and HarmonyOS time bridge support.
+- Allows an explicit firmware build directory when packaging and rejects images whose embedded version differs from the source version.
+
+### 2026-10-03 — App 3.12.1 / Firmware 3.3.1 / HarmonyOS Time Bridge 2.1.0
+
+- Replaces the unavailable cross-container Android wake relay with a minimal native PartnerAgent fallback: after an 8-second Android-priority window, the bridge performs one acknowledged clock write and immediately releases GATT.
+- Adds a dedicated write-only firmware characteristic (`0x000F`) that is deliberately excluded from Android stream ownership, notification state, history cursors, settings and ELM327 collection tasks.
+- Keeps Android as the only trip, settings, OTA and bookkeeping application. The bridge never reads history, subscribes to live data, scans continuously or keeps a Bluetooth connection alive.
+- Embeds firmware 3.3.1 in App 3.12.1; existing Android compatibility behavior and local user data remain unchanged.
+
+### 2026-10-02 — App 3.12.0 / Firmware 3.3.0 bonded main-app wake
+
+- Adds real BLE Secure Connections bonding to the gauge without changing its independent outbound ELM327 link.
+- Makes BRZ Garage request a system LE bond during gauge binding, waits for the asynchronous bond result before starting GATT traffic, and then re-arms companion presence, the system-owned BLE wake scan, watchdog and foreground trip service.
+- Keeps the existing unbonded compatibility path when a vendor Android layer cannot expose LE pairing, and adds the live bond state to Background Health diagnostics.
+
+### 2026-10-02 — HarmonyOS BLE Bridge 1.0.0
+
+- Adds a separate native HarmonyOS HAP that uses the Bluetooth-interaction continuous-task entitlement instead of relying on the Android compatibility container to remain awake.
+- Watches the gauge's advertised `0x1FFA` service, writes the existing 8-byte little-endian Unix timestamp to characteristic `0x0002`, and immediately releases GATT so BRZ Garage can continue trip synchronization.
+- Keeps the bridge opt-in, requests Nearby Devices only when enabled, stores no trip or bookkeeping data, and rate-limits repeat clock synchronization to once every five minutes.
+
+### 2026-10-02 — App 3.11.4 compact Home trip typography
+
+- Keeps every Home trip card inside its bounds on narrow screens by applying constrained single-line auto-sizing to headings, metric names, values and fuel details.
+- Slightly reduces horizontal metric padding and centres the three columns without changing their order, values or actions.
+
+### 2026-10-02 — App 3.11.3 violation bookkeeping category
+
+- Adds a dedicated `Violation` category to Daily Expenses, including its own warning icon and colour in record entry, annual breakdowns and existing bookkeeping statistics.
+- Keeps the expense database format unchanged, so existing bookkeeping data remains compatible.
+
+### 2026-09-30 — App 3.11.2 cleaner Home mileage label
+
+- Removes the small mileage icon before the odometer value on the refined Home while preserving the value, visibility setting and Classic Home layout.
+
 ### 2026-09-30 — App 3.11.1 completes the secondary-page visual refresh
 
 - Adds the same gradient identity/status hero used by modern Settings pages to Trip Detail, Since Refuel and Custom Trip, while keeping their refined metric cards and actions intact.
@@ -692,6 +742,56 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-03 — App 4.0.0 / 固件 4.0.0 Beta 公测
+
+- 开启 Beta 公测，Android App 与仪表固件统一升级为 4.0.0，GitHub Release 明确标记为预发布。
+- 汇总最新版界面优化、违章记账分类、系统 LE 配对、独立鸿蒙兜底授时及恢复后的原有字体。
+- Android versionCode 递增至 128，沿用现有升级签名，APK 内置重新构建的 4.0.0 OTA 镜像。
+
+### 2026-10-03 — App 3.12.3 恢复 App 原字体
+
+- 撤下 APK 内置的 BRZ UI Sans 字体，恢复文字、弹窗与图表原先使用的系统 sans / sans-serif-medium 字体及字重。
+- 仪表继续使用已恢复原字体的固件 3.3.2，本次无需再次更新已运行 3.3.2 的仪表。
+
+### 2026-10-03 — App 3.12.2 / 固件 3.3.2 恢复仪表原字体
+
+- 从已恢复的仪表原始界面与字体源码重新构建 OTA 镜像，修正此前源码已回退、但 APK 内置镜像仍带有改字版固件的问题。
+- 保留 Android App 内置字体、系统 LE 配对和鸿蒙授时桥功能。
+- 固件打包支持显式指定构建目录，并核对镜像内部版本与源码版本，拒绝打包版本不一致的旧产物。
+
+### 2026-10-03 — App 3.12.1 / 固件 3.3.1 / 鸿蒙授时桥 2.1.0
+
+- 移除无法可靠跨兼容层调用 Android 的唤醒转交，改为最小化 PartnerAgent 兜底：先给 Android 8 秒优先连接窗口，未连接时只写入一次时间并立即释放 GATT。
+- 固件新增独立只写特征 `0x000F`，明确不取得 Android 数据链路所有权，不修改通知状态、历史游标、设置或 ELM327 采集任务。
+- Android 仍是唯一的行程、设置、OTA 与记账应用；授时桥不读取历史、不订阅实时数据、不持续扫描，也不维持蓝牙连接。
+- App 3.12.1 内置固件 3.3.1；Android 既有适配逻辑和用户本地数据保持不变。
+
+### 2026-10-02 — App 3.12.0 / 固件 3.3.0 主 App 系统配对唤醒
+
+- 仪表新增 BLE Secure Connections 持久配对，不改变其作为中心设备连接 ELM327 的独立链路。
+- BRZ Garage 在绑定仪表时主动建立系统 LE 配对，等待异步配对结果后再启动 GATT，并重新注册伴生设备出现通知、系统 BLE 唤醒、后台自检和前台行程服务。
+- 鸿蒙 Android 兼容层不支持 LE 配对时仍自动保留原有兼容唤醒路径，并在“后台运行检查”中显示实时系统配对状态。
+
+### 2026-10-02 — 鸿蒙 BLE 桥接 1.0.0
+
+- 新增独立的鸿蒙原生 HAP，使用“蓝牙交互”长时任务，不再依赖 Android 兼容容器始终保持唤醒。
+- 后台监听仪表广播的 `0x1FFA` 服务，向 `0x0002` 特征写入现有协议规定的 8 字节小端 Unix 时间，随后立即释放 GATT，让 BRZ Garage 继续同步行程。
+- 桥接默认关闭，仅在用户启用时请求“附近设备”权限；不读取或保存行程、记账数据，并将同一仪表的重复授时限制为五分钟一次。
+
+### 2026-10-02 — App 3.11.4 微调首页行程字体
+
+- 为首页各行程卡片的标题、指标名称、数值和燃油说明增加受限的单行自适应字号，避免窄屏设备出现文字越界。
+- 略微收紧三列指标的左右内边距并统一居中，不改变栏目顺序、统计数值和详情入口。
+
+### 2026-10-02 — App 3.11.3 日常记账新增违章分类
+
+- 日常花费新增独立“违章”分类，配套警示图标与独立配色，可在录入、年度小类构成和原有记账统计中正常使用。
+- 不更改支出数据库结构，手机中的既有记账记录保持兼容。
+
+### 2026-09-30 — App 3.11.2 精简首页里程显示
+
+- 移除新版首页里程数值前的小图标，保留里程内容、显示开关和经典首页布局。
 
 ### 2026-09-30 — App 3.11.1 补齐二级页面视觉统一
 

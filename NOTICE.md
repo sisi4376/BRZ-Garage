@@ -41,6 +41,8 @@ android_app/app/src/main/assets/firmware/obd_brz_gauge.bin
 
 本仓库所含第三方库、组件、字体、图片或其他素材，其版权仍归各自权利人所有，并按各自许可证使用。目录中存在单独 `LICENSE`、`NOTICE` 或 `SOURCE` 文件时，以这些文件中的声明为准。
 
+此前试用版本内置的 `BRZ UI Sans` 是 Noto Sans SC Variable 的裁剪版本，自 App 3.12.3 起不再包含在安装包中。历史字体的版权归 Adobe 等 Noto CJK 贡献者所有，按 SIL Open Font License 1.1 使用；来源、版本、校验值和许可证说明保留于 `android_app/third_party/fonts/brz_ui_sans/README.md`。
+
 ## 5. 非官方声明
 
 BRZ Garage 是独立的社区项目，与 Subaru Corporation、上游项目作者及相关硬件厂商不存在官方隶属、授权或背书关系。产品名称和商标仅用于说明兼容对象，其权利归相应权利人所有。

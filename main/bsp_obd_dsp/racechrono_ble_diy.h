@@ -10,8 +10,9 @@ extern "C" {
 // Start RaceChrono BLE DIY GATTS service (UUID 0x1FF8).
 // Requires BLE controller + bluedroid to be enabled by caller.
 // When enable_racechrono is false, only Info/phone-time (0x1FFA) + OTA
-// (0x1FFB) services are created. A short 120-second advert after boot lets the
-// companion phone write time without keeping a permanent extra BLE link.
+// (0x1FFB) services are created. Persistent advertising lets the companion
+// phone bind the gauge as a BLE partner and write time without keeping a
+// permanent extra BLE link.
 void racechrono_ble_diy_start(bool enable_racechrono);
 // True after Info, Pair/RC (when enabled), and OTA attribute tables have all
 // been created. ELM327 connection should start only after this becomes true.

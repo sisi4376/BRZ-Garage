@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "com.brz.gauge.bridge",
+    "vendor": "BRZ Garage",
+    "versionCode": 2010400,
+    "versionName": "2.1.4",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}

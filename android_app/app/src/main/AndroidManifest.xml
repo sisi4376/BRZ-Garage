@@ -46,7 +46,6 @@
         <activity
             android:name=".LicensePlateGeneratorActivity"
             android:exported="false" />
-
         <service
             android:name=".TripSyncService"
             android:exported="false"
@@ -100,5 +99,13 @@
             android:name=".GaugeWakeReceiver"
             android:enabled="true"
             android:exported="false" />
+        <receiver
+            android:name=".GaugeBondReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.BOND_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

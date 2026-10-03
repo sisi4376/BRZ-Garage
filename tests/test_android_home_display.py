@@ -37,6 +37,16 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn('homeStatsCard(body, "累计驾驶 · 自仪表开始记录"', source)
         self.assertIn('progressTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)', source)
         self.assertIn('LinearLayout.LayoutParams(-1, dp(184))', source)
+        self.assertIn("setAutoSizeTextTypeUniformWithConfiguration(9, 13, 1", source)
+        self.assertIn("setAutoSizeTextTypeUniformWithConfiguration(8, 9, 1", source)
+        self.assertIn("Gravity.CENTER_HORIZONTAL", source)
+        self.assertIn("TextUtils.TruncateAt.END", source)
+        refined = source.split("private fun homeRefined()", 1)[1].split(
+            "private fun homeClassic()", 1
+        )[0]
+        self.assertNotIn("odometerRow", refined)
+        self.assertNotIn("SettingsIconView.Icon.MILEAGE", refined)
+        self.assertIn("add(body, odometerText, 9)", refined)
 
     def test_page_rebuild_restores_scroll_position(self):
         source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
