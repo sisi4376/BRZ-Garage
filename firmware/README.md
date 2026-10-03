@@ -32,7 +32,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .publish/flasher/BRZ-Garage-
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File .publish/flasher/BRZ-Garage-Flasher-v4.0.0-r3-Windows-x64/Flasher.ps1 -SelfTest
 ```
 
-自动化测试使用模拟工具，不连接真实串口；成功打包或通过测试不等于已完成实机烧录验证。首次分发前仍应以支持的实体板完成安装及保留数据重装测试。
+自动化测试使用模拟工具，不连接真实串口；成功打包或通过测试不等于已完成实机烧录验证。
+
+2026-10-04，r3 已在连接的 ESP32-S3 / 16 MB 仪表上执行一次 GUI 共用的 `flash_worker.ps1` 正常重装流程：完整备份并校验 SHA-256，写入 bootloader、分区表、OTA 初始化和应用固件，4 个区域全部 `verify OK` 后发出重启指令，退出码为 0。该模式未写 NVS 和开机动画。首次安装路径及其他电脑/硬件仍需分别验证；此记录不代表所有设备均已验证。
 
 ## Legacy release directory
 
