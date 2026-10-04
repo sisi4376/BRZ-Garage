@@ -12,7 +12,8 @@
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
-> <img src="https://github.com/user-attachments/assets/5ba8124c-7014-402e-accd-fcd56f582a25" alt="GitHub 右上角 Star 按钮示意" width="136">
+> <img src="https://github.com/user-attachments/assets/5ba8124c-7014-402e-accd-fcd56f582a25" alt="GitHub 右上角 Star 按钮示意" width="136"> ➡️ <img width="136" alt="image" src="https://github.com/user-attachments/assets/9cc68dd4-2d80-4158-8eb6-1483d6cda77c" />
+
 >
 > 你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
 
