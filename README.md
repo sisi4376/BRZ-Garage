@@ -2,8 +2,6 @@
 
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地用车管家**
 
-ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
-
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.0.0-00C853)](CHANGELOG.md)
 [![Android](https://img.shields.io/badge/BRZ_Garage-4.0.0-3DDC84)](CHANGELOG.md)
