@@ -12,9 +12,11 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 [下载 v4.0.0 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
-> ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
+> ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
 > <img src="https://github.com/user-attachments/assets/5ba8124c-7014-402e-accd-fcd56f582a25" alt="GitHub 右上角 Star 按钮示意" width="136">
+>
+> 你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
 
 ## Beta 公测版说明
 
