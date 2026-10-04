@@ -59,6 +59,17 @@
 /nvs_*.bin
 *.core
 
+# Local credentials and full-device backups must never be published.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.jks
+*.keystore
+*.p12
+*.pfx
+flash-before.bin
+
 # ESP-IDF machine-local configuration; sdkconfig.defaults remains tracked
 /sdkconfig
 /sdkconfig.old
