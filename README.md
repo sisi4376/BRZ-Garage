@@ -3,12 +3,12 @@
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地用车管家**
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
-[![Firmware](https://img.shields.io/badge/Firmware-4.0.0-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.0.0-3DDC84)](CHANGELOG.md)
+[![Firmware](https://img.shields.io/badge/Firmware-4.0.1-00C853)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.0.1-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.0.0 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.0.1 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
