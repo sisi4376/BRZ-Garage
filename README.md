@@ -12,6 +12,8 @@ ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
 
 [下载 v4.0.0 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次安装](#第一次安装) · [💰支持项目💰](https://afdian.com/a/4822y)
 
+> ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
+
 ## Beta 公测版说明
 
 App 与仪表固件现统一升级至 **4.0.0**，开启 **Beta 公测**。GitHub Release 标记为预发布；现有用户可覆盖安装 APK，再在 App 中手动更新内置仪表固件。
