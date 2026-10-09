@@ -2,6 +2,7 @@ export interface PartnerWakeSnapshot {
   supported: boolean;
   registered: boolean;
   scanning: boolean;
+  registering: boolean;
   status: string;
   deviceAddress: string;
   error: string;

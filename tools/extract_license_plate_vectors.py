@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pdfplumber
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageMath
 
 
 TARGET_WIDTH = 45.0
@@ -193,14 +193,15 @@ def fit_paths_to_character_size(paths: list[list[tuple]]) -> list[list[tuple]]:
     return fitted
 
 
-def extract_cell(page: object, cell: Cell) -> list[dict[str, object]]:
+def _cell_layers(page: object, cell: Cell) -> list[tuple[int, list[tuple], bool]]:
     tolerance = 0.8
     candidates: list[tuple[int, list[tuple], bool]] = []
     # pdfplumber exposes closed free-form outlines as curves, but simple
     # rectangular strokes (for example the top bar of 云 and two stems of 川)
     # as rects.  Both are part of the normative outlined glyph and must be kept.
-    # Rectangular positive strokes precede free-form curves so any later
-    # negative/cutout curves remain visible (notably inside 粤).
+    # pdfplumber splits PDF compound paths into separate rects and curves.
+    # Keep contour direction: a black-filled inner rectangle can be a hole,
+    # rather than a separate positive stroke (for example inside 京).
     shapes = [*page.rects, *page.curves]
     for index, shape in enumerate(shapes):
         luminance = scalar_luminance(shape.get("non_stroking_color"))
@@ -232,6 +233,17 @@ def extract_cell(page: object, cell: Cell) -> list[dict[str, object]]:
             (index, fitted_path, cutout)
             for (index, _, cutout), fitted_path in zip(layers, fitted_paths)
         ]
+        if all(not cutout for _, _, cutout in layers):
+            # Province outlines in the source use PDF's nonzero winding fill.
+            # Filling each contour independently loses the counter contours.
+            # Joining them retains holes and nested islands without guessing
+            # cutouts from color or replacing the original outline geometry.
+            layers = [(0, [operation for _, path, _ in layers for operation in path], False)]
+    return layers
+
+
+def extract_cell(page: object, cell: Cell) -> list[dict[str, object]]:
+    layers = _cell_layers(page, cell)
     return [
         {"cutout": cutout, "path": android_path_data(path)}
         for _, path, cutout in layers
@@ -347,13 +359,20 @@ def make_preview(source: Path, destination: Path) -> None:
         for character, left in zip(sample, positions):
             for cutout, polygons in paths[character]:
                 fill = PLATE_BLUE if cutout else (255, 255, 255, 255)
+                winding = Image.new("I", (int(TARGET_WIDTH * scale), int(TARGET_HEIGHT * scale)), 0)
                 for polygon in polygons:
                     points = [
-                        ((left + x) * scale, top + (25 + y) * scale)
+                        (x * scale, y * scale)
                         for x, y in polygon
                     ]
                     if len(points) >= 3:
-                        draw.polygon(points, fill=fill)
+                        area = sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2)
+                                   in zip(points, points[1:] + points[:1]))
+                        contour = Image.new("I", winding.size, 0)
+                        ImageDraw.Draw(contour).polygon(points, fill=1 if area > 0 else -1)
+                        winding = ImageMath.lambda_eval(lambda args: args["a"] + args["b"], a=winding, b=contour)
+                mask = ImageMath.lambda_eval(lambda args: (args["w"] != 0) * 255, w=winding).convert("L")
+                image.paste(fill, (int(left * scale), int(top + 25 * scale)), mask)
         draw.ellipse(
             ((134 - 5) * scale, top + (70 - 5) * scale, (134 + 5) * scale, top + (70 + 5) * scale),
             fill=(255, 255, 255, 255),
@@ -364,31 +383,7 @@ def make_preview(source: Path, destination: Path) -> None:
 
 
 def _preview_layers(document: object, cell: Cell):
-    tolerance = 0.8
-    candidates: list[tuple[int, list[tuple], bool]] = []
-    page = document.pages[cell.page_index]
-    shapes = [*page.rects, *page.curves]
-    for index, shape in enumerate(shapes):
-        luminance = scalar_luminance(shape.get("non_stroking_color"))
-        if not shape.get("fill") or luminance is None:
-            continue
-        if (
-            shape["x0"] >= cell.left - tolerance
-            and shape["x1"] <= cell.left + cell.width + tolerance
-            and shape["top"] >= cell.top - tolerance
-            and shape["bottom"] <= cell.top + cell.height + tolerance
-        ):
-            path = transform_path(shape["path"], cell)
-            candidates.append((index, path, luminance >= 0.5))
-    final_by_geometry = {geometry_key(path): (index, path, cutout) for index, path, cutout in candidates}
-    layers = sorted(final_by_geometry.values(), key=lambda item: item[0])
-    if cell.character in PROVINCE_CHARACTERS:
-        fitted_paths = fit_paths_to_character_size([path for _, path, _ in layers])
-        layers = [
-            (index, fitted_path, cutout)
-            for (index, _, cutout), fitted_path in zip(layers, fitted_paths)
-        ]
-    for _, path, cutout in layers:
+    for _, path, cutout in _cell_layers(document.pages[cell.page_index], cell):
         yield {"cutout": cutout}, flattened_polygons(path)
 
 

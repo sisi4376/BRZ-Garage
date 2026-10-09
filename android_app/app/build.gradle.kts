@@ -16,8 +16,8 @@ android {
         applicationId = "com.brz.gauge.trips"
         minSdk = 26
         targetSdk = 37
-        versionCode = 128
-        versionName = "4.0.0"
+        versionCode = 145
+        versionName = "4.3.5"
     }
 
     signingConfigs {
@@ -43,3 +43,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
+// Bundle the shared renderer and licensed models, excluding downloads and research files.
+val vehicleAssets = layout.buildDirectory.dir("generated/vehicleAssets")
+val syncVehicleAssets by tasks.registering(Sync::class) {
+    from(rootProject.file("../preview/vehicle-3d")) {
+        include("app.html", "real-models.js", "vehicle-camera.mjs", "vendor/three.module.js", "vendor/GLTFLoader.js",
+            "vendor/BufferGeometryUtils.js", "vendor/THREE-LICENSE.txt",
+            "models/*/vehicle.glb", "models/*/source.json", "models/*/original/license.txt")
+        into("vehicle-3d")
+    }
+    into(vehicleAssets)
+}
+android.sourceSets.getByName("main").assets.srcDir(vehicleAssets.get().asFile)
+tasks.named("preBuild").configure { dependsOn(syncVehicleAssets) }

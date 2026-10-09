@@ -40,7 +40,17 @@ data class ExpenseRecord(
     val title: String,
     val note: String = "",
     val odometerKm: Double? = null,
+    val maintenanceType: MaintenanceRecordType? = null,
 )
+
+/** User-selected heading, independent of the services actually carried out. */
+enum class MaintenanceRecordType(val code: Int, val title: String) {
+    A(1, "A保"), B(2, "B保"), TIRES(3, "轮胎更换"), REPAIR(4, "其他维修");
+
+    companion object {
+        fun fromCode(code: Int): MaintenanceRecordType? = entries.firstOrNull { it.code == code }
+    }
+}
 
 data class MonthlyExpenseSummary(
     val month: YearMonth,

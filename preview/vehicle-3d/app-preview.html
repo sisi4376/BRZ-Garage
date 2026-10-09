@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BRZ Garage · App 集成效果预览</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#edf1f6;font:14px system-ui,"Microsoft YaHei",sans-serif;color:#202d40}
+main{max-width:430px;margin:auto;padding:20px}h1{font-size:25px;margin:6px 0}small{color:#758499;font-size:11px}
+.notice{font-size:11px;color:#62748c;margin:0 0 18px}.model{display:flex;justify-content:space-between;align-items:center;margin:16px 0}select{border:1px solid #ccd5e0;border-radius:8px;padding:7px;background:white}
+.hero{background:linear-gradient(135deg,#253246,#0f1520);border-radius:24px;padding:14px 18px 17px;box-shadow:0 2px 6px #22324a14;color:white}
+.chips{display:flex;justify-content:space-between;font-size:10px}.chips span{background:#ffffff13;padding:6px 10px;border-radius:14px;color:#c9edf8}
+iframe{display:block;width:100%;height:192px;border:0;background:transparent;margin-top:2px}.toolbar{height:36px;display:flex}.toolbar button{flex:1;background:none;border:0;color:#d8e5f5;font:11px inherit;cursor:pointer}.toolbar button[aria-pressed=true]{color:white;font-weight:bold}
+.fuel{display:flex;justify-content:space-between;align-items:end;margin-top:10px}.range{font-size:42px;line-height:1.2;font-weight:bold}.dim{font-size:11px;color:#aebdd0}.bar{height:6px;border-radius:6px;background:#3c4c60;margin:10px 0}.cards{display:flex;gap:10px;margin-top:16px}.cards>div{background:white;border-radius:16px;padding:14px;flex:1;font-size:12px}.cards b{display:block;margin-top:14px;font-size:22px;color:#8a99aa}
+dialog{width:320px;border:0;border-radius:20px;padding:22px;color:#202d40}dialog::backdrop{background:#0006}.colors{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0}dialog button{padding:10px;border:1px solid #d7e0ec;border-radius:9px;background:#f5f7fa;cursor:pointer}dialog label{display:block;margin:12px 0}.close{width:100%;margin-top:10px}footer{margin-top:18px;color:#748297;font-size:11px;line-height:1.6}
+</style></head><body><main>
+<p class="notice">App 集成布局预览 · 同一套 3D 渲染器 · 非手机实拍</p>
+<h1>我的 BRZ</h1><small id="subtitle">SUBARU / ZD8 · 6MT</small>
+<div class="model"><span>车辆型号</span><select id="model" aria-label="车型"><option value="zd8">BRZ ZD8 · 第二代</option><option value="zc6">BRZ ZC6 · 第一代</option></select></div>
+<label style="display:block;margin:12px 0"><input type="checkbox" id="show-3d" checked> 显示 3D 车辆 <small>关闭后使用原来的 2D 图片</small></label>
+<section class="hero" id="vehicle-page"><div class="chips"><span id="chip">ZD8 · 6MT</span><span>仪表未连接</span></div>
+<iframe src="app.html" id="car" title="App 内嵌 3D 车辆"></iframe>
+<img id="flat-car" alt="原版 2D 车辆图片" style="display:none;width:100%;height:228px;object-fit:contain" src="../../android_app/app/src/main/res/drawable-nodpi/brz_zd8_hero.png">
+<div class="toolbar"><button data-view="front">前侧</button><button data-view="rear">后侧</button><button data-view="plate">车牌</button><button id="color">车色</button></div>
+<div class="fuel"><div><span class="dim">预估剩余续航</span><div class="range">— km</div></div><span class="dim">剩余油量暂不可用</span></div>
+<div class="bar"></div><span class="dim">连接仪表后显示车辆数据</span></section>
+<div class="cards"><div>本次行程<b>—</b></div><div>累计驾驶<b>—</b></div></div>
+<footer>拖动车辆旋转，双指缩放。正式 App 读取已设置的车牌；这里使用演示号码。<p><button id="switch-page">模拟离开车辆页</button> <output id="cache-status"></output></p></footer>
+<dialog id="palette"><strong>车身外观</strong><div class="colors"></div><label><input type="checkbox" id="satin"> 哑光车漆</label><label><input type="checkbox" id="show-plate" checked> 显示演示车牌</label><button class="close">完成</button></dialog>
+</main><script src="app-preview.js?v=4.1.3"></script></body></html>

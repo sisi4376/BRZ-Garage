@@ -45,6 +45,7 @@
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "export_path/ui_ext.h"
 #include "app_obd_dsp/app_event.h"
+#include "app_obd_dsp/perf_monitor.h"
 
 // ===== Triple-gauge roles =====
 // This BRZ build keeps the MULTI-GAUGE page visible but freezes its persisted role to MASTER.
@@ -53,12 +54,18 @@
 
 static const char *TAG = "obd_dsp";
 
-static void mark_app_valid_task(void *arg)
+static bool validate_startup(bool statistics_required)
 {
-    (void)arg;
-
+    uint32_t updates_before = obd_statistics_update_count();
     vTaskDelay(pdMS_TO_TICKS(15000));
 
+    if (statistics_required && (!obd_statistics_is_healthy() ||
+        obd_statistics_update_count() == updates_before)) {
+        ESP_LOGE(TAG, "Startup unhealthy: statistics task not progressing; OTA not confirmed");
+        return false;
+    }
+    ESP_LOGI(TAG, "Startup health OK: statistics_required=%u updates=%" PRIu32,
+             (unsigned)statistics_required, obd_statistics_update_count());
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Current firmware marked valid");
@@ -66,7 +73,7 @@ static void mark_app_valid_task(void *arg)
         ESP_LOGW(TAG, "Failed to mark firmware valid: %s", esp_err_to_name(err));
     }
 
-    vTaskDelete(NULL);
+    return true;
 }
 
 extern void ui_init(void);
@@ -115,6 +122,14 @@ static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
     lv_disp_flush_ready(disp_driver);
     return false;
 }
+
+#if CONFIG_OBD_PERF_MONITOR
+static void perf_display_refresh(lv_disp_drv_t *drv, uint32_t time_ms, uint32_t pixels)
+{
+    (void)drv;
+    perf_emit(PERF_REFRESH, (uint16_t)((pixels + 15u) / 16u), perf_now(), time_ms * 1000u);
+}
+#endif
 
 /* LVGL flush callback */
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
@@ -185,7 +200,9 @@ static void lvgl_port_task(void *arg)
     uint32_t task_delay_ms = LVGL_TASK_MAX_DELAY_MS;
     while (1) {
         if (lvgl_lock(-1)) {
+            uint32_t handler_start = perf_now();
             task_delay_ms = lv_timer_handler();
+            perf_emit(PERF_HANDLER, 0, handler_start, perf_now() - handler_start);
             lvgl_unlock();
         }
         if (task_delay_ms > LVGL_TASK_MAX_DELAY_MS) {
@@ -225,6 +242,16 @@ void app_main(void)
              user_cfg->protocol, user_cfg->theme_cfg.theme,
              user_cfg->vehicle_profile_idx, vehicle_profile_get_active()->name,
              stat->odometer_m, stat->trip_m, stat->max_speed_kmh, stat->avg_speed_kmh, stat->run_time_s);
+
+    uint8_t dev_role = user_cfg->device_role;
+#ifdef ESPNOW_FORCE_SLAVE
+    dev_role = ESPNOW_ROLE_SLAVE;
+#endif
+    // Reserve core statistics before display DMA and radio allocations. A
+    // missing task must never leave an apparently working gauge without trips.
+    if (dev_role != ESPNOW_ROLE_SLAVE) {
+        ESP_ERROR_CHECK(vMileageDataStatisticTask() ? ESP_OK : ESP_ERR_NO_MEM);
+    }
 
     ESP_LOGI(TAG, "Board target: %s (%dx%d)", gauge_display_board_name(), LCD_H_RES, LCD_V_RES);
 
@@ -303,6 +330,9 @@ void app_main(void)
     disp_drv.hor_res = LCD_H_RES;
     disp_drv.ver_res = LCD_V_RES;
     disp_drv.flush_cb = lvgl_flush_cb;
+#if CONFIG_OBD_PERF_MONITOR
+    disp_drv.monitor_cb = perf_display_refresh;
+#endif
     disp_drv.rounder_cb = lvgl_rounder_cb;
     disp_drv.draw_buf = &disp_buf;
     disp_drv.user_data = ACTIVE_PANEL_HANDLE;
@@ -349,10 +379,6 @@ void app_main(void)
     elm327_ble_ensure_stack_init();
 
     /* 8. Branch by role: master (connects to ELM327 for readings + ESP-NOW broadcast) / slave (only receives and displays the master's data) */
-    uint8_t dev_role = user_cfg->device_role;
-#ifdef ESPNOW_FORCE_SLAVE
-    dev_role = ESPNOW_ROLE_SLAVE;   // step 1 test: force slave
-#endif
 
     /* Build every local GATT service before connecting to ELM327. Creating a
        service after the outbound ELM link is live makes Bluedroid send a
@@ -433,12 +459,11 @@ void app_main(void)
             espnow_link_start_master();
         }
 
-        /* 10. Mileage statistics task (only the master counts, to avoid double counting by the slave) */
-        vMileageDataStatisticTask();
     }
 
-    BaseType_t valid_task_started = xTaskCreate(mark_app_valid_task, "ota_valid", 4096, NULL, tskIDLE_PRIORITY + 1, NULL);
-    if (valid_task_started != pdPASS) {
-        ESP_LOGW(TAG, "Failed to create OTA validity task");
+    // Reuse the existing main task for the bounded startup check; allocating
+    // another 4 KB task here could itself fail under the same memory pressure.
+    if (validate_startup(dev_role != ESPNOW_ROLE_SLAVE)) {
+        perf_monitor_start();
     }
 }

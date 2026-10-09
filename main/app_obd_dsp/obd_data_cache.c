@@ -11,6 +11,8 @@
 // Simple globals protected by a critical section
 static int16_t  s_coolant_temp = -40;
 static int16_t  s_oil_temp = -100;
+static bool s_oil_temp_is_zc6;
+static TickType_t s_oil_temp_tick;
 static int16_t  s_intake_temp = -40;
 static int16_t  s_load_pct = -1;
 static int16_t  s_tps = -1;
@@ -101,6 +103,7 @@ void obd_data_reset_temp_cache(void)
     portENTER_CRITICAL(&s_mux);
     s_coolant_temp = -40;
     s_oil_temp = -100;
+    s_oil_temp_is_zc6 = false;
     s_intake_temp = -40;
     portEXIT_CRITICAL(&s_mux);
 }
@@ -109,6 +112,7 @@ void obd_data_set_oil_temp_invalid(void)
 {
     portENTER_CRITICAL(&s_mux);
     s_oil_temp = -100;
+    s_oil_temp_is_zc6 = false;
     portEXIT_CRITICAL(&s_mux);
 }
 
@@ -236,7 +240,34 @@ void obd_data_set_oil_temp(int16_t temp)
     if (temp < -20 || temp > 150) return;
     portENTER_CRITICAL(&s_mux);
     s_oil_temp = temp;
+    s_oil_temp_is_zc6 = false;
     portEXIT_CRITICAL(&s_mux);
+}
+
+void obd_data_set_zc6_oil_temp(int16_t temp)
+{
+    if (temp < -40 || temp > 215) return;
+    portENTER_CRITICAL(&s_mux);
+    s_oil_temp = temp;
+    s_oil_temp_is_zc6 = true;
+    s_oil_temp_tick = xTaskGetTickCount();
+    portEXIT_CRITICAL(&s_mux);
+}
+
+void obd_data_set_synced_zc6_oil_temp(int16_t temp)
+{
+    if (temp != -100 && (temp < -40 || temp > 215)) return;
+    portENTER_CRITICAL(&s_mux);
+    s_oil_temp = temp;
+    s_oil_temp_is_zc6 = false; // the master owns freshness; invalid is relayed as -100
+    portEXIT_CRITICAL(&s_mux);
+}
+
+static int16_t oil_temp_locked(TickType_t now)
+{
+    return s_oil_temp_is_zc6 &&
+        (TickType_t)(now - s_oil_temp_tick) > pdMS_TO_TICKS(15000)
+        ? -100 : s_oil_temp;
 }
 
 void obd_data_set_intake_temp(int16_t temp)
@@ -277,7 +308,7 @@ int16_t obd_data_get_oil_temp(void)
 {
     int16_t val;
     portENTER_CRITICAL(&s_mux);
-    val = s_oil_temp;
+    val = oil_temp_locked(xTaskGetTickCount());
     portEXIT_CRITICAL(&s_mux);
     return val;
 }
@@ -623,7 +654,7 @@ void obd_data_get_snapshot(obd_data_snapshot_t *out)
     out->rpm = s_rpm_override_en ? s_rpm_override_val : s_rpm_smooth;
     out->speed = s_speed_smooth;
     out->coolant_temp = s_coolant_temp;
-    out->oil_temp = s_oil_temp;
+    out->oil_temp = oil_temp_locked(now);
     out->intake_temp = s_intake_temp;
     out->load_pct = s_load_pct;
     out->tps = s_tps;
@@ -700,6 +731,21 @@ enGear calculate_gear(float rpm, float speed) {
  * @note
  * @note Mileage statistics task
  */
+static uint32_t s_statistics_updates;
+static uint32_t s_statistics_last_tick;
+
+uint32_t obd_statistics_update_count(void)
+{
+    return __atomic_load_n(&s_statistics_updates, __ATOMIC_ACQUIRE);
+}
+
+bool obd_statistics_is_healthy(void)
+{
+    if (!obd_statistics_update_count()) return false;
+    TickType_t last = __atomic_load_n(&s_statistics_last_tick, __ATOMIC_RELAXED);
+    return (TickType_t)(xTaskGetTickCount() - last) <= pdMS_TO_TICKS(2000);
+}
+
 static void mileage_statistics_task(void* arg)
 {
     (void)arg;
@@ -761,16 +807,21 @@ static void mileage_statistics_task(void* arg)
         was_stopped = stopped;
         rpm_state_initialized = sample.rpm_valid;
         was_engine_running = engine_running;
+        // Publish only after a complete iteration, including a due checkpoint.
+        // Healthy execution is independent of whether the vehicle is connected.
+        __atomic_store_n(&s_statistics_last_tick, xTaskGetTickCount(), __ATOMIC_RELAXED);
+        uint32_t updates = __atomic_load_n(&s_statistics_updates, __ATOMIC_RELAXED) + 1U;
+        __atomic_store_n(&s_statistics_updates, updates ? updates : 1U, __ATOMIC_RELEASE);
     }
 }
 
 /**
  * @brief Initialize the mileage statistics task
- * @return none
+ * @return true when the statistics task exists
  * @note
  * @note Initialize the mileage statistics task
  */
-void vMileageDataStatisticTask(void)
+bool vMileageDataStatisticTask(void)
 {
     static TaskHandle_t s_task = NULL;
     if (!s_task) {
@@ -779,6 +830,9 @@ void vMileageDataStatisticTask(void)
         if (xTaskCreate(mileage_statistics_task, "trip_stat", 6144, NULL, 2, &s_task) != pdPASS) {
             s_task = NULL;
             ESP_LOGE("trip_stat", "failed to create mileage task");
+            return false;
         }
+        ESP_LOGI("trip_stat", "statistics task started (stack=6144)");
     }
+    return true;
 }

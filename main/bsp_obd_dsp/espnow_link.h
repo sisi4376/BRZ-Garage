@@ -10,6 +10,9 @@ extern "C" {
 #define ESPNOW_ROLE_SLAVE     1   // only receives the master's ESP-NOW data and displays it (WiFi on)
 #define ESPNOW_ROLE_STANDALONE 2  // standalone: full ELM327 features but no WiFi/ESP-NOW (retained for compatibility)
 
+// Optional v6 packet flag. ZD8 flags and packet layout stay unchanged.
+#define ESPNOW_FLAG_ZC6_PID 0x04u
+
 // Master: init WiFi + ESP-NOW and periodically broadcast the OBD data cache to slaves.
 // Runs alongside BLE (ELM327 link); ESP32-S3 single-radio time-shares (software coexistence enabled in sdkconfig).
 void espnow_link_start_master(void);

@@ -1,0 +1,33 @@
+BRZ Gauge 4.0.4 — local application-only firmware
+Board: Waveshare ESP32-S3-Touch-AMOLED-1.75-B
+
+Fix: reserve the fuel/trip statistics task before display/radio allocations;
+check task creation; confirm OTA only after actual statistics progress.
+Production performance telemetry is disabled. Opt-in telemetry now allocates
+only after healthy startup with an internal-heap admission reserve.
+
+Build config: .analysis/fw404_sdkconfig
+Build directory: .analysis/fw404_build
+Tests: 27 related host tests passed; optional telemetry also compiled with the
+ESP32-S3 compiler. Initial internal heap recovered: 4984 bytes vs 4.0.3.
+Partition table matches 4.0.3. NVS and trip protocol layouts are unchanged.
+Flashed to the verified active application partition (0x320000) of COM7 on
+2026-10-08. Full 16 MiB backup saved under backups/flash-4.0.4-20261008.
+Esptool verify_flash passed. Boot reports 4.0.4, ZD8, statistics task started,
+and Startup health OK with 84 updates. A later periodic checkpoint reports
+OK with 4148 bytes of free stack. No road-tested fuel recovery claim yet.
+
+Current App source: 4.3.5 (145); compileDebugKotlin passed. Production firmware
+archive/queue/ACK/wire output was accepted by the actual compiled App parser.
+Tests cover retries, retained records for another phone, new records after ACK,
+checkpoint failure retry, concurrent updates during persistence, reloading the
+committed queue, legacy records, unsigned health masks, CRC rejection and the
+4.0.4 manifest. Physical phone database/vehicle end-to-end remains unverified.
+
+This is an application image, NOT a merged full-flash image. Use the established
+OTA flow or a verified application-partition update; do not guess a USB offset.
+Do not downgrade to original 4.0.0 to diagnose this issue: its smaller NVS loader
+cannot read the expanded 4.0.2+ records safely.
+
+Size: 2110176 bytes
+SHA256: eaa3b0e724ccd4508a63f34ea598266a53cafbf971c3727ce133d94272905806

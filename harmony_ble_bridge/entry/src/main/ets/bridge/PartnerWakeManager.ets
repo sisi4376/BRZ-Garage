@@ -27,6 +27,7 @@ export class PartnerWakeManager {
     supported: false,
     registered: false,
     scanning: false,
+    registering: false,
     status: '正在读取系统状态…',
     deviceAddress: '',
     error: '',
@@ -47,7 +48,7 @@ export class PartnerWakeManager {
   }
 
   async refresh(): Promise<void> {
-    if (this.scanning) {
+    if (this.scanning || this.snapshot.registering) {
       this.publish();
       return;
     }
@@ -75,6 +76,7 @@ export class PartnerWakeManager {
   }
 
   async enableFromUser(): Promise<boolean> {
+    if (this.scanning || this.snapshot.registering) return false;
     if (!this.context) {
       this.fail('应用上下文尚未就绪');
       return false;
@@ -208,8 +210,11 @@ export class PartnerWakeManager {
     try {
       ble.on('BLEDeviceFind', (results: Array<ble.ScanResult>) => {
         if (!this.scanning) return;
-        hilog.warn(DOMAIN, TAG, 'Gauge scan results: %{public}d', results.length);
+        const previousCount = this.seenDevices.size;
         for (const result of results) this.seenDevices.add(result.deviceId);
+        if (previousCount !== this.seenDevices.size) {
+          hilog.info(DOMAIN, TAG, 'Distinct scan devices: %{public}d', this.seenDevices.size);
+        }
         this.snapshot.diagnostics = `${this.knownDiagnostic}\n广播发现 ${this.seenDevices.size} 台设备`;
         // Registration needs a paired identity, not a connectable advertising flag.
         const match = results.find((result: ble.ScanResult) =>
@@ -255,6 +260,15 @@ export class PartnerWakeManager {
   }
 
   private async bindDevice(address: string): Promise<void> {
+    this.snapshot.registering = true;
+    this.snapshot.deviceAddress = address;
+    this.snapshot.error = '';
+    try {
+      if (connection.getPairState(address) !== connection.BondState.BOND_STATE_BONDED) {
+        this.snapshot.status = '正在完成鸿蒙蓝牙配对，请确认系统弹窗…';
+        this.publish();
+        await this.pairNativeDevice(address);
+      }
     hilog.warn(DOMAIN, TAG, 'Registering known/discovered gauge');
     this.snapshot.status = '正在交给鸿蒙系统注册…';
     this.snapshot.deviceAddress = address;
@@ -276,7 +290,48 @@ export class PartnerWakeManager {
     this.snapshot.status = '鸿蒙兜底授时已启用';
     hilog.warn(DOMAIN, TAG, 'Gauge registration completed');
     this.snapshot.error = '';
-    this.publish();
+    } finally {
+      this.snapshot.registering = false;
+      this.publish();
+    }
+  }
+
+  private pairNativeDevice(address: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let finished = false;
+      let timer = -1;
+      const finish = (message: string): void => {
+        if (finished) return;
+        finished = true;
+        if (timer >= 0) clearTimeout(timer);
+        try { connection.off('bondStateChange', onBond); } catch (_) { }
+        if (message.length > 0) reject(new Error(message));
+        else resolve();
+      };
+      const onBond = (event: connection.BondStateParam): void => {
+        if (event.deviceId.toUpperCase() !== address.toUpperCase()) return;
+        hilog.warn(DOMAIN, TAG, 'Native pairing state: %{public}d', event.state);
+        if (event.state === connection.BondState.BOND_STATE_BONDED) finish('');
+        else if (event.state === connection.BondState.BOND_STATE_INVALID) {
+          finish('鸿蒙蓝牙配对未完成，请重试并确认系统配对弹窗');
+        }
+      };
+      try {
+        connection.on('bondStateChange', onBond);
+        timer = setTimeout(() => finish('鸿蒙蓝牙配对超时，请保持仪表开启并确认系统配对弹窗'), 45000);
+        hilog.warn(DOMAIN, TAG, 'Starting native Bluetooth pairing');
+        connection.pairDevice({ address: address,
+          addressType: bluetoothCommon.BluetoothAddressType.VIRTUAL }).then(() => {
+          try {
+            if (connection.getPairState(address) === connection.BondState.BOND_STATE_BONDED) finish('');
+          } catch (error) { finish(`配对状态读取失败（${(error as BusinessError).code}）`); }
+        }).catch((error: BusinessError) => {
+          finish(`鸿蒙蓝牙配对失败（${error.code}）：${error.message}`);
+        });
+      } catch (error) {
+        finish(`鸿蒙蓝牙配对启动失败（${(error as BusinessError).code}）`);
+      }
+    });
   }
 
   private failBind(error: BusinessError): void {
@@ -287,7 +342,11 @@ export class PartnerWakeManager {
       return;
     }
     if (error.code === 34900003) {
-      this.fail('仪表尚未完成系统配对；请先在 BRZ Garage 中重新绑定一次');
+      this.fail('鸿蒙系统尚未认可仪表配对，请重新启用授时桥完成原生配对');
+      return;
+    }
+    if (!error.code) {
+      this.fail(error.message || '鸿蒙蓝牙配对未完成');
       return;
     }
     this.fail(`系统注册失败（${error.code}）`);
@@ -324,6 +383,7 @@ export class PartnerWakeManager {
       supported: this.snapshot.supported,
       registered: this.snapshot.registered,
       scanning: this.snapshot.scanning,
+      registering: this.snapshot.registering,
       status: this.snapshot.status,
       deviceAddress: this.snapshot.deviceAddress,
       error: this.snapshot.error,

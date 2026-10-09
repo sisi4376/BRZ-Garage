@@ -1,0 +1,1 @@
+这两个 4.1.0 / 133 安装包已由统一的 BRZ-Garage-v4.1.1-debug.apk（134）替代。本目录仅作追溯保留，请安装 android_app 根目录中的 4.1.1。整合说明见 docs/APP_4_1_1_INTEGRATION.md。

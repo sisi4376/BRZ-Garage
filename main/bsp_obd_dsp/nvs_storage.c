@@ -29,7 +29,7 @@
 #define KEY_CUSTOM_TRIP       "customtrip" // phone-selected lifetime baseline for the gauge page
 #define FUEL_STORE_VERSION    4
 #define TRIP_SYNC_STORE_VERSION 1
-#define TRIP_SYNC_PROTOCOL_VERSION 3
+#define TRIP_SYNC_PROTOCOL_VERSION 4
 #define REFUEL_STORE_VERSION 1U
 #define REFUEL_PROTOCOL_VERSION 2U
 #define CUSTOM_TRIP_STORE_VERSION 1U
@@ -91,6 +91,10 @@ typedef struct {
     nvs_trip_detail_t active_detail;
     nvs_trip_detail_t pending_detail;
     nvs_trip_detail_t history_details[NVS_FUEL_TRIP_HISTORY_MAX];
+    /* Append-only extension: old blobs load these as zero (unrecorded). */
+    obd_poll_health_t active_health;
+    obd_poll_health_t pending_health;
+    obd_poll_health_t history_health[NVS_FUEL_TRIP_HISTORY_MAX];
 } fuel_store_t;
 
 typedef struct {
@@ -102,6 +106,7 @@ typedef struct {
     nvs_trip_sync_record_t records[NVS_TRIP_SYNC_QUEUE_MAX];
     /* Appended without changing the v1 record array layout. */
     nvs_trip_detail_t details[NVS_TRIP_SYNC_QUEUE_MAX];
+    obd_poll_health_t health[NVS_TRIP_SYNC_QUEUE_MAX];
 } trip_sync_store_t;
 
 static fuel_store_t s_fuel;
@@ -267,7 +272,8 @@ static void trip_detail_merge(nvs_trip_detail_t *dst, const nvs_trip_detail_t *s
 }
 
 static void trip_sync_enqueue(const nvs_trip_sync_record_t *record,
-                              const nvs_trip_detail_t *detail)
+                              const nvs_trip_detail_t *detail,
+                              const obd_poll_health_t *health)
 {
     if (!record || record->id == 0) return;
     if (s_trip_sync.count >= NVS_TRIP_SYNC_QUEUE_MAX) {
@@ -275,10 +281,13 @@ static void trip_sync_enqueue(const nvs_trip_sync_record_t *record,
                 (NVS_TRIP_SYNC_QUEUE_MAX - 1U) * sizeof(s_trip_sync.records[0]));
         memmove(&s_trip_sync.details[0], &s_trip_sync.details[1],
                 (NVS_TRIP_SYNC_QUEUE_MAX - 1U) * sizeof(s_trip_sync.details[0]));
+        memmove(&s_trip_sync.health[0], &s_trip_sync.health[1],
+                (NVS_TRIP_SYNC_QUEUE_MAX - 1U) * sizeof(s_trip_sync.health[0]));
         s_trip_sync.count = NVS_TRIP_SYNC_QUEUE_MAX - 1U;
         s_trip_sync.overflowed = 1;
     }
     s_trip_sync.records[s_trip_sync.count] = *record;
+    s_trip_sync.health[s_trip_sync.count] = health ? *health : (obd_poll_health_t){0};
     if (detail) s_trip_sync.details[s_trip_sync.count] = *detail;
     else memset(&s_trip_sync.details[s_trip_sync.count], 0, sizeof(s_trip_sync.details[0]));
     s_trip_sync.count++;
@@ -288,7 +297,8 @@ static void trip_sync_enqueue(const nvs_trip_sync_record_t *record,
 static void fuel_push_trip(uint64_t duration_ms, uint64_t distance_mm,
                            uint64_t fuel_ul, uint64_t start_epoch_s,
                            uint64_t end_epoch_s,
-                           const nvs_trip_detail_t *detail)
+                           const nvs_trip_detail_t *detail,
+                           const obd_poll_health_t *health)
 {
     if (duration_ms >= 30000 || distance_mm >= 100000) {
         unsigned count = s_fuel.history_count;
@@ -299,8 +309,11 @@ static void fuel_push_trip(uint64_t duration_ms, uint64_t distance_mm,
                     move * sizeof(s_fuel.history[0]));
             memmove(&s_fuel.history_details[1], &s_fuel.history_details[0],
                     move * sizeof(s_fuel.history_details[0]));
+            memmove(&s_fuel.history_health[1], &s_fuel.history_health[0],
+                    move * sizeof(s_fuel.history_health[0]));
         }
         nvs_fuel_trip_record_t *record = &s_fuel.history[0];
+        s_fuel.history_health[0] = health ? *health : (obd_poll_health_t){0};
         memset(record, 0, sizeof(*record));
         record->id = ++s_fuel.next_trip_id;
         record->duration_s = (uint32_t)(duration_ms / 1000ULL);
@@ -321,7 +334,7 @@ static void fuel_push_trip(uint64_t duration_ms, uint64_t distance_mm,
             .avg_l100_x100 = record->avg_l100_x100,
             .flags = (start_epoch_s >= 1704067200ULL && end_epoch_s >= start_epoch_s) ? 1U : 0U,
         };
-        trip_sync_enqueue(&sync_record, detail);
+        trip_sync_enqueue(&sync_record, detail, health);
     }
 }
 
@@ -333,6 +346,7 @@ static void fuel_clear_active(void)
     s_fuel.active_last_epoch_s = 0;
     s_fuel.active_start_epoch_s = 0;
     memset(&s_fuel.active_detail, 0, sizeof(s_fuel.active_detail));
+    memset(&s_fuel.active_health, 0, sizeof(s_fuel.active_health));
     s_accel_speed_valid = false;
     s_accel_last_speed_kmh = 0;
     s_accel_elapsed_ms = 0;
@@ -349,6 +363,7 @@ static void fuel_clear_pending(void)
     s_fuel.pending_last_epoch_s = 0;
     s_fuel.pending_start_epoch_s = 0;
     memset(&s_fuel.pending_detail, 0, sizeof(s_fuel.pending_detail));
+    memset(&s_fuel.pending_health, 0, sizeof(s_fuel.pending_health));
     s_fuel.pending_valid = 0;
 }
 
@@ -374,7 +389,7 @@ static void fuel_finish_active_trip(void)
     }
     fuel_push_trip(s_fuel.active_duration_ms, s_fuel.active_distance_mm,
                    s_fuel.active_fuel_ul, s_fuel.active_start_epoch_s,
-                   s_fuel.active_last_epoch_s, &s_fuel.active_detail);
+                   s_fuel.active_last_epoch_s, &s_fuel.active_detail, &s_fuel.active_health);
     fuel_clear_active();
 }
 
@@ -383,7 +398,7 @@ static void fuel_finish_pending_trip(void)
     if (s_fuel.pending_valid) {
         fuel_push_trip(s_fuel.pending_duration_ms, s_fuel.pending_distance_mm,
                        s_fuel.pending_fuel_ul, s_fuel.pending_start_epoch_s,
-                       s_fuel.pending_last_epoch_s, &s_fuel.pending_detail);
+                       s_fuel.pending_last_epoch_s, &s_fuel.pending_detail, &s_fuel.pending_health);
     }
     fuel_clear_pending();
 }
@@ -396,6 +411,7 @@ static void fuel_move_active_to_pending(void)
     s_fuel.pending_last_epoch_s = s_fuel.active_last_epoch_s;
     s_fuel.pending_start_epoch_s = s_fuel.active_start_epoch_s;
     s_fuel.pending_detail = s_fuel.active_detail;
+    s_fuel.pending_health = s_fuel.active_health;
     s_fuel.pending_valid = 1;
     fuel_clear_active();
 }
@@ -424,6 +440,7 @@ static void fuel_prepare_pending_at_boot(void)
                 s_fuel.pending_distance_mm += s_fuel.active_distance_mm;
                 s_fuel.pending_fuel_ul += s_fuel.active_fuel_ul;
                 trip_detail_merge(&s_fuel.pending_detail, &s_fuel.active_detail);
+                obd_poll_health_merge(&s_fuel.pending_health, &s_fuel.active_health);
                 s_fuel.pending_last_epoch_s = s_fuel.active_last_epoch_s;
                 fuel_clear_active();
             } else {
@@ -664,7 +681,7 @@ esp_err_t nvs_storage_init(void)
                 .fuel_ml = old->fuel_ml,
                 .avg_l100_x100 = old->avg_l100_x100,
             };
-            trip_sync_enqueue(&imported, &s_fuel.history_details[i]);
+            trip_sync_enqueue(&imported, &s_fuel.history_details[i], &s_fuel.history_health[i]);
         }
     }
     if ((s_fuel.version < 1 || s_fuel.version > FUEL_STORE_VERSION) ||
@@ -881,6 +898,12 @@ void nvs_fuel_update(const fuel_sample_t *sample, uint32_t dt_ms)
        engine-running clock; the monotonic anchors later reconstruct real
        start/end timestamps from a delayed phone synchronization. */
     bool engine_running = sample && sample->rpm_valid && sample->rpm > 0;
+    if (engine_running || s_fuel.active_duration_ms || s_fuel.active_distance_mm || s_fuel.active_fuel_ul) {
+        obd_poll_health_t health = obd_poll_health_take();
+        if ((health.requested & ~s_fuel.active_health.requested) ||
+            (health.received & ~s_fuel.active_health.received)) s_fuel_dirty = true;
+        obd_poll_health_merge(&s_fuel.active_health, &health);
+    }
     bool interval_valid = dt_ms <= 2000;
     if (engine_running && interval_valid) {
         if (sample->rpm > s_fuel.active_detail.max_rpm)
@@ -945,6 +968,7 @@ void nvs_fuel_update(const fuel_sample_t *sample, uint32_t dt_ms)
         ESP_LOGI(TAG, "engine stopped for %u min; finalizing trip",
                  (unsigned)s_cfg.trip_merge_timeout_min);
         fuel_finish_active_trip();
+        (void)obd_poll_health_take(); // discard parked-session events at this boundary
         s_fuel_dirty = true;
     }
     if (!estimate.integrate) {
@@ -1399,6 +1423,7 @@ esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s,
             s_fuel.active_distance_mm += s_fuel.pending_distance_mm;
             s_fuel.active_fuel_ul += s_fuel.pending_fuel_ul;
             trip_detail_merge(&s_fuel.active_detail, &s_fuel.pending_detail);
+            obd_poll_health_merge(&s_fuel.active_health, &s_fuel.pending_health);
             if (s_fuel.pending_start_epoch_s >= 1704067200ULL) {
                 s_fuel.active_start_epoch_s = s_fuel.pending_start_epoch_s;
             }
@@ -1470,6 +1495,7 @@ void nvs_trip_sync_get_meta(nvs_trip_sync_meta_t *out)
 size_t nvs_trip_sync_read_after(uint32_t after_id,
                                 nvs_trip_sync_record_t *out,
                                 nvs_trip_detail_t *detail_out,
+                                obd_poll_health_t *health_out,
                                 size_t max_records)
 {
     if (!out || max_records == 0 || !s_mux) return 0;
@@ -1479,6 +1505,7 @@ size_t nvs_trip_sync_read_after(uint32_t after_id,
         if (s_trip_sync.records[i].id > after_id) {
             out[copied] = s_trip_sync.records[i];
             if (detail_out) detail_out[copied] = s_trip_sync.details[i];
+            if (health_out) health_out[copied] = s_trip_sync.health[i];
             copied++;
         }
     }

@@ -1,4 +1,16 @@
 menu "OBD DSP Configuration"
+    config OBD_PERF_MONITOR
+        bool "Passive gauge performance telemetry"
+        default n
+        help
+            Best-effort RAM-only timestamp events. An idle-priority background
+            task reports to the serial log every 10 seconds. No extra OBD
+            queries, blocking producer locks, Flash writes or BLE messages.
+            Full/contended buffers drop telemetry, never vehicle samples.
+            Opt-in diagnostics only. Memory is allocated after core startup
+            with an internal-heap reserve; allocation failure disables telemetry.
+            Production builds leave this off to preserve radio/OTA headroom.
+
     choice OBD_BOARD_VARIANT
         prompt "Gauge board"
         default OBD_BOARD_AMOLED_175

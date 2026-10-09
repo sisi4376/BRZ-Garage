@@ -2,42 +2,60 @@
 
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地用车管家**
 
-ESP32-S3 · 1.75 英寸 AMOLED · BLE ELM327 · Android
-
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.0.0-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.0.0-3DDC84)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.0.1-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.0.0 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次安装](#第一次安装) · [支持项目](https://afdian.com/a/4822y)
+[下载 v4.0.1 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+
+> ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
+>
+> <img src="https://github.com/user-attachments/assets/5ba8124c-7014-402e-accd-fcd56f582a25" alt="GitHub 右上角 Star 按钮示意" width="136">
+>
+> 你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
 
 ## Beta 公测版说明
 
-App 与仪表固件现统一升级至 **4.0.0**，开启 **Beta 公测**。GitHub Release 标记为预发布；现有用户可覆盖安装 APK，再在 App 中手动更新内置仪表固件。
+当前 **Beta 公测**版本为 App **4.0.1**（versionCode 130，图标比例调整版）与仪表固件 **4.0.0**。在原 v4.0.0 Release 中替换 App 附件，保留原发布链接及预发布状态；现有用户可手动下载 APK 覆盖安装，仪表已经是 4.0.0 的无需重复升级。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
 >
 > 使用前请特别注意：
 >
-> - 当前仅支持 **6MT 手动挡**，暂不支持自动挡；
-> - 目前仅对 **ZD8** 完成实车验证，ZC6 尚需更多实车测试；
-> - 仪表断电后需要手机重新授时。HarmonyOS API 23 以上可另装原生“授时桥”作为兜底，其他系统仍需检查授时状态；
-> - Android App 目前主要在 HarmonyOS 6 上测试，其他 Android 系统可能存在厂商兼容性差异；暂不支持 iOS；
-> - 本项目不能远程访问或控制车辆，也未实现 GPS 功能；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G；
-> - 当前不建议外接锂电，也未采用保险盒常电供电方案，以避免额外的电气与蓄电池风险；
-> - 未及时同步到手机的行程会暂存在仪表的有限容量队列中，但不应将仪表视为完整的数据备份。
+> ❌ 当前仅支持 **6MT 手动挡**，暂不支持自动挡；
 >
-> ✅ 多台手机可以轮流连接同一仪表，各自维护本地同步游标；请勿让两台手机同时修改仪表设置或执行 OTA。
+> ❌ 目前仅对 **ZD8** 完成实车验证，ZC6 尚需更多实车测试；
+>
+> ❌ 目前仪表断电后需要手机重新授时。使用时仍需检查授时状态；
+>
+> ❗ Android App 目前主要在 HarmonyOS 6 上测试，其他 Android 系统可能存在厂商兼容性差异；暂不支持 iOS；
+>
+> ❌ 本项目不能远程访问或控制车辆，也未实现 GPS 功能；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G；
+>
+> ❌ 当前不建议外接锂电，也未采用保险盒常电供电方案，以避免额外的电气与蓄电池风险；
+>
+> ❌ 未及时同步到手机的行程会暂存在仪表的有限容量队列中，但不应将仪表视为完整的数据备份。
+>
+> ❗ **（谨慎使用该功能）** 多台手机可以轮流连接同一仪表，各自维护本地同步游标； 请勿让两台手机同时修改仪表设置或执行 OTA。
 >
 > 如果您愿意支持项目的开发和后续维护，可以[帮忙给作者的 Codex 花费回回血💰](https://afdian.com/a/4822y)
+
+## 免责声明
+
+BRZ Garage 是独立的社区开源项目，与 Subaru Corporation、上游项目作者及相关硬件厂商不存在官方隶属、授权或背书关系；相关名称与商标归各自权利人所有，详见 [版权与来源声明](NOTICE.md)。本项目目前处于 Beta 公测阶段，软件、固件、文档及相关工具均按“现状”提供，不承诺数据准确性、运行稳定性或对特定车辆、适配器和手机系统的兼容性。
+
+仪表读数、挡位与油耗推算、续航估算及保养提示仅供参考，不能替代原厂仪表、车辆用户手册或专业检测，也不应作为驾驶、维修或安全决策的唯一依据。请在使用前核对车型、硬件与供电方案，并自行评估安装、接线、烧录、升级及第三方适配器可能带来的设备损坏、蓄电池亏电、车辆异常、数据丢失等风险，提前备份重要数据。安装不得遮挡视线或影响安全气囊与车辆操控；配置、调试和更新应在安全停车状态下完成，驾驶时请勿操作设备。
+
+在适用法律允许的范围内，且除非另有书面约定，作者、贡献者及分发者不提供明示或默示担保，并按 [GPLv3 第 15—17 条](LICENSE) 限制因使用或无法使用本项目所产生的损失责任。本声明不排除或限制适用法律规定不得排除或限制的责任，也不改变 GPLv3 赋予用户的权利。
 
 ## 已知限制
 
 - 转速表和车速表运行时仍可能出现轻微卡顿，高转速闪烁提醒目前仍在优化；
-- 后台自动唤醒受不同手机厂商的系统策略限制。App 3.12.1 与仪表固件 3.3.1 已加入系统 LE 配对、伴生设备关联、系统 BLE 扫描、自检和前台服务，但仍无法保证所有系统都会自动拉起 App；
-- HarmonyOS API 23 以上可自行构建并配置签名安装 2.1.4 原生授时桥（见 [授时桥说明](harmony_ble_bridge/README.md)）。系统发现仪表后会先给 Android App 8 秒连接窗口，仅在 App 未连接时通过独立特征写入时间并立即断开；它不读取行程、不订阅实时数据，也不替代 Android App；
+- 后台自动唤醒受不同手机厂商的系统策略限制。现版本已加入系统 LE 配对、伴生设备关联、系统 BLE 扫描、自检和前台服务，但仍无法保证所有系统都会自动拉起 App；
+- HarmonyOS 系统自动唤醒功能目前存在缺陷，需要手动开启App；
 - 授时桥只负责时钟兜底。若仪表仍未显示有效时间，请手动打开 App；行程可以继续保存，但开始和结束时间可能缺失。
 
 ## 这是什么？
@@ -180,6 +198,21 @@ flowchart LR
 
 ### 1. 烧录仪表
 
+#### Windows 一键烧录（免安装开发环境）
+
+在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。每次发布 Beta / 正式版后自动构建、测试并附加烧录包；附件需等待发布工作流成功完成。下载完整烧录包后：
+
+1. 将 ZIP **完整解压**，用 USB 数据线连接仪表。
+2. 双击 `Start-Flasher.cmd`，等待自动识别 USB 串口并确认开发板型号。工具每 2 秒监测插拔、显示设备名称并排除蓝牙虚拟串口；多个 USB 候选设备需要手动选择。
+3. 新板或原厂/其他固件勾选“首次安装”，已有 BRZ 仪表重装通常不用勾选。
+4. 点击“开始烧录”，查看实时备份百分比、已读取容量和耗时，等待写入、校验与重启完成。写入时显示当前分区进度，不代表整次操作已完成。
+
+支持 Windows 10/11 x64，无需安装 Python、ESP-IDF 或编译工具。工具先核验固件、检查 ESP32-S3 和 16 MB Flash，再完整备份原始 Flash；不执行整片擦除。同分区 BRZ 固件普通重装保留 NVS 数据和开机动画。具体开发板型号仍需人工确认，不能只凭芯片型号判断兼容。
+
+备份和日志位于 `%LOCALAPPDATA%\BRZ-Garage\Flasher\backups\`，可在界面中直接打开。备份包含设备与行程数据，请妥善保存。维护者的打包命令及验证方式见 [烧录包说明](firmware/README.md)。
+
+#### 从源码构建并烧录（开发者）
+
 如果电脑尚未安装该环境，请先按照乐鑫官方的 [ESP-IDF 5.5.2 Windows 工具链安装说明](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/windows-setup.html) 完成安装，并在安装结束时选择 **Run ESP-IDF PowerShell Environment**。**ESP-IDF PowerShell** 不是需要单独下载的软件，而是安装器创建的、已经配置好 ESP-IDF 环境变量的 PowerShell 入口。
 
 从开始菜单打开 **ESP-IDF PowerShell**。不要使用普通 PowerShell，因为其中通常没有配置 `idf.py` 和 `esptool.py`。
@@ -224,15 +257,13 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.0.0 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) 下载并安装 **BRZ Garage**。完成第一次烧录后，App 和仪表固件的后续升级都可以直接在 App 内完成。
+前往 [App v4.0.1 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.0.0) 下载并安装 **BRZ Garage**。本次沿用 v4.0.0 Release 标签，请手动下载覆盖安装；完成第一次烧录后，仪表固件的后续升级可以在 App 内完成。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；
 - 授予“附近设备”、通知，以及 Android 13+ 的附近 Wi-Fi 权限；
 - 如果系统提示未知来源安装，只应对从本仓库下载的 APK 临时授权；
 - 华为/鸿蒙手机还需要允许自启动、关联启动和后台活动，并关闭电池优化。
-
-HarmonyOS API 23 以上设备还可安装仓库中的原生辅助程序 [`harmony_ble_bridge`](harmony_ble_bridge/README.md)，并将仪表固件升级到 **3.3.1 或更高版本**。它使用 PartnerAgent 把已配对仪表注册给系统；发现仪表后先为 Android 版 BRZ Garage 保留 8 秒连接窗口，仅在 Android 未连接时通过隔离的授时特征写入一次时间并立即断开。它不读取行程、不订阅实时数据，也不负责维持 Android 进程。该 HAP 与 Android APK 分开安装，首次打开只需完成一次仪表注册。
 
 ### 3. 连接车辆
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <string.h>
 #include "obd_data_cache.h"
 #include "vehicle_custom_config.h"
 
@@ -73,6 +74,12 @@ typedef struct {
     bool can_broadcast_mode;             // true=interleave ATMA CAN monitoring with standard OBD polling
 } vehicle_profile_t;
 
+// Explicit opt-in keeps ZC6-specific behavior out of the released ZD8 path.
+static inline bool vehicle_profile_is_zc6_pid(const vehicle_profile_t *p)
+{
+    return p && p->name && strcmp(p->name, "ZC6") == 0;
+}
+
 // Get all predefined vehicle profiles
 const vehicle_profile_t *vehicle_profile_get_all(uint8_t *count);
 
@@ -89,7 +96,8 @@ uint8_t vehicle_profile_normalize_index(uint8_t index);
 // Set the active vehicle profile (unsupported indices normalize to ZD8 and are saved to NVS)
 void vehicle_profile_set_active(uint8_t index);
 
-// Calculate the speed constant: 1 / (final_drive * 0.377 * tire_radius)
+// Calculate the speed constant: 1 / (0.377 * tire_radius).
+// RPM / (speed * constant) includes final drive once; do not multiply it again.
 float vehicle_profile_calc_constant(const vehicle_profile_t *p);
 
 // Generate the gear range array from the currently active vehicle profile

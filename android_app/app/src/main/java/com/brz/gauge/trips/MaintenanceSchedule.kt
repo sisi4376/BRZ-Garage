@@ -7,6 +7,7 @@ import kotlin.math.round
 
 /**
  * Replacement/addition/rotation intervals transcribed from 养护维修表update.pdf.
+ * Tire replacement uses the user-confirmed reminder interval of 50,000 km / 8 years.
  *
  * The app intentionally omits inspection-only rows. The source table uses general driving
  * conditions and says to service by distance or elapsed time, whichever comes first. Rows with
@@ -41,6 +42,10 @@ enum class MaintenanceServiceKind(
     TIRE_ROTATION(
         "轮胎换位", "执行", 10_000, null,
         aliases = arrayOf("轮胎换位", "轮胎换位与检查", "轮胎检查"),
+    ),
+    TIRE_REPLACEMENT(
+        "轮胎", "更换", 50_000, 96,
+        aliases = arrayOf("轮胎更换", "换轮胎"),
     ),
     AIR_CLEANER_FILTER(
         "发动机空气滤芯", "更换", 20_000, 24,
@@ -77,6 +82,8 @@ enum class MaintenanceServiceKind(
     );
 
     fun intervalLabel(): String {
+        if (intervalKm == null && intervalMonths == null) return "按实际情况更换，不设固定周期"
+        if (this == TIRE_REPLACEMENT) return "50000 km / 8年"
         val regular = intervalText(intervalKm, intervalMonths)
         return if (firstIntervalKm != intervalKm || firstIntervalMonths != intervalMonths) {
             "首次 ${intervalText(firstIntervalKm, firstIntervalMonths)}，之后 $regular"
@@ -146,7 +153,19 @@ private fun isNearServiceMilestone(odometerKm: Double, kind: MaintenanceServiceK
     return target >= interval && abs(odometerKm - target) <= tolerance
 }
 
-enum class MaintenanceDueStatus { OVERDUE, DUE_SOON, MISSING_ODOMETER, OK, UNTRACKED }
+enum class MaintenanceDueStatus { OVERDUE, DUE_SOON, MISSING_ODOMETER, OK, TRACKED, UNTRACKED }
+
+/** Historical rows keep their original service text; this is only an editable display fallback. */
+fun ExpenseRecord.resolvedMaintenanceType(): MaintenanceRecordType {
+    maintenanceType?.let { return it }
+    MaintenanceRecordType.entries.firstOrNull { it.title == title.trim() }?.let { return it }
+    val kinds = MaintenanceServiceKind.entries.filter { it.matches(title) }
+    if (MaintenanceServiceKind.TIRE_REPLACEMENT in kinds) return MaintenanceRecordType.TIRES
+    val basic = setOf(MaintenanceServiceKind.ENGINE_OIL, MaintenanceServiceKind.ENGINE_OIL_FILTER,
+        MaintenanceServiceKind.FUEL_ADDITIVE)
+    if (kinds.any { it !in basic }) return MaintenanceRecordType.B
+    return if (kinds.isNotEmpty()) MaintenanceRecordType.A else MaintenanceRecordType.REPAIR
+}
 
 data class MaintenanceDueState(
     val kind: MaintenanceServiceKind,
@@ -156,6 +175,8 @@ data class MaintenanceDueState(
     val daysRemaining: Long?,
     val kmRemaining: Double?,
     val status: MaintenanceDueStatus,
+    val daysSinceService: Long? = null,
+    val kmSinceService: Double? = null,
 )
 
 fun calculateMaintenanceDueStates(
@@ -167,6 +188,12 @@ fun calculateMaintenanceDueStates(
         .filter { it.category == ExpenseCategory.MAINTENANCE && kind.matches(it.title) }
         .maxWithOrNull(compareBy<ExpenseRecord> { it.dateEpochDay }.thenBy { it.id })
     if (latest == null) {
+        if (kind.intervalKm == null && kind.intervalMonths == null) {
+            // No replacement record means the original tires start at 0 km; their date is unknown.
+            return@map MaintenanceDueState(kind, null, null, null, null, null,
+                if (currentOdometerKm != null) MaintenanceDueStatus.TRACKED else MaintenanceDueStatus.UNTRACKED,
+                kmSinceService = currentOdometerKm)
+        }
         val dueKm = kind.firstIntervalKm?.toDouble()
         val km = if (currentOdometerKm != null && dueKm != null) dueKm - currentOdometerKm else null
         val status = when {
@@ -175,7 +202,14 @@ fun calculateMaintenanceDueStates(
             km <= 1_000.0 -> MaintenanceDueStatus.DUE_SOON
             else -> MaintenanceDueStatus.OK
         }
-        MaintenanceDueState(kind, null, null, dueKm, null, km, status)
+        MaintenanceDueState(kind, null, null, dueKm, null, km, status,
+            kmSinceService = if (kind == MaintenanceServiceKind.TIRE_REPLACEMENT) currentOdometerKm else null)
+    } else if (kind.intervalKm == null && kind.intervalMonths == null) {
+        // Track usage without implying a tire lifespan, deadline or condition assessment.
+        MaintenanceDueState(kind, latest, null, null, null, null, MaintenanceDueStatus.TRACKED,
+            daysSinceService = ChronoUnit.DAYS.between(LocalDate.ofEpochDay(latest.dateEpochDay), today),
+            kmSinceService = if (currentOdometerKm != null && latest.odometerKm != null)
+                currentOdometerKm - latest.odometerKm else null)
     } else {
         val dueDate = kind.intervalMonths?.let {
             LocalDate.ofEpochDay(latest.dateEpochDay).plusMonths(it.toLong())
@@ -194,7 +228,11 @@ fun calculateMaintenanceDueStates(
                 MaintenanceDueStatus.MISSING_ODOMETER
             else -> MaintenanceDueStatus.OK
         }
-        MaintenanceDueState(kind, latest, dueDate, dueKm, days, km, status)
+        MaintenanceDueState(kind, latest, dueDate, dueKm, days, km, status,
+            daysSinceService = if (kind == MaintenanceServiceKind.TIRE_REPLACEMENT)
+                ChronoUnit.DAYS.between(LocalDate.ofEpochDay(latest.dateEpochDay), today) else null,
+            kmSinceService = if (kind == MaintenanceServiceKind.TIRE_REPLACEMENT &&
+                currentOdometerKm != null && latest.odometerKm != null) currentOdometerKm - latest.odometerKm else null)
     }
 }.sortedWith(compareBy<MaintenanceDueState> {
     when (it.status) {
@@ -202,6 +240,7 @@ fun calculateMaintenanceDueStates(
         MaintenanceDueStatus.DUE_SOON -> 1
         MaintenanceDueStatus.MISSING_ODOMETER -> 2
         MaintenanceDueStatus.OK -> 3
-        MaintenanceDueStatus.UNTRACKED -> 4
+        MaintenanceDueStatus.TRACKED -> 4
+        MaintenanceDueStatus.UNTRACKED -> 5
     }
 }.thenBy { it.daysRemaining ?: Long.MAX_VALUE }.thenBy { it.kind.ordinal })

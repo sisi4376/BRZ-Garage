@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --bpp 4 --size 24 --font C:/Users/zhair/Desktop/LCD_PRO/DEMO/export_path/assets/Typodermic_ConthraxSb_Regular.ttf -o C:/Users/zhair/Desktop/LCD_PRO/DEMO/export_path/assets\ui_font_FontTypoderSize24.c --format lvgl -r 0x20-0x7f --no-compress --no-prefilter
+ * Opts: --bpp 4 --size 24 --font assets/Typodermic_ConthraxSb_Regular.ttf -o ui_font_FontTypoderSize24.c --format lvgl -r 0x20-0x7f --no-compress --no-prefilter
  ******************************************************************************/
 
 #include "../ui.h"

@@ -61,6 +61,7 @@ class TripSyncService : Service() {
         var running = false
             private set
         var foregroundUi = false
+        @Volatile internal var runningForTransfer = false
         fun hasPermissions(context: Context): Boolean =
             (if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
              else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)).all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
@@ -343,6 +344,7 @@ class TripSyncService : Service() {
     }
     override fun onCreate() {
         super.onCreate()
+        runningForTransfer = true
         running = true
         state = AppState(this)
         database = TripDatabase(this)
@@ -536,6 +538,7 @@ class TripSyncService : Service() {
         }
         database.close()
         refuelDatabase.close()
+        runningForTransfer = false
         state.status("自动连接服务未运行", false)
         if (state.automatic) {
             BackgroundBleWake.register(this, force = true)
@@ -910,7 +913,9 @@ class TripSyncService : Service() {
                 // than the gauge-wide legacy ACK cursor.  A second phone may
                 // advance the latter, but cannot create a gap on this phone.
                 cursor = if (m.version >= 3) {
-                    try { database.latestKnownId(address) } catch (_: RuntimeException) { 0L }
+                    try {
+                        if (database.needsTransferReconcile(address)) 0L else database.latestKnownId(address)
+                    } catch (_: RuntimeException) { 0L }
                 } else {
                     m.lastAckedId
                 }
@@ -1034,7 +1039,9 @@ class TripSyncService : Service() {
                 }
                 state.saveRefuelMeta(parsed)
                 refuelMeta = parsed
-                refuelCursor = try { refuelDatabase.latestId(address) } catch (_: RuntimeException) { 0L }
+                refuelCursor = try {
+                    if (database.needsRefuelTransferReconcile(address)) 0L else refuelDatabase.latestId(address)
+                } catch (_: RuntimeException) { 0L }
                 if (refuelCursor < parsed.newestId) {
                     refuelControl = 1
                     continueAfterGattIdle {
@@ -1042,6 +1049,7 @@ class TripSyncService : Service() {
                             TripBleProtocol.refuelControlPacket(1, refuelCursor))
                     }
                 } else {
+                    database.completeRefuelTransferReconcile(address)
                     readSettingsAfterVehicle()
                 }
             }
@@ -1067,6 +1075,7 @@ class TripSyncService : Service() {
                             TripBleProtocol.refuelControlPacket(1, refuelCursor))
                     }
                 } else {
+                    database.completeRefuelTransferReconcile(address)
                     readSettingsAfterVehicle()
                 }
             }
@@ -1248,6 +1257,7 @@ class TripSyncService : Service() {
         write(TripBleProtocol.TRIP_CONTROL, TripBleProtocol.controlPacket(TripBleProtocol.COMMAND_CURSOR, cursor))
     }
     private fun finishHistory() {
+        if ((meta?.version ?: 0) >= 3) database.completeTransferReconcile(address)
         lastHistoryMs = SystemClock.elapsedRealtime()
         if (legacy) idle() else read(TripBleProtocol.VEHICLE_STATE)
     }

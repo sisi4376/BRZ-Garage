@@ -9,6 +9,7 @@
 #include "ui_disp_item.h"
 #include "ui_theme.h"
 #include "app_obd_dsp/app_event.h"
+#include "app_obd_dsp/perf_monitor.h"
 #include <driver/gpio.h>
 #include "bsp_obd_dsp/bsp_board.h"
 #include "bsp_obd_dsp/nvs_storage.h"
@@ -523,7 +524,7 @@ static void ui_motion_filter_reset(ui_motion_filter_t *filter)
     filter->initialized = false;
 }
 
-void my_timerMain(lv_timer_t * timer)
+static void my_timerMain_impl(lv_timer_t * timer)
 {
     // ---- Process the event queue (ESP-NOW / BLE cross-task events) ----
     {
@@ -1049,6 +1050,21 @@ void my_timerMain(lv_timer_t * timer)
     #undef IN_SWEEP
 }
 ///////////////////// ANIMATIONS ////////////////////
+void my_timerMain(lv_timer_t *timer)
+{
+    uint32_t start = perf_now();
+    my_timerMain_impl(timer);
+#if CONFIG_OBD_PERF_MONITOR
+    uint32_t elapsed = perf_now() - start;
+    lv_obj_t *scr = lv_scr_act();
+    uint16_t page = scr == ui_ScreenPageGear ? 1 : scr == ui_ScreenPageRpm ? 2 :
+                    scr == ui_ScreenPageSpeed ? 3 : scr == ui_ScreenPageNeedle ? 4 : 0;
+    if (ui_ext_rpm_is_flashing()) page |= 0x100u;
+    perf_emit(PERF_UI, page, start, elapsed);
+#else
+    (void)start;
+#endif
+}
 
 ///////////////////// FUNCTIONS ////////////////////
 
