@@ -156,6 +156,7 @@ static inline UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t t) {(void)t;r
     def test_ota_confirmation_requires_progress_and_fresh_heartbeat(self):
         source = (ROOT / 'main/app_main.c').read_text(encoding='utf-8')
         self.run_c(r'''
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
