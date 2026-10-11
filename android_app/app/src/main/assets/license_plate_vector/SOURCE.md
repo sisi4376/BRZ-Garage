@@ -15,6 +15,13 @@ are fitted to the 45 mm x 90 mm character dimensions specified by GA 36-2018.
 The extraction includes both free-form curves and rectangular strokes; the
 latter are required for complete glyphs such as `川` and `云`.
 
+Province contours are kept as compound paths with nonzero winding, matching
+the source PDF's fill rule. Inner contours must stay in the same path as the
+surrounding strokes; filling each separately turns counters such as those in
+`京`, `晋` and `鲁` into solid ink. The Android Canvas and Harmony Canvas/SVG
+renderers use the same contour data. Run `tools/export_harmony_plate_glyphs.py`
+to export the JSON and SVG resources for Harmony.
+
 The source file contains no explicit copyright or redistribution license in
 its metadata. Consequently, this provenance note does not grant additional
 rights to the source document or extracted artwork under the repository's

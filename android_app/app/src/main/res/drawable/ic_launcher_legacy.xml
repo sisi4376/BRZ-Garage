@@ -5,5 +5,10 @@
             <solid android:color="#FF000000" />
         </shape>
     </item>
-    <item android:drawable="@drawable/ic_launcher_foreground" />
+    <!-- Legacy launchers do not enlarge the foreground as adaptive icons do. -->
+    <item>
+        <inset
+            android:drawable="@drawable/app_icon_master"
+            android:inset="7.5%" />
+    </item>
 </layer-list>

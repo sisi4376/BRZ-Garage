@@ -75,13 +75,23 @@ class AppState(context: Context) {
         "${prefix}_${deviceId.trim().uppercase()}"
     private fun lastFuelKey(deviceId: String): String =
         "last_gauge_fuel_percent_${deviceId.trim().uppercase()}"
-    private fun deviceKey(prefix: String, deviceId: String = address): String =
+    private fun deviceKey(prefix: String, deviceId: String = dataDeviceId): String =
         "${prefix}_${deviceId.trim().uppercase()}"
     var address: String
         get() = prefs.getString("address", "") ?: ""
         set(value) { prefs.edit().putString("address", value).apply() }
+    /** Vehicle selected for offline data; this never establishes a Bluetooth binding. */
+    val dataDeviceId: String
+        get() {
+            address.takeIf { it.isNotBlank() }?.let { return it.trim().uppercase() }
+            compatibleString("archive_gauge")?.takeIf { TransferSchema.gaugePattern.matches(it) }?.let { return it }
+            // Recover packages imported by older releases which omitted the active vehicle.
+            val suffix = Regex("([0-9A-F]{2}(?::[0-9A-F]{2}){5})$")
+            return prefs.all.keys.mapNotNull { suffix.find(it)?.value }.toSet().singleOrNull().orEmpty()
+        }
     var automatic: Boolean
-        get() = compatibleBoolean("automatic", true) && hasAcceptedCurrentUserNotice
+        get() = compatibleBoolean("automatic", true) && hasAcceptedCurrentUserNotice &&
+            !DataTransferSession.busy && !DataTransferSession.recoveryRequired
         set(value) { prefs.edit().putBoolean("automatic", value).apply() }
     val acceptedUserNoticeVersion: Int
         get() = compatibleInt("accepted_user_notice_version", 0)
@@ -127,6 +137,9 @@ class AppState(context: Context) {
     var showCustomLicensePlate: Boolean
         get() = compatibleBoolean("show_custom_license_plate", false) && customLicensePlate != null
         set(value) { prefs.edit().putBoolean("show_custom_license_plate", value).apply() }
+    var show3DVehicle: Boolean
+        get() = compatibleBoolean("show_3d_vehicle", true)
+        set(value) { prefs.edit().putBoolean("show_3d_vehicle", value).apply() }
     val selectedVehicleModel: SupportedVehicleModel
         get() = SupportedVehicleModel.fromProfileIndex(
             compatibleInt("selected_vehicle_profile", SupportedVehicleModel.DEFAULT_PROFILE_INDEX)
@@ -219,14 +232,14 @@ class AppState(context: Context) {
         edit.apply()
     }
     fun vehicle(): VehicleState? = try {
-        prefs.getString("vehicle_$address", null)?.let { VehicleState.parse(Base64.decode(it, Base64.NO_WRAP)) }
+        prefs.getString("vehicle_$dataDeviceId", null)?.let { VehicleState.parse(Base64.decode(it, Base64.NO_WRAP)) }
     } catch (_: RuntimeException) { null }
-    val vehicleAt: Long get() = prefs.getLong("vehicle_at_$address", 0)
-    fun lastGaugeFuelPercent(deviceId: String = address): Double? =
+    val vehicleAt: Long get() = prefs.getLong("vehicle_at_$dataDeviceId", 0)
+    fun lastGaugeFuelPercent(deviceId: String = dataDeviceId): Double? =
         deviceId.takeIf { it.isNotBlank() }
             ?.let { prefs.getString(lastFuelKey(it), null)?.toDoubleOrNull() }
             ?.takeIf { it.isFinite() && it in 0.0..100.0 }
-    fun lastGaugeFuelAt(deviceId: String = address): Long =
+    fun lastGaugeFuelAt(deviceId: String = dataDeviceId): Long =
         deviceId.takeIf { it.isNotBlank() }
             ?.let { compatibleLongOrNull(deviceKey("last_gauge_fuel_at", it)) } ?: 0L
 
@@ -348,11 +361,11 @@ class AppState(context: Context) {
             .putLong("gauge_settings_at_$address", System.currentTimeMillis()).apply()
     }
     fun gaugeSettings(): TripBleProtocol.GaugeSettings? = try {
-        prefs.getString("gauge_settings_$address", null)?.let {
+        prefs.getString("gauge_settings_$dataDeviceId", null)?.let {
             TripBleProtocol.parseGaugeSettings(Base64.decode(it, Base64.NO_WRAP))
         }
     } catch (_: RuntimeException) { null }
-    val gaugeSettingsAt: Long get() = prefs.getLong("gauge_settings_at_$address", 0)
+    val gaugeSettingsAt: Long get() = prefs.getLong("gauge_settings_at_$dataDeviceId", 0)
     fun saveFirmwareInfo(info: TripBleProtocol.FirmwareInfo) {
         prefs.edit().putString("firmware_version_$address", info.version)
             .putString("firmware_build_$address", info.buildTag)
@@ -371,20 +384,20 @@ class AppState(context: Context) {
         val version = firmwareVersion ?: return null
         return TripBleProtocol.FirmwareInfo(
             version, firmwareBuildTag ?: "local",
-            compatibleString("firmware_project_$address", "") ?: "",
-            compatibleString("firmware_board_$address", "") ?: "",
-            compatibleString("firmware_variant_$address", "") ?: "",
-            compatibleString("firmware_lcd_$address", "") ?: "",
-            compatibleInt("firmware_screen_w_$address", -1),
-            compatibleInt("firmware_screen_h_$address", -1),
-            compatibleInt("firmware_bpp_$address", -1),
-            compatibleInt("firmware_flash_mb_$address", -1),
-            compatibleInt("firmware_ota_slots_$address", -1),
+            compatibleString("firmware_project_$dataDeviceId", "") ?: "",
+            compatibleString("firmware_board_$dataDeviceId", "") ?: "",
+            compatibleString("firmware_variant_$dataDeviceId", "") ?: "",
+            compatibleString("firmware_lcd_$dataDeviceId", "") ?: "",
+            compatibleInt("firmware_screen_w_$dataDeviceId", -1),
+            compatibleInt("firmware_screen_h_$dataDeviceId", -1),
+            compatibleInt("firmware_bpp_$dataDeviceId", -1),
+            compatibleInt("firmware_flash_mb_$dataDeviceId", -1),
+            compatibleInt("firmware_ota_slots_$dataDeviceId", -1),
         )
     }
-    val firmwareVersion: String? get() = compatibleString("firmware_version_$address")
-    val firmwareBuildTag: String? get() = compatibleString("firmware_build_$address")
-    val firmwareAt: Long get() = prefs.getLong("firmware_at_$address", 0)
+    val firmwareVersion: String? get() = compatibleString("firmware_version_$dataDeviceId")
+    val firmwareBuildTag: String? get() = compatibleString("firmware_build_$dataDeviceId")
+    val firmwareAt: Long get() = prefs.getLong("firmware_at_$dataDeviceId", 0)
     fun firmwareUpdate(stage: String, message: String, progress: Int = 0, target: String? = null) {
         val edit = prefs.edit().putString("ota_stage", stage).putString("ota_message", message)
             .putInt("ota_progress", progress.coerceIn(0, 100)).putLong("ota_at", System.currentTimeMillis())
@@ -397,11 +410,11 @@ class AppState(context: Context) {
     val firmwareUpdateTarget: String? get() = compatibleString("ota_target")
     val firmwareUpdateActive: Boolean get() = firmwareUpdateStage in setOf(
         "checking", "preparing", "wifi", "uploading", "installing", "verifying")
-    fun odometerCalibrationM(deviceId: String = address): Long? =
+    fun odometerCalibrationM(deviceId: String = dataDeviceId): Long? =
         deviceId.takeIf { it.isNotBlank() }
             ?.let { compatibleLongOrNull(odometerKey("odometer_calibration_m", it)) }
             ?.coerceAtLeast(0L)
-    fun odometerAnchorTripId(deviceId: String = address): Long =
+    fun odometerAnchorTripId(deviceId: String = dataDeviceId): Long =
         deviceId.takeIf { it.isNotBlank() }
             ?.let { compatibleLongOrNull(odometerKey("odometer_anchor_trip", it)) }
             ?.coerceAtLeast(0L) ?: 0L
@@ -413,7 +426,7 @@ class AppState(context: Context) {
             .apply()
     }
     val odometerDisplayEnabled: Boolean
-        get() = address.takeIf { it.isNotBlank() }?.let {
+        get() = dataDeviceId.takeIf { it.isNotBlank() }?.let {
             compatibleBoolean(odometerKey("odometer_display", it), true)
         } ?: true
     val pendingOdometerDisplay: Boolean?
@@ -462,6 +475,6 @@ class AppState(context: Context) {
         prefs.edit().putLong("time_at_$address", System.currentTimeMillis())
             .putBoolean("time_verified_$address", verified).apply()
     }
-    val timeAt: Long get() = prefs.getLong("time_at_$address", 0)
-    val timeVerified: Boolean get() = prefs.getBoolean("time_verified_$address", false)
+    val timeAt: Long get() = prefs.getLong("time_at_$dataDeviceId", 0)
+    val timeVerified: Boolean get() = prefs.getBoolean("time_verified_$dataDeviceId", false)
 }

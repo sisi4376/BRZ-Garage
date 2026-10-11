@@ -337,7 +337,8 @@ object TripBleProtocol {
         )
         return meta.takeIf {
             ((it.version == 1 && it.recordSize == 40) ||
-                (it.version in 2..3 && it.recordSize == 48)) &&
+                (it.version in 2..3 && it.recordSize == 48) ||
+                (it.version == 4 && it.recordSize == 56)) &&
                 it.pendingCount <= it.capacity &&
                 (it.pendingCount == 0 || it.oldestId in 1..it.newestId)
         }
@@ -347,7 +348,7 @@ object TripBleProtocol {
         if (value.size < 4) return null
         val version = value[0].toInt() and 0xFF
         val encodedSize = (value[2].toInt() and 0xFF) or ((value[3].toInt() and 0xFF) shl 8)
-        val expectedSize = when (version) { 1 -> 40; 2 -> 48; else -> return null }
+        val expectedSize = when (version) { 1 -> 40; 2 -> 48; 3 -> 56; else -> return null }
         if (encodedSize != expectedSize || value.size != expectedSize) return null
         val crcOffset = expectedSize - 2
         val expectedCrc = (value[crcOffset].toInt() and 0xFF) or
@@ -370,6 +371,8 @@ object TripBleProtocol {
                 data.short.toInt(), data.short.toInt())
         } else null
         val detailAvailable = detail?.any { it != 0 } == true
+        val pollRequested = if (version >= 3) data.int.toLong() and 0xffff_ffffL else 0L
+        val pollReceived = if (version >= 3) data.int.toLong() and 0xffff_ffffL else 0L
         return TripRecord(
             deviceId = deviceId,
             tripId = tripId,
@@ -384,6 +387,8 @@ object TripBleProtocol {
             maxRpm = detail?.get(1)?.takeIf { detailAvailable },
             maxAccelX100 = detail?.get(2)?.takeIf { detailAvailable },
             maxDecelX100 = detail?.get(3)?.takeIf { detailAvailable },
+            pollRequested = pollRequested,
+            pollReceived = pollReceived,
         )
     }
 

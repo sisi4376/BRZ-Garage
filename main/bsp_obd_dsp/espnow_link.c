@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "app_obd_dsp/obd_data_cache.h"
+#include "app_obd_dsp/vehicle_profiles.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
@@ -63,6 +64,7 @@ typedef struct __attribute__((packed)) {
 static volatile bool s_linktest_active = false;
 static int64_t s_linktest_start_us = 0;
 static volatile bool s_rx_linktest = false;   // slave side: last received "linked test in progress" flag from the master
+static volatile uint8_t s_rx_obd_flags;
 #define LINKTEST_RISE_MS 5000   // 0 -> peak, slow rise
 #define LINKTEST_HOLD_MS 800    // hold at peak (flash)
 #define LINKTEST_FALL_MS 2500   // peak -> 0, fall back
@@ -85,7 +87,7 @@ static uint32_t s_tx_seq = 0;
 typedef struct __attribute__((packed)) {
     uint16_t magic;
     uint8_t  version;
-    uint8_t  flags;             // bit0: master connected to ELM327; bit1: linked test in progress
+    uint8_t  flags;             // bit0: ELM connected; bit1: linked test; bit2: ZC6 PID; bit3: fresh OBD data
     uint32_t seq;               // incrementing sequence (for packet-loss diagnosis)
     uint16_t rpm;
     uint8_t  speed;
@@ -133,6 +135,8 @@ static void master_pack(espnow_obd_packet_t *p) {
     p->version = ESPNOW_VER;
     // bit0 = ELM connected; bit1 = linked test in progress (slaves use it to force gradient rendering during TEST)
     p->flags   = (elm327_ble_is_connected() ? 0x01 : 0x00) | (s_linktest_active ? 0x02 : 0x00);
+    if (vehicle_profile_is_zc6_pid(vehicle_profile_get_active())) p->flags |= ESPNOW_FLAG_ZC6_PID;
+    if (elm327_ble_has_valid_data()) p->flags |= ESPNOW_FLAG_OBD_DATA_VALID;
     p->seq     = ++s_tx_seq;
     obd_data_get_snapshot(&snap);
     p->rpm              = snap.rpm;
@@ -212,13 +216,19 @@ void espnow_link_start_master(void) {
 }
 
 // ========================= Slave =========================
+static bool s_rx_zc6_pid;
 static void apply_packet(const espnow_obd_packet_t *p) {
+    s_rx_obd_flags = p->flags;
+    bool zc6_pid = (p->flags & ESPNOW_FLAG_ZC6_PID) != 0;
+    if (zc6_pid != s_rx_zc6_pid) obd_data_set_oil_temp_invalid();
+    s_rx_zc6_pid = zc6_pid;
     s_rx_linktest = (p->flags & 0x02) != 0;   // master is running a linked test -> slaves take part in rendering during TEST
     obd_data_set_rpm(p->rpm);
     obd_data_set_speed(p->speed);
     obd_data_set_coolant_temp(p->coolant_temp);
     obd_data_set_intake_temp(p->intake_temp);
-    obd_data_set_oil_temp(p->oil_temp);
+    if (zc6_pid) obd_data_set_synced_zc6_oil_temp(p->oil_temp);
+    else obd_data_set_oil_temp(p->oil_temp); // released ZD8 behavior, regardless of slave selection
     obd_data_set_oil_pressure_x10(p->oil_pressure_x10);
     obd_data_set_boost_x10(p->boost_x10);
     obd_data_set_brake_temp_x10(p->brake_temp_x10);
@@ -354,6 +364,15 @@ bool espnow_link_slave_has_data(void) {
     return (esp_timer_get_time() - s_last_rx_us) < 2000000; // data within 2s counts as online
 }
 
+bool espnow_link_slave_obd_connected(void) {
+    return espnow_link_slave_has_data() && (s_rx_obd_flags & 0x01) != 0;
+}
+
+bool espnow_link_slave_obd_has_valid_data(void) {
+    return espnow_link_slave_obd_connected() &&
+           (s_rx_obd_flags & ESPNOW_FLAG_OBD_DATA_VALID) != 0;
+}
+
 const char *espnow_link_get_master_name(void) {
     return s_master_name;   // empty string = no master data received yet
 }
@@ -453,6 +472,7 @@ static void stop_link_tasks(void)
     delete_link_task(&s_presence_task_handle);
     s_linktest_active = false;
     s_rx_linktest = false;
+    s_rx_obd_flags = 0;
     obd_data_rpm_override_set(false, 0);
 }
 

@@ -8,6 +8,68 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-11 — Beta: Android 4.3.6 / firmware 4.0.5
+
+- Publish the current Android client (versionCode 146), including its 3D vehicle display, maintenance tracking and v3 data transfer, with the existing signing certificate and embedded firmware 4.0.5.
+- Reduce two display DMA buffers from 40 to 20 rows, fall back to 10 rows on allocation failure, and enforce the memory budget. Guard OBD polling task creation and OTA startup confirmation against resource failures.
+- Keep optional performance telemetry, poll self-check recording and experimental gear queries disabled in the tested release configuration. Switch Trip Interval pages without vertical animations.
+- Startup symptoms were already recorded on September 5; 3.2.14 and 4.0.0 retained the large buffers. Firmware 4.0.3 added confirmed memory pressure. The exact first introducing release is not established.
+- The user accepted the 4.0.4-dma2 device test. Version 4.0.5 uses the same application code/configuration with updated release metadata; release builds and package checks are recorded separately from that physical test.
+
+### 2026-10-08 — Local firmware 4.0.4: restore core trip/fuel task startup
+
+- Fix the device-confirmed 4.0.3 internal-memory failure that prevented the trip statistics task from starting, leaving fuel unavailable while RPM/speed still worked. Create and check the core task before display/radio allocations.
+- Disable optional performance telemetry by default. Opt-in telemetry allocates its queue/state only after healthy startup, checks internal heap headroom and frees storage if worker creation fails.
+- Reuse the main task for OTA validation instead of allocating another 4 KB task. Require advancing, fresh statistics heartbeats before confirming a master/standalone image; no ECU connection is required for this check.
+- Preserve fuel estimation, PID scheduling, ZC6 fixes, NVS layouts and trip protocol compatibility. Add executable allocation-failure and startup-health regression tests. Local firmware build; device installation and vehicle validation are separate steps.
+
+### 2026-10-07 — App 4.2.2: tire replacement usage tracking
+
+- Includes tire replacement in maintenance tracking, showing the latest replacement date, odometer, elapsed days and distance driven since replacement.
+- Keeps rotation separate and handles missing/inconsistent mileage without inventing a replacement deadline or tire condition assessment. Firmware remains 4.0.3; local build only.
+
+### 2026-10-07 — App 4.2.1: maintenance record headings
+
+- Adds tire replacement as a selectable service and a quick-entry option without inventing a replacement interval.
+- Separates editable A/B service, tire replacement and other repair headings from the actual service details shown beneath each record. Preserves old records and project-based reminders.
+- Migrates expenses non-destructively and exports transfer format v2 with the new heading field; continues importing v1 archives. Embedded firmware remains 4.0.3. Local build only.
+
+### 2026-10-07 — App 4.2.0: manual device transfer
+
+- Export personal records and vehicle preferences to a versioned ZIP/JSON package; preview and merge packages on another phone with explicit conflict choices and automatic pre-import backups.
+- Keep stable identities and deletion markers for phone-authored records; resolve split trips together, commit all five databases in one SQLite transaction, and recover pending preference changes after interruption.
+- Recheck retained gauge trips/refuel intervals after import. Start fresh installs with an empty fuel ledger and retain custom interval history beyond 50 entries. Preserve existing records and embedded firmware 4.0.3.
+- Add host tests of the production transfer implementation with real SQLite. Physical device/file-picker/BLE validation remains outstanding; no publishing or device flashing.
+
+### 2026-10-06 — App 4.1.1: unified local package
+
+- Replace the two same-version 4.1.0 APKs with one App 4.1.1 (versionCode 134). Both previous packages had identical application code and firmware; only the newer 3D HTML and renderer differed.
+- Preserve the latest 3D vehicle fixes and embedded firmware 4.0.3, keeping the existing signing certificate for in-place upgrades. Archive superseded APKs and checksums together; no publishing or device flashing.
+
+### 2026-10-06 — Local firmware 4.0.3: include ZC6 PID fixes with ZD8 isolation
+
+- Include validated ZC6 `2101` parsing, stale oil-temperature handling, and profile-switch cleanup in the built application image and Android embedded OTA assets.
+- Restrict deferred ELM wake-up and extended ESP-NOW oil-temperature handling to ZC6. Preserve the released ZD8 speed/gear methods, oil filter and fuel estimator; retain the separately added A0/A4 polling, poll-health tracking and passive performance monitor.
+- Verify the image version, size and SHA-256 against the embedded manifest. This is a local firmware package update, not a device flash or a published GitHub release.
+
+### 2026-10-06 — Local firmware 4.0.3: passive performance monitor
+
+- Bundle performance-monitor firmware 4.0.3 in the current App; raise the firmware version so devices on 4.0.2 can use the existing OTA update flow.
+- Observe OBD response timing, RPM/speed sample intervals, parsing and UI work with bounded RAM telemetry. Keep OBD requests and scheduling unchanged; report serial summaries every ten seconds and drop telemetry on contention.
+- Build and host checks pass; physical sampling impact still requires vehicle A/B validation. No publishing or device flashing performed.
+
+### 2026-10-06 — Local App / firmware 4.0.2: per-trip OBD poll self-check
+
+- Reuse normal OBD requests/replies to latch per-trip requested/received masks; no diagnostic sweep or live BLE stream. Persist and sync eight additional bytes per trip, with old NVS/database records preserved.
+- Restore optional A4 polling in the unused scheduler slot after capability detection, at most once every two seconds, with bounded unanswered retries.
+- Add a read-only full-screen poll-results page inside the trip test-data revision editor. Legacy records remain unrecorded; locally split trips explicitly show inherited whole-trip evidence.
+- Local builds and host compatibility tests passed; actual vehicle responses and refresh-rate impact still need road validation. No publishing or device flashing performed.
+
+### 2026-10-04 — App 4.0.1 launcher icon revision (versionCode 130)
+
+- Adopts the approved 85% STI artwork proportions with adaptive-icon viewport compensation, preserving the original bitmap and colors.
+- Removes the local icon-preview version suffix and replaces the App attachment in the existing Release, preserving its title, tag and flasher assets. Embedded firmware remains 4.0.0.
+
 ### 2026-10-04 — Flasher r3 live progress and Release integration
 
 - Streams native output without waiting for newlines; shows backup percentage, capacity and elapsed time, with separate write/verify/restart stages and safe error handling.
@@ -24,6 +86,11 @@ comment cleanups are left to the git history.
 - Adds a portable Windows graphical flasher package with pinned official esptool, firmware checksums, explicit board confirmation and serial-port selection.
 - Backs up the entire 16 MB Flash before writing, validates the installed partition layout, preserves NVS and existing boot animation on normal reinstalls, then verifies written regions before restarting.
 - Adds a reproducible packager and simulated failure-path tests without accessing a physical gauge; the first package uses the published 4.0.0 gauge image.
+
+### 2026-10-03 — App 4.0.1 update page fix (local build)
+
+- Opens a complete App update page from grouped settings, including version checks, download progress, download confirmation and installation of a verified APK.
+- Keeps checks and download refreshes on the update page without interrupting other settings subpages. Gauge firmware remains 4.0.0.
 
 ### 2026-10-03 — App 4.0.0 / Firmware 4.0.0 public Beta
 
@@ -760,6 +827,49 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 
 ## 中文
 
+### 2026-10-11 — Beta：Android 4.3.6 / 仪表固件 4.0.5
+
+- 发布当前 Android 客户端（versionCode 146），保留 3D 车辆显示、保养跟踪及 v3 数据迁移；沿用固定签名，内置 4.0.5 固件。
+- 显示 DMA 双缓冲从 40 行缩至 20 行，分配失败时回退 10 行，并加入内存预算检查；OBD 轮询任务启动和 OTA 启动确认增加资源失败保护。
+- 发布配置沿用实测设置：关闭可选性能监测、轮询自检记录及实验挡位查询。Trip Interval 上下翻页取消动画，直接切换。
+- 9 月 5 日日志已出现同类启动症状，3.2.14 和 4.0.0 已保留大缓冲；4.0.3 另有明确的内存压力加重证据。尚不能确定最初引入版本。
+- 用户已确认 4.0.4-dma2 实机测试通过；4.0.5 保留相同应用代码和配置，更新正式发布版本信息。发布构建与包校验不等同于再次实机测试。
+
+### 2026-10-08 — 本地固件 4.0.4：修复油耗与行程统计任务启动失败
+
+- 修复实机确认的 4.0.3 内部 RAM 不足问题：油耗/行程统计任务创建失败，油耗持续显示 `--`，而转速/车速仍可正常显示。统计任务提前到显示和无线初始化之前创建，并检查结果。
+- 性能监测默认关闭。手动开启时仅在核心启动健康检查通过后按内部堆余量分配队列/统计结构；创建后台任务失败会释放申请的结构。
+- 复用主任务进行 OTA 启动检查，去掉额外 4KB 确认任务；主表/独立仪表必须有持续推进且未过期的统计心跳才确认镜像，无需连接 ECU。
+- 保留油耗公式、PID 调度、ZC6 修复、NVS 布局和行程协议。新增内存分配故障与启动健康回归测试；27 项相关主机测试及 ESP32-S3 全量构建通过，链接图确认恢复 4984 字节初始内部堆。仅本地构建，安装后的冷启动及实车验证尚待执行。
+
+### 2026-10-07 — App 4.2.2：轮胎更换使用情况追踪
+
+- 轮胎更换纳入保养项目跟踪，显示最近更换日期、当时里程、已使用天数和更换后已行驶里程。
+- 轮胎换位不会覆盖更换记录；缺失或异常里程会提示核对，不虚构更换期限或轮胎状态。固件仍为 4.0.3，仅本地构建。
+
+### 2026-10-07 — App 4.2.1：保养记录分类标题
+
+- 增加“轮胎更换”项目与快捷入口，不预设轮胎更换周期。
+- 记录标题可选“A保 / B保 / 轮胎更换 / 其他维修”，下方小字显示具体项目；分类与项目独立，保留历史明细及按项目计算的提醒。
+- 保养数据库无损升级；导出格式 v2 保存分类，兼容导入 v1 包。内置固件仍为 4.0.3，仅本地构建。
+
+### 2026-10-06 — 本地固件 4.0.3：纳入 ZC6 PID 修正并隔离 ZD8
+
+- 将 ZC6 `2101` 完整报文校验、油温过期失效及车型切换清理纳入实际应用固件与 Android 内置 OTA 资源。
+- 延后 ELM 唤醒和 ESP-NOW 扩展油温规则仅对 ZC6 生效；保留 ZD8 发布版车速/挡位方法、油温滤波与油耗算法，同时保留另行增加的 A0/A4 轮询、轮询健康检测和被动性能监测。
+- 核对固件镜像版本、大小及 SHA-256 与内置清单一致。本次更新本地固件包，未刷入设备或发布 GitHub Release。
+
+### 2026-10-06 — 本地固件 4.0.3：被动性能监测
+
+- 当前 App 内置监测版固件 4.0.3；提升固件版本号，使已安装 4.0.2 的仪表也能通过现有 OTA 页面更新。
+- 在固定 RAM 缓冲中记录 OBD 响应、转速/车速采样间隔、解析与界面耗时；不改变 OBD 请求和调度，竞争时丢弃监测记录，每约 10 秒输出串口摘要。
+- 构建与主机检查通过，采样开销仍待实车 A/B 验证；未发布、未刷入设备。
+
+### 2026-10-04 — App 4.0.1 图标比例调整版（versionCode 130）
+
+- 采用确认的 85% STI 素材比例，适配自适应图标裁切，原字形与配色不变。
+- 去掉本地 icon-preview 版本后缀，在现有 Release 中替换 App 附件，保留原题目、标签和烧录包；内置仪表固件仍为 4.0.0。
+
 ### 2026-10-04 — 烧录器 r3 实时进度与 Release 集成
 
 - 实时读取底层进度，不再等到换行才显示；备份显示百分比、容量和耗时，区分写入、校验、重启阶段，并安全处理错误。
@@ -776,6 +886,11 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 - 新增免安装 Python / ESP-IDF 的图形烧录包，内置固定版本官方 esptool，校验固件并要求确认开发板型号和串口。
 - 写入前完整备份 16 MB Flash、检查设备分区布局；普通重装保留 NVS 与开机动画，写入后校验并重启。
 - 新增可复现打包工具与无设备的模拟故障流程测试；首个烧录包使用已发布的 4.0.0 仪表镜像。
+
+### 2026-10-03 — App 4.0.1 更新入口修复（本地构建）
+
+- 新版设置的“App 更新”现在进入完整二级页，可检查版本、确认下载、查看进度并选择安装已校验的 APK。
+- 检查及下载刷新不再跳回设置首页，也不会打断其他设置二级页；仪表固件保持 4.0.0，不作修改。
 
 ### 2026-10-03 — App 4.0.0 / 固件 4.0.0 Beta 公测
 

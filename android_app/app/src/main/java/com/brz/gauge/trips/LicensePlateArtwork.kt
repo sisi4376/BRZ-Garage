@@ -111,7 +111,8 @@ object LicensePlateArtwork {
 
     /** Parses the absolute M/L/C/Z subset emitted by the asset generator. */
     private fun parsePathData(data: String): Path {
-        val path = Path()
+        // The source glyphs include opposite-winding inner contours (counters).
+        val path = Path().apply { fillType = Path.FillType.WINDING }
         var index = 0
 
         fun skipSeparators() {

@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   build:
+    # A locally verified package is uploaded while the release is still a draft.
+    # Publishing it must not replace the tested binaries with a second build.
+    if: github.event_name == 'workflow_dispatch' || !contains(join(github.event.release.assets.*.name, ','), 'BRZ-Garage-Flasher-')
     runs-on: ubuntu-24.04
     container: espressif/idf:v5.5.3
     timeout-minutes: 45
@@ -70,8 +73,10 @@ jobs:
           # Match the successfully tested local resolver. The image's older
           # resolver inspects LVGL 9-only optional Kconfig rules in an LVGL 8 build.
           python -m pip install 'Pillow==11.3.0' 'idf-component-manager==2.5.0'
-          idf.py -B build set-target esp32s3
-          idf.py -B build build
+          defaults=sdkconfig.defaults
+          if [ -f firmware/sdkconfig.release ]; then defaults=firmware/sdkconfig.release; fi
+          idf.py -B build -D SDKCONFIG_DEFAULTS="$defaults" set-target esp32s3
+          idf.py -B build -D SDKCONFIG_DEFAULTS="$defaults" build
       - name: Package verified firmware and official esptool
         shell: bash
         run: |
@@ -136,6 +141,6 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $current -ne $env:SOURCE_SHA) { throw 'Release tag changed during build; refusing upload' }
           $files = @(Get-ChildItem release-assets -File | Where-Object { $_.Name -like '*.zip' -or $_.Name -like '*.zip.sha256' } | ForEach-Object FullName)
           if ($files.Count -ne 2) { throw 'Missing tested release assets' }
-          gh release upload $env:RELEASE_TAG @files --clobber
+          gh release upload $env:RELEASE_TAG @files
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
           "Flasher ZIP and SHA-256 attached to release $env:RELEASE_TAG; firmware source $env:SOURCE_SHA." >> $env:GITHUB_STEP_SUMMARY

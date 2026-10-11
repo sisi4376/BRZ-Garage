@@ -335,7 +335,7 @@ void ui_showroom_set_page_from_sync(int sweep_step) {
     } else if (!s_showroom_active) {
         // 0~SWEEP_TOTAL: the master's real sweep progress (triggered the moment OBD connects). Slaves mirror it as-is
         // (no self-increment; driven by the master's per-frame broadcast), keeping the backlight flash in sync with the master.
-        s_sweep_step = (sweep_step > 0 && sweep_step <= SWEEP_TOTAL) ? sweep_step : 0;
+        s_sweep_step = (UI_CONNECTION_SWEEP_ENABLED && sweep_step > 0 && sweep_step <= SWEEP_TOTAL) ? sweep_step : 0;
     }
 }
 
@@ -450,7 +450,7 @@ void ui_ext_showroom_tick(bool is_slave)
 
 bool ui_ext_sweep_active(void)
 {
-    return s_sweep_step > 0 && s_sweep_step <= SWEEP_TOTAL;
+    return UI_CONNECTION_SWEEP_ENABLED && s_sweep_step > 0 && s_sweep_step <= SWEEP_TOTAL;
 }
 
 int ui_ext_sweep_get_step(void)
@@ -460,6 +460,10 @@ int ui_ext_sweep_get_step(void)
 
 void ui_ext_sweep_trigger(bool ble_now, bool is_slave)
 {
+    if (!UI_CONNECTION_SWEEP_ENABLED) {
+        s_sweep_pending = false;
+        return;
+    }
     if (is_slave) return;
     if (ble_now && !s_prev_ble_connected) {
         if (s_boot_done) {
@@ -700,7 +704,7 @@ static void status_indicator_set(lv_obj_t *label, bool show, uint32_t color,
     }
 }
 
-void ui_ext_status_indicators_update(bool obd_ok, bool phone_connected,
+void ui_ext_status_indicators_update(bool obd_connected, bool obd_data_valid, bool phone_connected,
                                      bool time_synchronized)
 {
     static bool s_obd_visible = false;
@@ -719,9 +723,9 @@ void ui_ext_status_indicators_update(bool obd_ok, bool phone_connected,
     if (!s_obd_status_lbl) s_obd_status_lbl = status_indicator_create("OBD", -30);
     if (!s_time_status_lbl) s_time_status_lbl = status_indicator_create("TIME", 30);
     bool active = s_boot_done && on_gauge_page && !s_showroom_active;
-    /* Keep OBD visible on data pages: red = disconnected, green = connected. */
+    /* Red = disconnected; yellow = waiting/stale; green = recent decoded data. */
     status_indicator_set(s_obd_status_lbl, active,
-                         obd_ok ? 0x45D66F : 0xFF4D4D,
+                         !obd_connected ? 0xFF4D4D : (obd_data_valid ? 0x45D66F : 0xFFD43B),
                          &s_obd_visible, &s_obd_color);
     /* TIME distinguishes clock validity from the live phone/app link:
      * red = this boot has not received valid time, green = synchronized and

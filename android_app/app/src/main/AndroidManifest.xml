@@ -28,6 +28,7 @@
         android:usesPermissionFlags="neverForLocation" />
 
     <application
+        android:name=".BrzApplication"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:enableOnBackInvokedCallback="false"
@@ -46,6 +47,8 @@
         <activity
             android:name=".LicensePlateGeneratorActivity"
             android:exported="false" />
+        <activity android:name=".DataTransferActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <service
             android:name=".TripSyncService"
             android:exported="false"

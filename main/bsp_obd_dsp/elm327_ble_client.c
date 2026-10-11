@@ -8,11 +8,13 @@
 #include "esp_gatt_common_api.h"
 #include "esp_bt_defs.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "app_obd_dsp/obd_data_cache.h"
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "app_obd_dsp/vehicle_custom_config.h"
+#include "app_obd_dsp/zc6_pid.h"
 #include "racechrono_ble_diy.h"
 #include "ble_adv_util.h"
 #include "esp_task_wdt.h"
@@ -35,6 +37,9 @@ static esp_gatt_if_t s_gattc_if = ESP_GATT_IF_NONE;   // 0 is a valid real inter
 static uint16_t s_conn_id = 0xFFFF;
 static esp_bd_addr_t s_peer_bda = {0};
 static volatile bool s_connected = false;
+static int64_t s_obd_connected_us;
+static bool s_first_rpm_logged;
+static bool s_first_prompt_logged;
 static bool s_have_service = false;
 static uint16_t s_service_start = 0x0001, s_service_end = 0xFFFF; // default: full range
 static uint16_t s_all_attr_end = 0xFFFF; // tracks highest seen end handle
@@ -58,7 +63,9 @@ static ble_scan_found_cb_t s_scan_cb = NULL;
 static ble_scan_result_t s_scan_list[BLE_SCAN_MAX_DEVICES];
 static int s_scan_count = 0;
 static bool s_ble_inited = false;  // whether the BLE stack has been initialized
-static bool s_poll_task_started = false; // whether the poll task has been created
+static volatile bool s_scan_params_ready = false;
+enum { OBD_POLL_IDLE, OBD_POLL_STARTING, OBD_POLL_STARTED, OBD_POLL_FAILED };
+static unsigned s_poll_task_state;
 static volatile bool s_ota_paused = false; // during WiFi OTA: suppress auto-reconnect + polling so BLE stops competing for the radio
 static TaskHandle_t s_poll_task_handle = NULL; // poll task handle, used for task-notification wakeup
 static volatile bool s_notify_ready = false;   // set only after CCCD notify subscription completes; init/poll proceed based on this (prevents losing handshake responses)
@@ -93,11 +100,6 @@ static bool s_oil_use_override = false;  // true=use override formulas, false=us
 static uint8_t s_oil_override_idx = 0;   // 0=primary, 1=secondary
 static uint8_t s_oil_override_fail = 0;  // consecutive failure count of the current formula
 #define OIL_OVERRIDE_FAIL_MAX 5
-static int s_mode21_oil_idx = 33;        // Mode21 oil-temp byte index, adaptively updated
-static int16_t s_last_mode21_oil = -100; // oil temp parsed from the last Mode21 response
-static int s_mode21_hold_cnt = 0;        // ZC6 consistency hold count; consecutive noise frames, new value accepted only past a threshold
-static int64_t s_last_mode21_oil_us = 0; // timestamp (us) of the last accepted oil-temp value
-
 // ---- Vehicle-profile-based oil-temp query strategy ----
 static oil_temp_query_mode_t s_oil_mode_priority[4] = {
     OIL_TEMP_MODE_PID_5C,
@@ -110,6 +112,47 @@ static uint32_t s_oil_mode_fail_count[12] = {0};  // consecutive failure count p
 #define OBD_SLOW_PID_INTERVAL_US 5000000LL  // IAT/coolant/oil/voltage: at most once every 5 s
 #define OBD_FUEL_PID_INTERVAL_US  500000LL  // fuel-calculation inputs: target/max 2 Hz
 static bool s_vehicle_profile_inited = false;
+static const vehicle_profile_t *volatile s_elm_profile;
+static volatile bool s_accept_obd_responses;
+static volatile bool s_zc6_request; // tag outstanding request, independent of UI selection
+static volatile bool s_profile_transition;
+
+// Independent of the self-heal timer: initialization and reply headers must
+// never make the display claim that vehicle measurements are arriving.
+static portMUX_TYPE s_signal_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_last_sample_us = -1;
+
+static void reset_obd_signal(void)
+{
+    portENTER_CRITICAL(&s_signal_mux);
+    s_last_sample_us = -1;
+    portEXIT_CRITICAL(&s_signal_mux);
+}
+
+static void mark_obd_sample_received(void)
+{
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&s_signal_mux);
+    s_last_sample_us = now;
+    portEXIT_CRITICAL(&s_signal_mux);
+}
+
+bool elm327_ble_has_valid_data(void)
+{
+    if (!s_connected || !s_notify_ready || !s_accept_obd_responses ||
+        s_profile_transition || s_ota_paused) return false;
+    portENTER_CRITICAL(&s_signal_mux);
+    int64_t last = s_last_sample_us;
+    portEXIT_CRITICAL(&s_signal_mux);
+    int64_t age = esp_timer_get_time() - last;
+    return last >= 0 && age >= 0 && age < 5000000;
+}
+
+static bool zc6_response_guarded(void)
+{
+    return s_zc6_request || s_profile_transition ||
+           (s_elm_profile && s_elm_profile != vehicle_profile_get_active());
+}
 
 // Oil-temp diagnostic stats
 static struct {
@@ -162,7 +205,12 @@ static uint32_t s_zc6_can_monitor_obd_cycle = 0;   // OBD query cycle counter wh
 #define ZC6_CAN_TEMP_PROBE_WINDOW_MS 120u           // shorter window to reduce RPM disturbance
 #define ZC6_CAN_TEMP_STALE_US 15000000LL            // CAN temp channels stale after 15s without fresh frames
 static int64_t s_zc6_can_temp_probe_last_us = 0;    // last time we briefly entered ATMA to refresh ZC6 CAN temps
+#include "app_obd_dsp/obd_poll_health.h"
+#include "app_obd_dsp/perf_monitor.h"
 static int8_t s_standard_gear_pid_support = -1;     // -1=unknown, 0=unsupported, 1=PID 01 A4 advertised
+static uint8_t s_gear_support_probes;
+static uint8_t s_gear_unanswered;
+static int64_t s_gear_poll_us;
 static int8_t s_odometer_pid_support = -1;          // -1=unknown, 0=unsupported, 1=PID 01 A6 advertised
 static uint8_t s_a4_candidate_gear = 0;
 static uint8_t s_a4_candidate_count = 0;
@@ -221,6 +269,28 @@ static void send_fuel_status_request(void)
     }
     elm327_ble_send_ascii_blocking("01 03\r");
 }
+static void send_standard_gear_request(int64_t now_us)
+{
+#if defined(CONFIG_OBD_EXPERIMENTAL_GEAR_POLL) && CONFIG_OBD_EXPERIMENTAL_GEAR_POLL
+    const vehicle_profile_t *vp = vehicle_profile_get_active();
+    if (!vp || !vp->obd_standard_gear_pid || s_standard_gear_pid_support == 0) return;
+    int64_t interval = s_standard_gear_pid_support < 0 ? 5000000LL : 2000000LL;
+    if (!poll_interval_due(now_us, &s_gear_poll_us, interval)) return;
+    if (s_standard_gear_pid_support < 0) {
+        if (s_gear_support_probes >= 3) { s_standard_gear_pid_support = 0; return; }
+        ++s_gear_support_probes;
+        elm327_ble_send_ascii_blocking("01 A0\r");
+    } else {
+        if (s_gear_unanswered >= 3) { s_standard_gear_pid_support = 0; return; }
+        ++s_gear_unanswered;
+        elm327_ble_send_ascii_blocking("01 A4\r");
+    }
+#else
+    // v4.0.0 left this slot empty. Unverified optional queries must not
+    // delay ordinary acquisition on adapters that do not handle them well.
+    (void)now_us;
+#endif
+}
 bool elm327_ble_send_ascii_blocking(const char *ascii_cmd);
 static bool can_rules_have_channel(const vehicle_override_t *ov, uint8_t channel);
 
@@ -229,6 +299,7 @@ static bool can_rules_have_channel(const vehicle_override_t *ov, uint8_t channel
 static char s_accum_buf[ACCUM_BUF_SIZE];
 static size_t s_accum_len = 0;
 static int64_t s_accum_start_us = 0; // accumulation start time (us)
+static bool s_accum_discard; // overflow/timeout: drain through prompt, never parse a prefix
 
 static const char *const s_zc6_can_monitor_enter_cmds_plain[] = {
     "ATE0\r", "ATL0\r", "ATS1\r", "ATH1\r", "ATMA\r",
@@ -287,14 +358,6 @@ static void init_oil_temp_strategy(void) {
     s_oil_use_override = (s_oil_formula_pri != NULL);
     s_oil_override_idx = 0;
     s_oil_override_fail = 0;
-
-    if (s_oil_mode_priority[0] == OIL_TEMP_MODE_TOYOTA_21_01) {
-        // ZC/N6 fixed at d[33]
-        s_mode21_oil_idx = 33;
-    }
-    s_last_mode21_oil = -100;
-    s_last_mode21_oil_us = 0;
-    s_mode21_hold_cnt = 0;
 
     // Reset failure counts
     memset(s_oil_mode_fail_count, 0, sizeof(s_oil_mode_fail_count));
@@ -436,14 +499,26 @@ static void default_on_disconnected(void) {
     ESP_LOGD(TAG, "OBD BLE disconnected");
 }
 static void default_on_raw_notify(const uint8_t *data, size_t len) {
-    // Receiving '>' means the ELM is ready; the next command can be sent
-    // xTaskNotify wakes the poll task immediately, avoiding the 10ms polling overhead
+    // Preserve released ZD8 prompt-driven wake-up timing. Only ZC6 and a
+    // model transition defer release until the old response is fully handled.
+    if (zc6_response_guarded()) return;
     for (size_t i = 0; i < len; ++i) {
         if (data[i] == '>') {
             s_elm_ready = true;
             if (s_poll_task_handle) xTaskNotify(s_poll_task_handle, 0, eNoAction);
             break;
         }
+    }
+}
+
+static void finish_elm_response(bool guarded)
+{
+    s_accum_len = 0;
+    s_accum_buf[0] = '\0';
+    s_accum_discard = false;
+    if (guarded) {
+        s_elm_ready = true;
+        if (s_poll_task_handle) xTaskNotify(s_poll_task_handle, 0, eNoAction);
     }
 }
 
@@ -518,8 +593,15 @@ static int elm327_auto_detect_protocol(void) {
     return 0;  // 0 means detection failed; the default protocol 6 will be used
 }
 
-static void default_on_parsed_rpm(uint16_t rpm) { obd_data_set_rpm(rpm); }
+static void default_on_parsed_rpm(uint16_t rpm) {
+    mark_obd_sample_received();
+    uint32_t start = perf_now();
+    obd_data_set_rpm(rpm);
+    perf_emit(PERF_RPM, 0, start, perf_now() - start);
+}
 static void default_on_parsed_speed(uint8_t kmh) {
+    mark_obd_sample_received();
+    uint32_t start = perf_now();
     const vehicle_profile_t *p = vehicle_profile_get_active();
     float sc = (p && p->speed_scale > 0.0f) ? p->speed_scale : 1.0f;
     int32_t v = (int32_t)((float)kmh * sc + 0.5f);
@@ -528,8 +610,10 @@ static void default_on_parsed_speed(uint8_t kmh) {
         v = 0;
     if (v <= 2) v = 0;
     obd_data_set_speed((uint8_t)v);
+    perf_emit(PERF_SPEED, 0, start, perf_now() - start);
 }
 static void default_on_parsed_coolant_temp(uint32_t coolant_temp) {
+    if ((int32_t)coolant_temp >= -40 && (int32_t)coolant_temp <= 215) mark_obd_sample_received();
     const vehicle_profile_t *profile = vehicle_profile_get_active();
     const vehicle_override_t *ov = vehicle_profile_get_override();
     if (profile && profile->can_broadcast_mode && can_rules_have_channel(ov, CH_COOLANT)) {
@@ -537,7 +621,10 @@ static void default_on_parsed_coolant_temp(uint32_t coolant_temp) {
     }
     obd_data_set_coolant_temp((int16_t)coolant_temp);
 }
-static void default_on_parsed_intake_temp(uint32_t intake_temp) { obd_data_set_intake_temp((int16_t)intake_temp); }
+static void default_on_parsed_intake_temp(uint32_t intake_temp) {
+    if ((int32_t)intake_temp >= -40 && (int32_t)intake_temp <= 215) mark_obd_sample_received();
+    obd_data_set_intake_temp((int16_t)intake_temp);
+}
 
 // Inline helper: apply the oil-temp offset before storing
 static inline void obd_data_set_oil_temp_with_offset(int16_t temp) {
@@ -556,6 +643,20 @@ static void default_on_parsed_oil_temp(uint32_t oil_temp)
     static int16_t s_oil_pending = -100;
     static uint8_t s_oil_pending_cnt = 0;
     const vehicle_profile_t *profile = vehicle_profile_get_active();
+    if (vehicle_profile_is_zc6_pid(profile)) {
+        int16_t raw = (int16_t)oil_temp;
+        if (raw < -40 || raw > 215) return;
+        mark_obd_sample_received();
+        int16_t adjusted = raw + s_oil_temp_offset;
+        if (adjusted < -40) adjusted = -40;
+        if (adjusted > 215) adjusted = 215;
+        s_oil_diag.last_raw_temp = raw;
+        s_oil_diag.last_filtered_temp = adjusted;
+        // Complete, validated Mode21 payloads need no adaptive byte search or
+        // repeated-value hold. The cache expires this source after three polls.
+        obd_data_set_zc6_oil_temp(adjusted);
+        return;
+    }
     const vehicle_override_t *ov = vehicle_profile_get_override();
     bool can_direct_oil = profile && profile->can_broadcast_mode &&
                           can_rules_have_channel(ov, CH_OIL_TEMP);
@@ -564,6 +665,7 @@ static void default_on_parsed_oil_temp(uint32_t oil_temp)
     s_oil_diag.last_raw_temp = in;
 
     if (in < -20 || in > 150) return;
+    mark_obd_sample_received();
 
     if (can_direct_oil) {
         s_can_oil_last_us = esp_timer_get_time();
@@ -633,10 +735,20 @@ static void default_on_parsed_oil_temp(uint32_t oil_temp)
         }
     }
 }
-static void default_on_parsed_load_pct(uint32_t load_pct) { obd_data_set_load_pct((int16_t)load_pct); }
-static void default_on_parsed_control_module_voltage(uint32_t bat_mv) { obd_data_set_bat_mv((int32_t)bat_mv); }
-static void default_on_parsed_throttle_position(uint32_t tps_pct) { obd_data_set_tps((int16_t)tps_pct); }
+static void default_on_parsed_load_pct(uint32_t load_pct) {
+    if (load_pct <= 100) mark_obd_sample_received();
+    obd_data_set_load_pct((int16_t)load_pct);
+}
+static void default_on_parsed_control_module_voltage(uint32_t bat_mv) {
+    if (bat_mv <= 65535) mark_obd_sample_received();
+    obd_data_set_bat_mv((int32_t)bat_mv);
+}
+static void default_on_parsed_throttle_position(uint32_t tps_pct) {
+    if (tps_pct <= 100) mark_obd_sample_received();
+    obd_data_set_tps((int16_t)tps_pct);
+}
 static void default_on_parsed_gear(int8_t gear) {
+    if (gear >= 3 && gear <= 12) mark_obd_sample_received();
     // Direct gear decode when available, raw value -> UI gear:
     //   3→R, 4→N, 5→1, 6→2, …  (0-2 reserved/Park etc.)
     if (gear == 3) {
@@ -651,6 +763,7 @@ static void default_on_parsed_gear(int8_t gear) {
 }
 // MAP(kPa) → turbo gauge pressure (0.1bar): gauge = (MAP - atmospheric ≈100kPa), 10kPa = 0.1bar
 static void default_on_parsed_manifold_pressure(uint32_t map_kpa) {
+    if (map_kpa <= 255) mark_obd_sample_received();
     int16_t boost_x10 = (int16_t)(((int32_t)map_kpa - 100) / 10);
     if (boost_x10 < 0) boost_x10 = 0; // don't display negative pressure (vacuum), floor at 0
     obd_data_set_boost_x10(boost_x10);
@@ -687,20 +800,25 @@ static void can_expire_stale_temp_channels(void)
 // λ=1.0 stoichiometric AFR (gasoline ~14.7:1), λ<1 rich, λ>1 lean
 // Conversion: AFR = λ × 14.7, stored ×100 (1470 = 14.70:1)
 static void default_on_parsed_afr(uint32_t afr_x100) {
+    if (afr_x100 > 0 && afr_x100 < 2940) mark_obd_sample_received();
     obd_data_set_afr_x100((int16_t)afr_x100);
 }
 static void default_on_parsed_maf(uint32_t maf_x100) {
+    if (maf_x100 <= 65535) mark_obd_sample_received();
     obd_data_set_maf_x100((uint16_t)maf_x100);
 }
 static void default_on_parsed_fuel_rate(uint32_t fuel_rate_ml_h) {
+    if (fuel_rate_ml_h <= 3276750) mark_obd_sample_received();
     obd_data_set_fuel_rate_ml_h(fuel_rate_ml_h);
 }
 
 static void default_on_parsed_fuel_status(uint8_t status) {
+    if (status == 1 || status == 2 || status == 4 || status == 8 || status == 16) mark_obd_sample_received();
     obd_data_set_fuel_status(status);
 }
 // Mode 22 oil pressure (4436=B58, 586F=N55): absolute hPa → 0.1 bar (x10), setter clamps to [0, 200]
 static void default_on_parsed_oil_pressure(uint32_t oil_pressure_hpa) {
+    if (oil_pressure_hpa <= 20000) mark_obd_sample_received();
     int32_t x10 = (int32_t)oil_pressure_hpa / 100;   // 100 hPa = 0.1 bar
     if (x10 < 0) x10 = 0;
     if (x10 > 200) x10 = 200;
@@ -709,6 +827,7 @@ static void default_on_parsed_oil_pressure(uint32_t oil_pressure_hpa) {
 // Mode 22 gear (BMW 22 D0 31, ZF 8HP "BMW_GEAR_V2"): 0x00=N, 0x01..0x08=1..8; anything else invalid → ratio-calc fallback
 static void default_on_parsed_obd_gear(uint8_t raw_gear) {
     if (raw_gear <= 0x08) {
+        mark_obd_sample_received();
         obd_data_set_gear_source((int8_t)raw_gear, OBD_GEAR_SOURCE_OEM_DID); // 0=N, 1..8=forward
     } else {
         obd_data_set_gear_source(127, OBD_GEAR_SOURCE_OEM_DID);
@@ -838,14 +957,6 @@ static bool can_monitor_parse_hex_token(const char **cursor, uint32_t *value_out
     if (!saw_digit) return false;
     *cursor = p;
     *value_out = value;
-    return true;
-}
-
-static bool can_monitor_parse_hex_byte(const char **cursor, uint8_t *value_out)
-{
-    uint32_t value = 0;
-    if (!can_monitor_parse_hex_token(cursor, &value) || value > 0xFFu || !value_out) return false;
-    *value_out = (uint8_t)value;
     return true;
 }
 
@@ -985,9 +1096,17 @@ static void zc6_can_monitor_feed(const uint8_t *data, size_t len)
 // ELM327 init sequence (protocol selection + AT config + bus warm-up + oil-temp strategy).
 // Called on every (re)connect and only after the notify subscription is ready, so handshake responses aren't lost before subscribing.
 static void do_elm_init(void) {
+    const int64_t init_start_us = esp_timer_get_time();
+    s_accept_obd_responses = false;
+    reset_obd_signal();
+    s_elm_profile = vehicle_profile_get_active();
+    ESP_LOGI(TAG, "OBD init start: profile=%s", s_elm_profile->name);
     char atsp_cmd[16];
     const nvs_user_cfg_t *cfg = nvs_cfg_get();
     s_standard_gear_pid_support = -1;
+    s_gear_support_probes = 0;
+    s_gear_unanswered = 0;
+    s_gear_poll_us = 0;
     s_odometer_pid_support = -1;
     s_a4_candidate_gear = 0;
     s_a4_candidate_count = 0;
@@ -1055,6 +1174,7 @@ static void do_elm_init(void) {
         vTaskDelay(pdMS_TO_TICKS(150));
     }
 
+    s_expect_mode21 = false;
     // ---- Init the oil-temp query strategy (based on vehicle profile config) ----
     init_oil_temp_strategy();
     obd_data_reset_temp_cache();
@@ -1062,6 +1182,11 @@ static void do_elm_init(void) {
     s_zc_can_obd_round_started = false;
     s_zc6_can_temp_probe_last_us = 0;
     s_last_obd_valid_us = esp_timer_get_time();   // give a fresh "valid data" baseline so self-heal doesn't trigger right after init
+    s_accept_obd_responses = (s_elm_profile == vehicle_profile_get_active());
+    if (s_accept_obd_responses) s_profile_transition = false;
+    ESP_LOGI(TAG, "OBD init complete: elapsed_ms=%lld accept=%u",
+             (long long)((esp_timer_get_time() - init_start_us) / 1000),
+             (unsigned)s_accept_obd_responses);
 }
 
 static void obd_poll_task(void *arg) {
@@ -1102,6 +1227,16 @@ static void obd_poll_task(void *arg) {
             if (!s_connected) continue;
             inited = true;
             tick_count = 0;
+            continue;
+        }
+        // Both supported profiles use this same serial loop. Rebuild cached
+        // oil strategy/capabilities on a model change, before any new polling.
+        // do_elm_init drains the outstanding reply through the normal sender;
+        // receive-side profile checks discard replies from the old model.
+        if (s_elm_profile != vehicle_profile_get_active()) {
+            s_profile_transition = true;
+            s_accept_obd_responses = false;
+            inited = false;
             continue;
         }
         // Real valid data is flowing (any frame parsed since the last round) → clear the self-heal counter.
@@ -1222,14 +1357,11 @@ static void obd_poll_task(void *arg) {
                         }
                         if (uds_hdr) elm327_ble_send_ascii_blocking(get_vehicle_fixed_header_cmd());
                         else if (need_phys) elm327_ble_send_ascii_blocking("ATSH7DF\r");
-                        s_expect_mode21 = false;
                     } else if (oil_f && oil_f->type == OIL_SPECIAL && oil_f->special_id == 0) {
                         elm327_ble_send_ascii_blocking("21 01\r");
-                        s_expect_mode21 = true;
                     } else {
                         uint8_t poll_idx = 0;
                         oil_temp_query_mode_t mode = get_next_oil_query_mode(&poll_idx);
-                        s_expect_mode21 = (mode == OIL_TEMP_MODE_TOYOTA_21_01);
                         if (mode == OIL_TEMP_MODE_PID_5C)
                             elm327_ble_send_ascii_blocking("01 5C\r");
                         else if (mode == OIL_TEMP_MODE_TOYOTA_21_01)
@@ -1324,8 +1456,10 @@ static void obd_poll_task(void *arg) {
                 }
                 break;
             case 11:
-                // Direct gear (A4/profile DID) and factory odometer (A6) polling
-                // are temporarily disabled to reserve adapter bandwidth.
+                // Production leaves this slot empty, as in v4.0.0. A0/A4
+                // are available only in an explicitly opted-in test build.
+                send_standard_gear_request(poll_now_us);
+                // Factory odometer A6 remains disabled.
                 break;
             case 12:
                 // Tank level changes slowly: at most one extra query per 30 s.
@@ -1399,182 +1533,6 @@ static void obd_poll_task(void *arg) {
     }
 }
 
-// Mode 21 multi-frame parser: extract all data bytes after "61 01".
-// Skips ELM327 line-number prefixes ("N: ") and ISO-TP consecutive-frame sequence bytes (0x20~0x2F).
-// Returns the number of bytes extracted; results stored in out[].
-static int parse_mode21_data(const char *buf, uint32_t *out, int max_out) {
-    const char *p = strstr(buf, "61 01");
-    if (!p) return 0;
-    p += 5; // skip "61 01"
-    if (*p == ' ') p++;
-
-    int count = 0;
-    bool new_line = false;
-
-    while (*p && count < max_out) {
-        if (*p == '>') break;
-        if (*p == '\r' || *p == '\n') {
-            new_line = true;
-            p++;
-            continue;
-        }
-        if (new_line) {
-            // Skip the "N: " prefix (one or more digits + colon + space)
-            while (isdigit((unsigned char)*p)) p++;
-            if (*p == ':') p++;
-            while (*p == ' ') p++;
-            // Skip ISO-TP consecutive-frame sequence bytes (0x20~0x2F)
-            {
-                const char *peek = p;
-                uint8_t bval = 0;
-                if (can_monitor_parse_hex_byte(&peek, &bval) && bval >= 0x20 && bval <= 0x2F) {
-                    p = peek;
-                    if (*p == ' ') p++;
-                }
-            }
-            new_line = false;
-            continue;
-        }
-        // Parse one hex byte pair
-        {
-            const char *peek = p;
-            uint8_t bval = 0;
-            if (can_monitor_parse_hex_byte(&peek, &bval)) {
-                out[count++] = (uint32_t)bval;
-                p = peek;
-            } else {
-                p++;
-            }
-        }
-        if (*p == ' ') p++;
-    }
-    return count;
-}
-
-// Extract the oil-temp byte from Mode21 data (using ZC/N6 as the reference).
-// ZC/N6: always use only d[33], never enter the adaptive search (which may mis-pick another byte and jump to 60/70°C).
-static bool extract_mode21_oil_temp(const uint32_t *d, int count, int32_t *oil_c) {
-    if (!d || count <= 0 || !oil_c) return false;
-
-    int16_t coolant = obd_data_get_coolant_temp();
-
-    // ---- ZC/N6: locate by tail offset, handling both 38- and 39-byte response lengths ----
-    // With 38 bytes oil temp is at d[33]=d[38-5]; with 39 bytes at d[34]=d[39-5]. A fixed d[33] reads the wrong byte on 39-byte frames.
-    // The supported ZC6 profile and frozen legacy ZN/C6 variants share this parse path.
-    const vehicle_profile_t *vp_m21 = vehicle_profile_get_active();
-    if (vp_m21 && (strcmp(vp_m21->name, "ZC6") == 0 ||
-                   strncmp(vp_m21->name, "ZN/C6", 5) == 0)) {
-        #define ZC_MODE21_OIL_TAIL_OFFSET 5
-        int zc_idx = count - ZC_MODE21_OIL_TAIL_OFFSET;
-        if (zc_idx < 0 || zc_idx >= count) {
-            s_oil_diag.mode2_fail++;
-            return false;
-        }
-        int32_t zc_temp = (int32_t)d[zc_idx] - 40;
-        if (zc_temp < -10 || zc_temp > 150) {
-            s_oil_diag.mode2_fail++;
-            return false;
-        }
-        // Consistency check: oil temp physically cannot jump more than 8°C between two polls (~270ms).
-        int64_t now_us = esp_timer_get_time();
-        bool time_gap = (s_last_mode21_oil_us == 0) || ((now_us - s_last_mode21_oil_us) > 3000000);
-        bool consistent = (s_last_mode21_oil <= -50) || time_gap ||
-                          (abs((int)zc_temp - (int)s_last_mode21_oil) <= 8);
-        if (consistent) {
-            s_last_mode21_oil = (int16_t)zc_temp;
-            s_last_mode21_oil_us = now_us;
-            s_mode21_hold_cnt = 0;
-            s_oil_diag.mode2_ok++;
-            *oil_c = zc_temp;
-            return true;
-        }
-        if (s_mode21_hold_cnt < 30) {
-            s_mode21_hold_cnt++;
-            s_oil_diag.mode2_ok++;
-            *oil_c = s_last_mode21_oil;
-            return true;
-        }
-        s_last_mode21_oil = (int16_t)zc_temp;
-        s_last_mode21_oil_us = esp_timer_get_time();
-        s_mode21_hold_cnt = 0;
-        s_oil_diag.mode2_ok++;
-        *oil_c = zc_temp;
-        return true;
-    }
-
-    if (s_mode21_oil_idx >= 0 && s_mode21_oil_idx < count) {
-        int32_t c = (int32_t)d[s_mode21_oil_idx] - 40;
-        bool in_range = (c >= -10 && c <= 150);
-        bool consistent = (s_last_mode21_oil <= -50) || (abs((int)c - (int)s_last_mode21_oil) <= 8);
-        if (in_range && consistent) {
-            s_last_mode21_oil = (int16_t)c;
-            s_mode21_hold_cnt = 0;
-            *oil_c = c;
-            s_oil_diag.mode2_ok++;
-            return true;
-        }
-        if (in_range && !consistent) {
-            if (s_mode21_hold_cnt < 30) {
-                s_mode21_hold_cnt++;
-                s_oil_diag.mode2_ok++;
-                *oil_c = s_last_mode21_oil;
-                return true;
-            }
-            s_last_mode21_oil = (int16_t)c;
-            s_mode21_hold_cnt = 0;
-            s_oil_diag.mode2_ok++;
-            *oil_c = c;
-            return true;
-        }
-    }
-
-    int best_idx = -1;
-    int32_t best_temp = 0;
-    int best_distance = -1;
-    int strict_count = 0;
-
-    for (int idx = 0; idx < count; idx++) {
-        int32_t c = (int32_t)d[idx] - 40;
-
-        if (c < -10 || c > 150) continue;
-
-        if (coolant > -40) {
-            int diff = (int)c - (int)coolant;
-
-            if (diff >= -25 && diff <= 25) {
-                int priority = (diff > 0 && diff <= 20) ? 1000 :   // ideal: oil > coolant
-                               (diff >= -5 && diff <= 0) ? 700  :   // cold engine or equal temp: acceptable
-                               (diff > 20 && diff <= 25) ? 400  : 100;
-                int score = priority - abs(diff);
-
-                if (score > best_distance) {
-                    best_distance = score;
-                    best_idx = idx;
-                    best_temp = c;
-                    strict_count++;
-                }
-            }
-        } else {
-            if (best_idx < 0) {
-                best_idx = idx;
-                best_temp = c;
-            }
-        }
-    }
-
-    if (best_idx >= 0) {
-        s_mode21_oil_idx = best_idx;
-        s_last_mode21_oil = (int16_t)best_temp;
-        s_mode21_hold_cnt = 0;
-        s_oil_diag.mode2_ok++;
-        *oil_c = best_temp;
-        return true;
-    }
-
-    s_oil_diag.mode2_fail++;
-    return false;
-}
-
 static void start_scan(void) {
     esp_ble_gap_start_scanning(10); // 10s
 }
@@ -1616,6 +1574,17 @@ void elm327_ble_init_and_start(const char *target_name, const elm327_ble_callbac
         s_target_name[sizeof(s_target_name)-1] = '\0';
     }
 
+    // Boot initializes the shared stack before binding the OBD target. Reuse
+    // that registration; a second GATT client can duplicate link/setup events.
+    if (s_ble_inited) {
+        if (s_scan_params_ready && s_target_bda_valid && !s_scan_only_mode &&
+            !s_connected && !s_ota_paused) {
+            start_scan();
+        }
+        // If registration is pending, scan-parameter completion starts scanning.
+        return;
+    }
+
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
     if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE) {
@@ -1647,10 +1616,14 @@ bool elm327_ble_send_command(const uint8_t *data, size_t len) {
         return false;
     }
     if (len == 0 || data == NULL) { s_elm_ready = true; return false; }
+    perf_request(data, len);
     esp_err_t err = esp_ble_gattc_write_char(s_gattc_if, s_conn_id, s_char_write_handle,
                                              len, (uint8_t *)data,
                                              s_write_type, ESP_GATT_AUTH_REQ_NONE);
-    if (err != ESP_OK) s_elm_ready = true; // also restore on send failure
+    if (err != ESP_OK) {
+        perf_emit(PERF_CANCEL, PERF_SEND_FAIL, perf_now(), 0);
+        s_elm_ready = true; // also restore on send failure
+    }
     return err == ESP_OK;
 }
 
@@ -1678,14 +1651,27 @@ bool elm327_ble_send_ascii_blocking(const char *ascii_cmd)
             esp_task_wdt_reset();
         }
         if (!s_elm_ready) {
+            perf_emit(PERF_CANCEL, PERF_TIMEOUT, perf_now(), 0);
             ESP_LOGW(TAG, "Timeout (>3s) waiting previous response, forcing send: %s", ascii_cmd);
+            // The next prompt may terminate the abandoned reply. Drain it;
+            // never combine its prefix with a new request's response.
+            if (zc6_response_guarded()) s_accum_discard = true;
             s_elm_ready = true;
         }
     }
     s_elm_ready = false;
     uint8_t buf[32];
     size_t n = elm327_ble_ascii_cmd_to_bytes(ascii_cmd, buf, sizeof(buf));
-    if (n) return elm327_ble_send_command(buf, n);
+    if (n) {
+        // Set context after waiting for the PREVIOUS reply, before submitting
+        // the new write. This also clears an unanswered Mode21 on timeout.
+        s_zc6_request = vehicle_profile_is_zc6_pid(vehicle_profile_get_active());
+        s_expect_mode21 = s_zc6_request && n == 5 && memcmp(buf, "2101\r", 5) == 0;
+        bool sent = elm327_ble_send_command(buf, n);
+        if (sent) obd_poll_health_request(buf, n);
+        if (!sent) s_expect_mode21 = false;
+        return sent;
+    }
     else {
         s_elm_ready = true;
         return false;
@@ -1711,10 +1697,15 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 
     switch (event) {
     case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
+        s_scan_params_ready = param->scan_param_cmpl.status == ESP_BT_STATUS_SUCCESS;
+        if (!s_scan_params_ready) {
+            ESP_LOGE(TAG, "OBD scan parameters failed: status=%d", param->scan_param_cmpl.status);
+            break;
+        }
         // Only auto-start scanning when a target MAC is actually bound. Stack-only inits
         // (no OBD device bound) must not scan: scanning duty-cycles the radio and degrades
         // the SkyGauge pairing advert on MASTER devices.
-        if (s_target_bda_valid && !s_scan_only_mode && !s_ota_paused) {
+        if (s_target_bda_valid && !s_scan_only_mode && !s_connected && !s_ota_paused) {
             start_scan();
         }
         break;
@@ -1753,7 +1744,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                          dev_name[0] ? dev_name : "<no-name>", pr->scan_rst.rssi,
                          s_target_name, matched);
                 if (matched) {
-                    ESP_LOGD(TAG, "Found target %s (dev=%s), connecting...",
+                    ESP_LOGI(TAG, "Found target %s (dev=%s), connecting...",
                              s_target_name, dev_name[0] ? dev_name : "<no-name>");
                     esp_ble_gap_stop_scanning();
                     esp_ble_gattc_open(s_gattc_if, pr->scan_rst.bda, pr->scan_rst.ble_addr_type, true);
@@ -1792,9 +1783,21 @@ static const char *find_can_id_token(const char *buf, uint16_t id) {
 }
 
 static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param) {
+    // Other GATT clients share this callback chain. Only consume our interface
+    // (or stack-wide broadcasts); registration is routed by application ID.
+    if (event != ESP_GATTC_REG_EVT &&
+        gattc_if != ESP_GATT_IF_NONE && gattc_if != s_gattc_if) {
+        return;
+    }
     switch (event) {
     case ESP_GATTC_REG_EVT: {
+        if (param->reg.app_id != 0) break;
+        if (param->reg.status != ESP_GATT_OK) {
+            ESP_LOGE(TAG, "OBD GATT registration failed: status=%d", param->reg.status);
+            break;
+        }
         s_gattc_if = gattc_if;
+        ESP_LOGI(TAG, "OBD GATT client registered: if=%u", (unsigned)gattc_if);
         esp_ble_scan_params_t scan_params = {
             .scan_type              = BLE_SCAN_TYPE_ACTIVE,
             .own_addr_type          = BLE_ADDR_TYPE_PUBLIC,
@@ -1818,8 +1821,17 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                      param->connect.remote_bda[4], param->connect.remote_bda[5]);
             break;
         }
+        reset_obd_signal();
         s_connected = true;
+        s_obd_connected_us = esp_timer_get_time();
+        s_first_rpm_logged = false;
+        s_first_prompt_logged = false;
         s_conn_id = param->connect.conn_id;
+        ESP_LOGI(TAG, "OBD BLE connected; discovering services");
+        ESP_LOGI(TAG, "OBD DMA heap: free=%u largest=%u minimum=%u",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
         memcpy(s_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
         if (s_cbs.on_connected) s_cbs.on_connected();
         request_discovery();
@@ -1863,6 +1875,9 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         break;
     }
     case ESP_GATTC_SEARCH_CMPL_EVT: {
+        ESP_LOGI(TAG, "OBD services discovered: status=%d connected_ms=%lld",
+                 param->search_cmpl.status,
+                 (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000));
         ESP_LOGD(TAG, "Service discovery complete. have_FFF0=%d have_18F0=%d have_FF12=%d",
                  s_have_service, s_have_18f0, s_have_ff12);
 
@@ -1971,7 +1986,8 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
     }
     case ESP_GATTC_WRITE_DESCR_EVT: {
         if (param->write.status == ESP_GATT_OK) {
-            ESP_LOGD(TAG, "Notifications enabled");
+            ESP_LOGI(TAG, "OBD notifications enabled: connected_ms=%lld",
+                     (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000));
             s_notify_ready = true;   // subscription ready → let the poll task proceed with ELM init
         } else {
             ESP_LOGW(TAG, "Enable notify failed status=%d", param->write.status);
@@ -1979,6 +1995,18 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         break;
     }
     case ESP_GATTC_NOTIFY_EVT: {
+        if (!s_first_prompt_logged && memchr(param->notify.value, '>', param->notify.value_len)) {
+            s_first_prompt_logged = true;
+            ESP_LOGI(TAG, "OBD first ELM prompt: connected_ms=%lld",
+                     (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000));
+        }
+        // Capture before a legacy ZD8 wake-up can start the next request.
+        const bool guarded = zc6_response_guarded();
+        perf_emit(PERF_RX, 0, perf_now(), 0);
+        /* Timestamp the prompt before the existing callback can wake polling.
+         * Do not move its wake-up or make sampling wait for telemetry. */
+        if (memchr(param->notify.value, '>', param->notify.value_len))
+            perf_emit(PERF_PROMPT, 0, perf_now(), 0);
         if (s_cbs.on_raw_notify) s_cbs.on_raw_notify(param->notify.value, param->notify.value_len);
         const uint8_t *v = param->notify.value;
         int n = param->notify.value_len;
@@ -1986,17 +2014,22 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         // CAN continuous monitor mode: feed byte-wise, parse line-wise, bypass the accumulation buffer
         if (s_zc6_can_monitor_active) {
             zc6_can_monitor_feed(v, (size_t)n);
+            if (memchr(v, '>', (size_t)n)) finish_elm_response(guarded);
             break;
         }
 
         // ---- Accumulate multi-packet data until '>' (the ELM327 prompt) is received ----
-        // Accumulation timeout guard: force-flush if '>' doesn't arrive within 10s (ATMA mode may go long without a '>' prompt)
+        // A timed-out fragment is discarded through the next prompt.
         if (s_accum_len > 0) {
             int64_t now_us = esp_timer_get_time();
             if ((now_us - s_accum_start_us) > 10000000) {
-                s_accum_len = 0;
-                s_accum_buf[0] = '\0';
-                s_elm_ready = true;
+                if (guarded) {
+                    s_accum_discard = true;
+                } else {
+                    s_accum_len = 0;
+                    s_accum_buf[0] = '\0';
+                    s_elm_ready = true; // released ZD8 accumulation timeout behavior
+                }
             }
         }
         if (s_accum_len == 0) {
@@ -2006,14 +2039,25 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         size_t copy_n = ((size_t)n < space_left) ? (size_t)n : space_left;
         memcpy(s_accum_buf + s_accum_len, v, copy_n);
         s_accum_len += copy_n;
+        if (guarded && copy_n < (size_t)n) s_accum_discard = true;
         s_accum_buf[s_accum_len] = '\0';
 
         // Keep waiting if '>' hasn't arrived
-        if (memchr(s_accum_buf, '>', s_accum_len) == NULL) break;
+        if (guarded ? memchr(v, '>', (size_t)n) == NULL
+                    : memchr(s_accum_buf, '>', s_accum_len) == NULL) break;
+
+        if (guarded && (s_accum_discard || s_elm_profile != vehicle_profile_get_active() ||
+            (!s_accept_obd_responses && s_protocol_detect_idx < 0))) {
+            perf_emit(PERF_CANCEL, PERF_DISCARD, perf_now(), 0);
+            s_expect_mode21 = false;
+            finish_elm_response(guarded);
+            break;
+        }
+        uint32_t parse_start = perf_now();
+        do {
 
         char *buf = s_accum_buf;
 
-        char *p61 = strstr(buf, "61 01"); // Mode 21 response header (exact match "61 01")
         char *p41 = strstr(buf, "41 ");
         char *p62 = strstr(buf, "62 ");
         // ---- CAN broadcast frame parsing: data-driven ----
@@ -2118,16 +2162,17 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             can_parse_done: ;
         }
         // Any valid data frame header received → refresh the "valid data" timestamp and set the flag
-        if (p41 || p62 || p61) mark_obd_data_valid();
+        if (guarded ? (!s_expect_mode21 && (p41 || p62))
+                    : (p41 || p62 || strstr(buf, "61 01"))) mark_obd_data_valid();
 
-        if (p61 != NULL && s_expect_mode21) {
+        if (s_expect_mode21) {
             s_expect_mode21 = false;
-            uint32_t d[64] = {0};
-            int count = parse_mode21_data(buf, d, 64);
-            int32_t oil_c = 0;
-            if (extract_mode21_oil_temp(d, count, &oil_c)) {
+            int16_t oil_c;
+            if (zc6_pid_parse_oil_temp(buf, &oil_c)) {
+                obd_poll_health_toyota_oil_received();
                 record_oil_temp_success(OIL_TEMP_MODE_TOYOTA_21_01);
-                if (s_cbs.on_parsed_oil_temp) s_cbs.on_parsed_oil_temp((uint32_t)oil_c);
+                mark_obd_data_valid();
+                if (s_cbs.on_parsed_oil_temp) s_cbs.on_parsed_oil_temp((uint32_t)(int32_t)oil_c);
             } else {
                 record_oil_temp_failure(OIL_TEMP_MODE_TOYOTA_21_01);
             }
@@ -2144,6 +2189,8 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                     break;  // skip non-target PIDs
                 }
 
+                if (s_protocol_detect_idx < 0)
+                    obd_poll_health_response((uint8_t)pid, d, (size_t)dc);
                 switch (pid) {
                     case 0x00: // Supported PIDs 01-20: PID 03 is byte A bit 5
                         if (dc >= 4) {
@@ -2198,6 +2245,12 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                                 // Normal mode
                                 if (s_cbs.on_parsed_rpm)
                                     s_cbs.on_parsed_rpm(rpm_val);
+                                if (!s_first_rpm_logged) {
+                                    s_first_rpm_logged = true;
+                                    ESP_LOGI(TAG, "OBD first RPM: connected_ms=%lld rpm=%u",
+                                             (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000),
+                                             (unsigned)rpm_val);
+                                }
                             }
                         }
                         break;
@@ -2265,10 +2318,14 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                         break;
                     case 0xA4: // Transmission actual gear: A=support, B=status, C,D=ratio x1000
                         {
+                            if (dc >= 4) s_gear_unanswered = 0;
                             const vehicle_profile_t *vp = vehicle_profile_get_active();
                             if (dc >= 4 && vp && vp->obd_standard_gear_pid &&
                                 s_cbs.on_parsed_standard_gear_ratio && s_protocol_detect_idx < 0) {
-                                uint16_t ratio_x1000 = (uint16_t)((d[2] << 8) | d[3]);
+                                // A bit 1 advertises the ratio field. A reply can
+                                // pass self-check while its ratio is unavailable.
+                                uint16_t ratio_x1000 = (d[0] & 0x02u)
+                                    ? (uint16_t)((d[2] << 8) | d[3]) : 0;
                                 s_cbs.on_parsed_standard_gear_ratio(ratio_x1000);
                             }
                         }
@@ -2291,11 +2348,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             }
         } else if (p62 != NULL) {
             // Mode 22 response: "62 HH LL D0 D1 ..."  (d0=A, d1=B)
-            // If Mode21 was expected but Mode22 arrived, clear the expect flag and record a failure
-            if (s_expect_mode21) {
-                record_oil_temp_failure(OIL_TEMP_MODE_TOYOTA_21_01);
-                s_expect_mode21 = false;
-            }
             uint32_t mode22 = 0, ph = 0, pl = 0, d0 = 0, d1 = 0;
             int values = sscanf(p62, "%x %x %x %x %x", &mode22, &ph, &pl, &d0, &d1);
             if (values >= 4 && mode22 == 0x62 && s_cbs.on_parsed_oil_temp) {
@@ -2451,21 +2503,17 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                 }
             }
             oil_temp_done: ;
-        } else {
-            // If Mode21 was expected but an unrelated response arrived, record a failure too
-            if (s_expect_mode21) {
-                record_oil_temp_failure(OIL_TEMP_MODE_TOYOTA_21_01);
-                s_expect_mode21 = false;
-            }
         }
 
-        // Clear the accumulation buffer after a full response
-        s_accum_len = 0;
-        s_accum_buf[0] = '\0';
+        } while (false);
+        // Parsing and context updates complete before another command can start.
+        perf_emit(PERF_PARSE, 0, parse_start, perf_now() - parse_start);
+        finish_elm_response(guarded);
         break;
     }
     case ESP_GATTC_WRITE_CHAR_EVT: {
         if (param->write.status != ESP_GATT_OK) {
+            perf_emit(PERF_CANCEL, PERF_SEND_FAIL, perf_now(), 0);
             ESP_LOGW(TAG, "Write failed status=%d", param->write.status);
             s_elm_ready = true; // release on write failure too, to prevent the poll task from getting stuck forever
         }
@@ -2481,6 +2529,12 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
             break;
         }
         s_connected = false;
+        reset_obd_signal();
+        perf_emit(PERF_CANCEL, PERF_DISCONNECT, perf_now(), 0);
+        s_accept_obd_responses = false;
+        s_zc6_request = false;
+        s_profile_transition = false;
+        s_accum_discard = false;
         s_notify_ready = false;   // disconnect → notifications invalid; must re-subscribe + re-init after reconnect
         s_elm_ready = true;       // release any blocking send wait immediately (no '>' will ever arrive)
         if (s_poll_task_handle) xTaskNotify(s_poll_task_handle, 0, eNoAction); // wake the poll task so it sees the disconnect without waiting up to 3s
@@ -2504,8 +2558,6 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         s_zc_can_obd_round_started = false;
         s_zc6_can_temp_probe_last_us = 0;
         s_got_valid_data = false;                // prevent the stale pre-disconnect flag from being mis-consumed after reconnect
-        s_last_mode21_oil = -100;
-        s_mode21_hold_cnt = 0;
         s_protocol_detect_idx = -1;  // clear protocol detection state
         s_protocol_detect_got_response = false;
         s_protocol_detect_rpm = -1;
@@ -2529,7 +2581,29 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
 }
 
 
+static bool ensure_poll_task_started(void)
+{
+    unsigned state = __atomic_load_n(&s_poll_task_state, __ATOMIC_ACQUIRE);
+    if (state == OBD_POLL_STARTED) return true;
+    if (state == OBD_POLL_STARTING) return false;
+    if (!__atomic_compare_exchange_n(&s_poll_task_state, &state, OBD_POLL_STARTING,
+                                     false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return false;
+    if (xTaskCreate(obd_poll_task, "obd_poll", 4096, NULL, 4, NULL) != pdPASS) {
+        __atomic_store_n(&s_poll_task_state, OBD_POLL_FAILED, __ATOMIC_RELEASE);
+        ESP_LOGE(TAG, "OBD poll task allocation failed; connection not started (retry allowed)");
+        return false;
+    }
+    __atomic_store_n(&s_poll_task_state, OBD_POLL_STARTED, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool elm327_ble_poll_task_start_failed(void)
+{
+    return __atomic_load_n(&s_poll_task_state, __ATOMIC_ACQUIRE) == OBD_POLL_FAILED;
+}
+
 void elm327_ble_start_default(const char *target_name, const uint8_t mac[6]) {
+    if (!ensure_poll_task_started()) return;
 
     const elm327_ble_callbacks_t cbs = {
         .on_connected = default_on_connected,
@@ -2562,10 +2636,6 @@ void elm327_ble_start_default(const char *target_name, const uint8_t mac[6]) {
         s_target_bda_valid = false;
     }
     elm327_ble_init_and_start(target_name, &cbs);
-    if (!s_poll_task_started) {
-        xTaskCreate(obd_poll_task, "obd_poll", 4096, NULL, 4, NULL);
-        s_poll_task_started = true;
-    }
 }
 
 // ---- Scan-mode implementation ----
@@ -2600,6 +2670,7 @@ void elm327_ble_scan_only_stop(void) {
 
 void elm327_ble_connect_by_addr(const uint8_t mac[6], const char *name) {
     if (!mac) return;
+    if (!ensure_poll_task_started()) return;
     ESP_LOGD(TAG, "Connect by addr: %02X:%02X:%02X:%02X:%02X:%02X (%s)",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], name ? name : "");
     s_scan_only_mode = false;
@@ -2635,11 +2706,6 @@ void elm327_ble_connect_by_addr(const uint8_t mac[6], const char *name) {
     }
     // Start scanning; auto-connect once found
     esp_ble_gap_start_scanning(15);
-    // Create the poll task (if not already created)
-    if (!s_poll_task_started) {
-        xTaskCreate(obd_poll_task, "obd_poll", 4096, NULL, 4, NULL);
-        s_poll_task_started = true;
-    }
 }
 
 bool elm327_ble_is_connected(void) {

@@ -1,5 +1,6 @@
 #pragma once
 #include "app_obd_dsp/fuel_estimator.h"
+#include "app_obd_dsp/obd_poll_health.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -257,5 +258,6 @@ void nvs_trip_sync_get_meta(nvs_trip_sync_meta_t *out);
 size_t nvs_trip_sync_read_after(uint32_t after_id,
                                 nvs_trip_sync_record_t *out,
                                 nvs_trip_detail_t *detail_out,
+                                obd_poll_health_t *health_out,
                                 size_t max_records);
 esp_err_t nvs_trip_sync_ack(uint32_t up_to_id);

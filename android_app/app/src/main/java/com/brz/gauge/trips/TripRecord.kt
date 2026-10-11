@@ -16,7 +16,10 @@ data class TripRecord(
     val maxAccelX100: Int? = null,
     val maxDecelX100: Int? = null,
     val dataRevised: Boolean = false,
+    val pollRequested: Long = 0,
+    val pollReceived: Long = 0,
 ) {
+    val hasPollHealth: Boolean get() = pollRequested and 0x8000_0000L != 0L
     val isLocalSplit: Boolean
         get() = tripId < 0
     val splitParentId: Long?

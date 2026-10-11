@@ -23,7 +23,8 @@ assert.equal(matches([]), false);
 assert.equal(matches([17, 7, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80,
   0, 0x10, 0, 0, 0xfa, 0x1f, 0, 0]), true);
 
-function setup({ paired = [], connected = [], names = {}, bindError, permission = 0 } = {}) {
+function setup({ paired = [], connected = [], names = {}, bindError, permission = 0,
+  bonded = true, pairError, pairPending = false } = {}) {
   const state = { scans: 0, stops: 0, registrations: [], timers: new Map(), listener: null };
   let timerId = 0;
   const ble = {
@@ -44,7 +45,19 @@ function setup({ paired = [], connected = [], names = {}, bindError, permission 
       requestPermissionsFromUser: async () => ({ authResults: [permission] })
     }) } },
     '@kit.ConnectivityKit': { ble, connection: {
-      getPairedDevices: () => paired, getRemoteDeviceName: (id) => names[id] || ''
+      getPairedDevices: () => paired, getRemoteDeviceName: (id) => names[id] || '',
+      getPairState: () => bonded ? 2 : 0,
+      BondState: { BOND_STATE_BONDED: 2, BOND_STATE_BONDING: 1, BOND_STATE_INVALID: 0 },
+      on: (_, fn) => { state.bondListener = fn; },
+      off: () => { state.bondListener = null; },
+      pairDevice: async (address) => {
+        state.pairRequests = (state.pairRequests || 0) + 1;
+        assert.equal(state.registrations.length, 0, 'must pair before PartnerAgent registration');
+        if (pairError) throw pairError;
+        if (pairPending) return;
+        bonded = true;
+        state.bondListener({ deviceId: address.address, state: 2 });
+      }
     }, common: { BluetoothAddressType: { VIRTUAL: 1 } }, partnerAgent: {
       isPartnerAgentSupported: () => true, getBoundDevices: () => [],
       bindDevice: async (device) => {
@@ -52,7 +65,7 @@ function setup({ paired = [], connected = [], names = {}, bindError, permission 
         if (bindError) throw bindError;
       }
     } },
-    '@kit.PerformanceAnalysisKit': { hilog: { warn() {} } }
+    '@kit.PerformanceAnalysisKit': { hilog: { warn() {}, info() {} } }
   };
   const context = { exports: {}, require: (name) => {
     assert.ok(kits[name], `Unexpected runtime dependency ${name}`);
@@ -120,5 +133,28 @@ function setup({ paired = [], connected = [], names = {}, bindError, permission 
   assert.equal(unrelated.state.registrations.length, 0);
   [...unrelated.state.timers.values()][0]();
   assert.match(unrelated.state.snapshot.error, /收到其他蓝牙广播/);
-  console.log('PASS: 9 registration scenarios and 6 advertisement cases; no GATT connection API used');
+  const nativePair = setup({ connected: ['A'], names: { A: 'SkyGarageRC' }, bonded: false });
+  assert.equal(await nativePair.manager.enableFromUser(), true);
+  assert.equal(nativePair.state.pairRequests, 1);
+  assert.deepEqual(nativePair.state.registrations, ['A']);
+  assert.equal(nativePair.state.bondListener, null);
+  assert.equal(nativePair.state.timers.size, 0);
+  assert.equal(nativePair.state.snapshot.registering, false);
+  const rejectedPair = setup({ connected: ['A'], names: { A: 'SkyGarageRC' }, bonded: false,
+    pairError: { code: 2900099, message: 'Rejected' } });
+  assert.equal(await rejectedPair.manager.enableFromUser(), false);
+  assert.equal(rejectedPair.state.registrations.length, 0);
+  assert.match(rejectedPair.state.snapshot.error, /2900099/);
+  const pendingPair = setup({ connected: ['A'], names: { A: 'SkyGarageRC' },
+    bonded: false, pairPending: true });
+  const pendingEnable = pendingPair.manager.enableFromUser();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingPair.state.snapshot.registering, true);
+  assert.equal(await pendingPair.manager.enableFromUser(), false);
+  [...pendingPair.state.timers.values()][0]();
+  assert.equal(await pendingEnable, false);
+  assert.match(pendingPair.state.snapshot.error, /超时/);
+  assert.equal(pendingPair.state.registrations.length, 0);
+  assert.equal(pendingPair.state.bondListener, null);
+  console.log('PASS: 12 registration/pairing scenarios and 6 advertisement cases; no GATT data API used');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

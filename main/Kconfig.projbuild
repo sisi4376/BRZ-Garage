@@ -1,4 +1,33 @@
 menu "OBD DSP Configuration"
+    config OBD_POLL_SELF_CHECK
+        bool "Record OBD polling self-check results"
+        default y
+        help
+            Record requested/received PID bitsets for trip diagnostics.
+            Disable for the connection regression comparison build. Existing
+            stored records and the phone protocol remain readable.
+
+    config OBD_EXPERIMENTAL_GEAR_POLL
+        bool "Experimental OBD A0/A4 gear queries"
+        default n
+        help
+            Adds optional transmission capability/ratio queries to slot 11.
+            BRZ vehicle/adapter support has not been verified. Leave disabled
+            for the v4.0.0 default acquisition sequence and RPM/speed gear
+            inference. Passive trip poll-health recording remains available.
+
+    config OBD_PERF_MONITOR
+        bool "Passive gauge performance telemetry"
+        default n
+        help
+            Best-effort RAM-only timestamp events. An idle-priority background
+            task reports to the serial log every 10 seconds. No extra OBD
+            queries, blocking producer locks, Flash writes or BLE messages.
+            Full/contended buffers drop telemetry, never vehicle samples.
+            Opt-in diagnostics only. Memory is allocated after core startup
+            with an internal-heap reserve; allocation failure disables telemetry.
+            Production builds leave this off to preserve radio/OTA headroom.
+
     choice OBD_BOARD_VARIANT
         prompt "Gauge board"
         default OBD_BOARD_AMOLED_175

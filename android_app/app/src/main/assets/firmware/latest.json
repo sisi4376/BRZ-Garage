@@ -17,15 +17,15 @@
   },
   "firmware": {
     "project": "obd_brz_gauge",
-    "version": "4.0.0",
-    "build_tag": "embedded-4.0.0",
+    "version": "4.0.5",
+    "build_tag": "embedded-4.0.5",
     "idf": "v5.5.3"
   },
   "files": {
     "firmware": {
       "path": "obd_brz_gauge.bin",
-      "size": 2107632,
-      "sha256": "675ff48d2e71fff2e91bf2cd3ee7a50c646d06244b168dde38f549f4ff97a3d7",
+      "size": 2113696,
+      "sha256": "3727bd5cfdc3d6a9f2dc72b29ce5ca323b43aea1e3154b1126c8c35bb2ae6040",
       "ota_only": true
     }
   }

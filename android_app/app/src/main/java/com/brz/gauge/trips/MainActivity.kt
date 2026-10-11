@@ -74,7 +74,7 @@ class MainActivity : Activity() {
     private var homeStatusDot: View? = null
     private lateinit var clockText: TextView
     private lateinit var countText: TextView
-    private var homeVehicleHero: VehicleHeroView? = null
+    private var homeVehicleHero: Vehicle3DView? = null
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var trips = emptyList<TripRecord>()
@@ -105,6 +105,7 @@ class MainActivity : Activity() {
     private var showingVehicleSettings = false
     private var showingFeedback = false
     private var showingFirmwareUpdate = false
+    private var showingAppUpdate = false
     private var showingTripDetail = false
     private var showingRefuelDetail = false
     private var showingCustomTripDetail = false
@@ -200,8 +201,10 @@ class MainActivity : Activity() {
         showingVehicleSettings = savedInstanceState?.getBoolean("vehicle_settings_page") ?: false
         showingFeedback = savedInstanceState?.getBoolean("feedback_page") ?: false
         showingFirmwareUpdate = savedInstanceState?.getBoolean("firmware_update_page") ?: false
+        showingAppUpdate = savedInstanceState?.getBoolean("app_update_page") ?: false
         when {
             showingLegalNotice -> userNoticePage(firstRun = false)
+            showingAppUpdate -> appUpdatePage()
             showingFirmwareUpdate -> firmwareUpdatePage()
             showingFeedback -> feedbackPage()
             showingVehicleSettings -> vehicleSettingsPage()
@@ -233,6 +236,7 @@ class MainActivity : Activity() {
         outState.putBoolean("vehicle_settings_page", showingVehicleSettings)
         outState.putBoolean("feedback_page", showingFeedback)
         outState.putBoolean("firmware_update_page", showingFirmwareUpdate)
+        outState.putBoolean("app_update_page", showingAppUpdate)
         super.onSaveInstanceState(outState)
     }
     @Deprecated("Android framework callback retained for Android 8+ compatibility")
@@ -245,6 +249,7 @@ class MainActivity : Activity() {
             showingRefuelDetail -> showTab(0)
             showingCustomTripDetail -> showTab(0)
             showingFirmwareUpdate -> showTab(3)
+            showingAppUpdate -> showTab(3)
             showingFeedback -> showTab(3)
             showingVehicleSettings -> showTab(3)
             showingGaugeSettings -> showTab(3)
@@ -280,12 +285,18 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
+        homeVehicleHero?.resumePresentation()
         if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
+        refreshAppUpdateUi()
         if (appUpdateInstallAfterPermission &&
             (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
             appUpdateInstallAfterPermission = false
             handler.post { requestInstallDownloadedUpdate() }
         }
+    }
+    override fun onPause() {
+        homeVehicleHero?.pausePresentation()
+        super.onPause()
     }
     override fun onStop() {
         TripSyncService.foregroundUi = false
@@ -299,6 +310,8 @@ class MainActivity : Activity() {
         super.onStop()
     }
     override fun onDestroy() {
+        homeVehicleHero?.dispose()
+        homeVehicleHero = null
         fallbackStop?.invoke()
         handler.removeCallbacksAndMessages(null)
         vehicleHeroBitmaps.clear()
@@ -393,6 +406,7 @@ class MainActivity : Activity() {
         showingGaugeSettings -> 4
         showingFeedback -> 9
         showingFirmwareUpdate -> 10
+        showingAppUpdate -> 13
         else -> tab
     }
     private fun rememberCurrentScroll() {
@@ -414,6 +428,7 @@ class MainActivity : Activity() {
         showingVehicleSettings = false
         showingFeedback = false
         showingFirmwareUpdate = false
+        showingAppUpdate = false
         showingFirstRunNotice = false
         showingLegalNotice = false
         showingTripDetail = false
@@ -653,7 +668,9 @@ class MainActivity : Activity() {
         heroTop.addView(connectionChip, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
         add(hero, heroTop)
 
-        val heroView = VehicleHeroView(this).apply {
+        val heroView = (homeVehicleHero ?: Vehicle3DView(this)).apply {
+            (parent as? android.view.ViewGroup)?.removeView(this)
+            set3DEnabled(state.show3DVehicle)
             loadVehicleHero(this, model, when (model) {
                 SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
                 SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
@@ -664,7 +681,7 @@ class MainActivity : Activity() {
             )
         }
         homeVehicleHero = heroView
-        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(184)).apply {
+        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(228)).apply {
             topMargin = dp(2); bottomMargin = dp(1)
         })
 
@@ -759,7 +776,9 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(20), dp(22), dp(20))
         }
         add(body, hero, 22)
-        val heroView = VehicleHeroView(this).apply {
+        val heroView = (homeVehicleHero ?: Vehicle3DView(this)).apply {
+            (parent as? android.view.ViewGroup)?.removeView(this)
+            set3DEnabled(state.show3DVehicle)
             loadVehicleHero(this, model, when (model) {
                 SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
                 SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
@@ -770,7 +789,7 @@ class MainActivity : Activity() {
             )
         }
         homeVehicleHero = heroView
-        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(190)).apply {
+        hero.addView(heroView, LinearLayout.LayoutParams(-1, dp(228)).apply {
             topMargin = dp(4)
             bottomMargin = dp(4)
         })
@@ -820,7 +839,7 @@ class MainActivity : Activity() {
 
     /** Decode the large source artwork at half resolution for the 190 dp card. */
     private fun loadVehicleHero(
-        view: VehicleHeroView,
+        view: Vehicle3DView,
         model: SupportedVehicleModel,
         resourceId: Int,
     ) {
@@ -851,6 +870,7 @@ class MainActivity : Activity() {
             if (!state.firmwareUpdateActive) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (updated) { loadTrips(); loadRefuelIntervals() }
             if (updated && showingFirmwareUpdate) firmwareUpdatePage()
+            else if (updated && showingAppUpdate) Unit
             else if (updated && showingVehicleSettings) vehicleSettingsPage()
             else if (updated && showingGaugeSettings) gaugeSettingsPage()
             else if (updated && showingFeedback) Unit
@@ -904,7 +924,7 @@ class MainActivity : Activity() {
         val rangeConsumption = selectRangeConsumption(
             source = rangeSource,
             correctionFactor = state.rangeCorrectionFactor,
-            trips = trips.filter { state.address.isEmpty() || it.deviceId.equals(state.address, true) },
+            trips = trips.filter { state.dataDeviceId.isEmpty() || it.deviceId.equals(state.dataDeviceId, true) },
             gaugeHistoricalAverage = v?.average,
             fuelRecordAverage = if (fuelLoaded) analyzeFuelRecords(fuelRecords).historicalAverage else null,
         )
@@ -1029,7 +1049,7 @@ class MainActivity : Activity() {
         add(body, header)
         countText = label("", 12f, muted); add(body, countText, 7)
 
-        val vehicleTrips = trips.filter { state.address.isBlank() || it.deviceId == state.address }
+        val vehicleTrips = trips.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
         val totalDistance = vehicleTrips.sumOf { it.distanceM }
         val totalDuration = vehicleTrips.sumOf { it.durationS }
         val totalFuel = vehicleTrips.sumOf { it.fuelMl }
@@ -1151,7 +1171,7 @@ class MainActivity : Activity() {
             (vehicle.currentFuelMl.toDouble() / vehicle.currentDistanceM * 10_000.0).roundToInt()
         else 0
         showTripDetails(TripRecord(
-            deviceId = state.address, tripId = 0, startEpochS = start, endEpochS = end,
+            deviceId = state.dataDeviceId, tripId = 0, startEpochS = start, endEpochS = end,
             durationS = vehicle.currentDurationS, distanceM = vehicle.currentDistanceM,
             fuelMl = vehicle.currentFuelMl, avgL100X100 = averageX100,
             flags = if (start > 0L && end >= start) 1 else 0,
@@ -1419,7 +1439,7 @@ class MainActivity : Activity() {
             finishReset()
             return
         }
-        val record = CustomTripInterval(deviceId = state.address, name = oldName,
+        val record = CustomTripInterval(deviceId = state.dataDeviceId, name = oldName,
             startEpochS = startEpochS, endEpochS = endEpochS,
             durationS = stats.second, distanceM = stats.first, fuelMl = stats.third)
         io.execute {
@@ -1433,7 +1453,7 @@ class MainActivity : Activity() {
     private fun loadCustomTripIntervals() {
         if (customTripLoading || isDestroyed || !::customTripDatabase.isInitialized) return
         customTripLoading = true
-        val deviceId = state.address
+        val deviceId = state.dataDeviceId
         io.execute {
             val result = try { customTripDatabase.all(deviceId) } catch (_: RuntimeException) { null }
             runOnUiThread {
@@ -1610,7 +1630,7 @@ class MainActivity : Activity() {
     private fun loadRefuelIntervals() {
         if (refuelLoading || isDestroyed || !::refuelDatabase.isInitialized) return
         refuelLoading = true
-        val deviceId = state.address
+        val deviceId = state.dataDeviceId
         io.execute {
             val result = try { refuelDatabase.all(deviceId) } catch (_: RuntimeException) { null }
             runOnUiThread {
@@ -1664,6 +1684,9 @@ class MainActivity : Activity() {
         }
         lateinit var dialog: AlertDialog
         lateinit var saveButton: Button
+        editor.addView(homeDetailAction("查看 OBD 轮询自检结果", bookkeepingFuel) {
+            showTripPollHealth(trip)
+        }, 0)
         fun saveRevision() {
             fun decimal(field: EditText) = field.text.toString().replace(',', '.').toDoubleOrNull()
             val distanceKm = decimal(distance)
@@ -1728,6 +1751,36 @@ class MainActivity : Activity() {
             .setView(content)
             .create()
         dialog.show()
+    }
+
+    private fun showTripPollHealth(trip: TripRecord) {
+        // A full-screen child page keeps the revision editor (including unsaved
+        // input) alive underneath. Both system Back and the pill close only it.
+        val detail = android.app.Dialog(this, android.R.style.Theme_Material_Light_NoActionBar)
+        val body = column().apply { setPadding(dp(20), dp(24), dp(20), dp(24)) }
+        homeDetailBackPill(body, "返回修订测试数据", bookkeepingFuel) { detail.dismiss() }
+        add(body, label("OBD 轮询自检", 24f, ink, true), 16)
+        add(body, label("行程 #${trip.displayId} · 随行程同步的采集记录", 12f, muted), 6)
+        val explanation = when {
+            !trip.hasPollHealth -> "这条行程没有自检记录。旧固件或升级前的行程不会补记为失败。"
+            trip.isLocalSplit -> "此记录继承原始完整行程的自检结果，无法按拆分时刻细分。"
+            else -> "标记表示本行程采集期间至少收到一次可解析的响应；不代表始终在线或数值始终准确。"
+        }
+        add(body, label(explanation, 13f, muted), 12)
+        for (item in PollHealth.items) {
+            val status = PollHealth.status(trip, item)
+            val color = when (status) {
+                PollHealth.Status.RECEIVED -> bookkeepingFuel
+                PollHealth.Status.REQUESTED -> bookkeepingMaintenance
+                else -> muted
+            }
+            val row = card(body, "${item.title} · ${item.request}")
+            add(row, label(status.text, 14f, color, true), 4)
+        }
+        add(body, label("未请求可能是车型不适用、支持检查未通过或行程太短；未收到响应不等于车辆不支持。挡位响应仅证明 A4 有返回，不保证能识别具体挡数。自检不会额外探测车辆。", 12f, muted), 14)
+        detail.setContentView(ScrollView(this).apply { addView(body) })
+        detail.show()
+        detail.window?.setLayout(-1, -1)
     }
 
     private fun splitTripRecord(trip: TripRecord) {
@@ -2022,7 +2075,7 @@ class MainActivity : Activity() {
         }
     }
     private fun currentMileageEstimate(records: List<TripRecord> = trips): MileageEstimate =
-        estimateMileage(records, state.address, state.odometerCalibrationM(), state.odometerAnchorTripId())
+        estimateMileage(records, state.dataDeviceId, state.odometerCalibrationM(), state.odometerAnchorTripId())
 
     private fun calibrateMileage() {
         val deviceId = state.address
@@ -2357,7 +2410,7 @@ class MainActivity : Activity() {
         if (!fuelLoaded && !fuelLoading) loadFuelRecords()
     }
 
-    private fun expenseDeviceId(): String = state.address.ifBlank { "local" }
+    private fun expenseDeviceId(): String = state.dataDeviceId.ifBlank { "local" }
 
     private fun renderMaintenanceSection(body: LinearLayout) {
         add(body, primaryBookkeepingAction("＋  记录保养", bookkeepingMaintenance) {
@@ -2375,44 +2428,38 @@ class MainActivity : Activity() {
         val currentKm = if (state.odometerDisplayEnabled)
             currentMileageEstimate().distanceM / 1000.0 else null
         val dueStates = calculateMaintenanceDueStates(maintenance, currentKm, LocalDate.now())
-        val overdue = dueStates.count { it.status == MaintenanceDueStatus.OVERDUE }
-        val dueSoon = dueStates.count { it.status == MaintenanceDueStatus.DUE_SOON }
-        val missingKm = dueStates.count { it.status == MaintenanceDueStatus.MISSING_ODOMETER }
-        val tracked = dueStates.count { it.lastRecord != null }
-        val initialPlans = dueStates.count { it.lastRecord == null && it.dueOdometerKm != null }
-        val schedule = card(body, "保养项目跟踪")
-        add(schedule, label(
-            when {
-                overdue > 0 -> "$overdue 项已到或超期，需要优先处理"
-                dueSoon > 0 -> "$dueSoon 项即将到期"
-                missingKm > 0 -> "已跟踪 $tracked 项，其中 $missingKm 项需要里程数据"
-                tracked > 0 && initialPlans > 0 -> "已跟踪 $tracked 项，其余按 0 km 计算首次阈值"
-                tracked > 0 -> "已跟踪 $tracked 项，目前均在周期内"
-                initialPlans > 0 -> "已按 0 km 起算全部项目的首次保养阈值"
-                else -> "选择标准项目记录后即可开始跟踪"
-            }, 18f, if (overdue > 0 || dueSoon > 0) bookkeepingMaintenance else ink, true), 11)
-        add(schedule, label(
-            "${state.selectedVehicleModel.name} · 养护维修表一般行驶条件 · 日期或里程先到为准",
-            11f, muted), 6)
-        if (!state.odometerDisplayEnabled) {
-            add(schedule, label("当前只按日期提醒；燃油添加剂、火花塞和轮胎换位只有里程周期，请在车辆设置中开启里程显示，并在记录中填写当时里程。",
-                11f, muted), 6)
-        }
-        dueStates.forEach { addMaintenanceDueRow(schedule, it) }
-        add(schedule, label(
-            "仅跟踪表中的更换、添加和轮胎换位项目，不要求记录检查项。未给出时间周期的项目仅按里程提醒；BRZ 使用正时链条，且本 App 面向 6MT，因此不显示正时皮带、自动变速箱与 CVT 项目。",
-            10f, muted), 12)
+        val tireKinds = setOf(MaintenanceServiceKind.TIRE_REPLACEMENT)
+        val projects = dueStates.filter { it.kind !in tireKinds }
+        val tires = dueStates.filter { it.kind in tireKinds }
+        addMaintenanceTrackingCard(body, "保养项目跟踪", projects)
+        addMaintenanceTrackingCard(body, "轮胎寿命", tires)
         val list = card(body, "保养历史")
         renderExpenseList(list, maintenance, "还没有保养记录")
     }
 
+    private fun addMaintenanceTrackingCard(body: LinearLayout, title: String, items: List<MaintenanceDueState>) {
+        val overdue = items.count { it.status == MaintenanceDueStatus.OVERDUE }
+        val dueSoon = items.count { it.status == MaintenanceDueStatus.DUE_SOON }
+        val missingKm = items.count { it.status == MaintenanceDueStatus.MISSING_ODOMETER }
+        val schedule = card(body, title)
+        add(schedule, label(when {
+            overdue > 0 -> "$overdue 项已到或超期"
+            dueSoon > 0 -> "$dueSoon 项即将到期"
+            missingKm > 0 -> "$missingKm 项缺里程"
+            else -> "暂无到期提醒"
+        }, 18f, if (overdue > 0 || dueSoon > 0) bookkeepingMaintenance else ink, true), 11)
+        items.forEach { addMaintenanceDueRow(schedule, it) }
+    }
+
     private fun addMaintenanceDueRow(parent: LinearLayout, state: MaintenanceDueState) {
+        val isTire = state.kind == MaintenanceServiceKind.TIRE_REPLACEMENT
         val initialFromZero = state.lastRecord == null && state.dueOdometerKm != null
         val color = when (state.status) {
             MaintenanceDueStatus.OVERDUE -> Color.rgb(198, 48, 75)
             MaintenanceDueStatus.DUE_SOON -> Color.rgb(224, 132, 38)
             MaintenanceDueStatus.MISSING_ODOMETER -> Color.rgb(224, 132, 38)
             MaintenanceDueStatus.OK -> Color.rgb(43, 139, 111)
+            MaintenanceDueStatus.TRACKED -> bookkeepingMaintenance
             MaintenanceDueStatus.UNTRACKED -> Color.rgb(126, 134, 148)
         }
         val statusText = when {
@@ -2423,6 +2470,7 @@ class MainActivity : Activity() {
             state.status == MaintenanceDueStatus.DUE_SOON -> "即将到期"
             state.status == MaintenanceDueStatus.MISSING_ODOMETER -> "缺里程"
             state.status == MaintenanceDueStatus.OK -> "正常"
+            state.status == MaintenanceDueStatus.TRACKED -> "已跟踪"
             else -> "未跟踪"
         }
         val item = column().apply {
@@ -2446,12 +2494,12 @@ class MainActivity : Activity() {
         if (state.lastRecord == null) {
             if (state.dueOdometerKm != null && state.kmRemaining != null) {
                 val timing = when {
-                    state.kmRemaining < 0.0 -> "已超过首次阈值 ${fmt("%.0f km", -state.kmRemaining)}"
-                    state.kmRemaining == 0.0 -> "已到首次保养阈值"
-                    else -> "距首次保养还剩 ${fmt("%.0f km", state.kmRemaining)}"
+                    state.kmRemaining < 0.0 -> if (isTire) "超出 ${fmt("%.0f km", -state.kmRemaining)}" else "已超过首次阈值 ${fmt("%.0f km", -state.kmRemaining)}"
+                    state.kmRemaining == 0.0 -> if (isTire) "已到期" else "已到首次保养阈值"
+                    else -> if (isTire) "剩余 ${fmt("%.0f km", state.kmRemaining)}" else "距首次保养还剩 ${fmt("%.0f km", state.kmRemaining)}"
                 }
                 add(item, label(timing, 12f, color, true), 8)
-                add(item, label("从 0 km 起算 · 首次阈值 ${fmt("%.0f km", state.dueOdometerKm)}",
+                if (!isTire) add(item, label("从 0 km 起算 · 首次阈值 ${fmt("%.0f km", state.dueOdometerKm)}",
                     10f, muted), 4)
                 val progress = ((state.dueOdometerKm - state.kmRemaining) /
                     state.dueOdometerKm.coerceAtLeast(1.0)).coerceIn(0.0, 1.0)
@@ -2462,7 +2510,7 @@ class MainActivity : Activity() {
                     progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(226, 231, 237))
                 }, 7)
             } else {
-                add(item, label("开启里程显示后，将从 0 km 计算首次保养阈值", 11f, muted), 8)
+                add(item, label(if (isTire) "里程未显示" else "开启里程显示后，将从 0 km 计算首次保养阈值", 11f, muted), 8)
             }
         } else {
             val timing = buildList {
@@ -2500,6 +2548,16 @@ class MainActivity : Activity() {
                 progressTintList = android.content.res.ColorStateList.valueOf(color)
                 progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(226, 231, 237))
             }, 7)
+        }
+        if (state.kind == MaintenanceServiceKind.TIRE_REPLACEMENT) {
+            val usage = buildList {
+                state.daysSinceService?.let { add(if (it >= 0) "已使用 $it 天" else "更换日期晚于今天，请核对") }
+                state.kmSinceService?.let {
+                    add(if (it >= 0.0) "${if (state.lastRecord == null) "已行驶" else "更换后已行驶"} ${fmt("%.0f km", it)}"
+                        else "当前里程小于更换时里程，请核对")
+                }
+            }.joinToString(" · ")
+            if (usage.isNotBlank()) add(item, label(usage, 11f, muted), 5)
         }
         add(parent, item, 9)
     }
@@ -2621,8 +2679,13 @@ class MainActivity : Activity() {
                 imageTintList = android.content.res.ColorStateList.valueOf(color)
                 contentDescription = record.title
             }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(7) })
-            titleRow.addView(label(record.title, 14f, ink, true))
+            val heading = if (record.category == ExpenseCategory.MAINTENANCE)
+                record.resolvedMaintenanceType().title else record.title
+            titleRow.addView(label(heading, 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
             add(details, titleRow)
+            if (record.category == ExpenseCategory.MAINTENANCE) {
+                add(details, label(record.title, 12f, muted), 4)
+            }
             val detailText = buildString {
                 record.odometerKm?.let { append(fmt("%.1f km", it)) }
                 if (record.note.isNotBlank()) {
@@ -2814,6 +2877,21 @@ class MainActivity : Activity() {
             existing?.takeIf { category == ExpenseCategory.MAINTENANCE }?.let { kind.matches(it.title) }
                 ?: (kind in automaticMaintenanceKinds)
         }.toBooleanArray()
+        val maintenanceTypeSpinner = if (category == ExpenseCategory.MAINTENANCE) {
+            add(form, label("记录类型（列表标题）", 12f, muted, true), 10)
+            Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item,
+                    MaintenanceRecordType.entries.map { it.title }).also {
+                    it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                }
+                val initialType = existing?.resolvedMaintenanceType() ?: ExpenseRecord(
+                    deviceId = "", dateEpochDay = selectedDate.toEpochDay(), category = category,
+                    amount = 0.0, title = automaticMaintenanceKinds.joinToString("、") { it.recordTitle }
+                ).resolvedMaintenanceType()
+                setSelection(initialType.ordinal)
+                form.addView(this, LinearLayout.LayoutParams(-1, dp(52)))
+            }
+        } else null
         val maintenanceSelector = if (category == ExpenseCategory.MAINTENANCE) {
             add(form, label("保养项目（可多选）", 12f, muted, true), 10)
             lateinit var selector: TextView
@@ -2846,6 +2924,12 @@ class MainActivity : Activity() {
                 form.addView(this, LinearLayout.LayoutParams(-1, -2))
             }
             refreshSelector()
+            add(form, button("快捷：仅记录轮胎更换") {
+                selectedMaintenanceKinds.fill(false)
+                selectedMaintenanceKinds[MaintenanceServiceKind.TIRE_REPLACEMENT.ordinal] = true
+                maintenanceTypeSpinner?.setSelection(MaintenanceRecordType.TIRES.ordinal)
+                refreshSelector()
+            }, 5)
             add(form, button("按填写里程推荐项目") {
                 val km = odometer?.text?.toString()?.trim()?.replace(',', '.')?.toDoubleOrNull()
                 if (km == null || !km.isFinite() || km < 0.0) {
@@ -2860,7 +2944,7 @@ class MainActivity : Activity() {
                     toast("已按 ${fmt("%.0f km", km)} 推荐，可继续手动调整")
                 }
             }, 5)
-            add(form, label("新记录会按当前里程自动推荐；修改里程后可重新推荐，再手动增删项目。一次保养只统计一笔金额。", 11f, muted), 5)
+            add(form, label("新记录会按当前里程自动推荐；修改里程后可重新推荐，再手动增删项目。一次保养只统计一笔金额。A保 / B保仅作分类，不强制限定项目；其他维修可取消推荐项目并填写维修内容。", 11f, muted), 5)
             selector
         } else null
         val customMaintenanceValue = existing?.takeIf { category == ExpenseCategory.MAINTENANCE }
@@ -2918,8 +3002,9 @@ class MainActivity : Activity() {
                     toast("请选择项目并填写有效金额；保养里程可留空")
                     return@setOnClickListener
                 }
-                saveExpenseRecord(ExpenseRecord(existing?.id ?: 0L, expenseDeviceId(),
-                    selectedDate.toEpochDay(), category, paid, name, detail.text.toString(), km))
+                saveExpenseRecord(ExpenseRecord(existing?.id ?: 0L, existing?.deviceId ?: expenseDeviceId(),
+                    selectedDate.toEpochDay(), category, paid, name, detail.text.toString(), km,
+                    maintenanceTypeSpinner?.let { MaintenanceRecordType.entries[it.selectedItemPosition] }))
                 dialog.dismiss()
             }
             if (existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -2935,7 +3020,7 @@ class MainActivity : Activity() {
     private fun saveExpenseRecord(record: ExpenseRecord) {
         io.execute {
             val ok = try { expenseDatabase.save(record) != -1L } catch (_: RuntimeException) { false }
-            val result = if (ok) try { expenseDatabase.all(expenseDeviceId()) } catch (_: RuntimeException) { null } else null
+            val result = if (ok) try { expenseDatabase.allForVehicle(state.dataDeviceId) } catch (_: RuntimeException) { null } else null
             runOnUiThread {
                 if (!isDestroyed && result != null) {
                     expenseRecords = result; expenseLoaded = true
@@ -2948,7 +3033,7 @@ class MainActivity : Activity() {
     private fun deleteExpenseRecord(record: ExpenseRecord) {
         io.execute {
             val ok = try { expenseDatabase.delete(record.deviceId, record.id) } catch (_: RuntimeException) { false }
-            val result = if (ok) try { expenseDatabase.all(expenseDeviceId()) } catch (_: RuntimeException) { null } else null
+            val result = if (ok) try { expenseDatabase.allForVehicle(state.dataDeviceId) } catch (_: RuntimeException) { null } else null
             runOnUiThread {
                 if (!isDestroyed && result != null) {
                     expenseRecords = result; expenseLoaded = true
@@ -2961,9 +3046,9 @@ class MainActivity : Activity() {
     private fun loadExpenseRecords() {
         if (expenseLoading || isDestroyed || !::expenseDatabase.isInitialized) return
         expenseLoading = true
-        val device = expenseDeviceId()
+        val device = state.dataDeviceId
         io.execute {
-            val result = try { expenseDatabase.all(device) } catch (_: RuntimeException) { null }
+            val result = try { expenseDatabase.allForVehicle(device) } catch (_: RuntimeException) { null }
             runOnUiThread {
                 expenseLoading = false
                 if (!isDestroyed && result != null) {
@@ -3347,6 +3432,14 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun vehicle3DSettingsSwitch() = settingsSwitchRow(
+        SettingsIconView.Icon.DISPLAY, "显示 3D 车辆", "关闭后展示原来的 2D 车辆图片",
+        bookkeepingFuel, state.show3DVehicle,
+    ) { enabled ->
+        state.show3DVehicle = enabled
+        homeVehicleHero?.set3DEnabled(enabled)
+    }
+
     private fun renderVehicleSettingsOverview(body: LinearLayout) {
         settingsListGroup(body, listOf(
             settingsListRow(SettingsIconView.Icon.VEHICLE, "车型与车辆名称", state.selectedVehicleModel.title,
@@ -3354,7 +3447,7 @@ class MainActivity : Activity() {
             settingsListRow(SettingsIconView.Icon.GAUGE, "我的仪表",
                 if (state.address.isEmpty()) "尚未绑定" else "${state.address} · 点击更换或重新绑定",
                 bookkeepingMaintenance, action = { permissions(true) }),
-            settingsListRow(SettingsIconView.Icon.PLATE, "自定义车牌", "生成车牌并安装到首页车辆图",
+            settingsListRow(SettingsIconView.Icon.PLATE, "自定义车牌", "生成车牌并安装到首页车辆",
                 bookkeepingFuel, action = {
                     startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
                 }),
@@ -3363,6 +3456,7 @@ class MainActivity : Activity() {
                 bookkeepingStats, action = { calibrateMileage() }),
             settingsSwitchRow(SettingsIconView.Icon.DISPLAY, "新版首页界面", "关闭后恢复 3.9.0 经典首页布局",
                 bookkeepingFuel, usesRefinedHome()) { setRefinedHome(it) },
+            vehicle3DSettingsSwitch(),
             settingsSwitchRow(SettingsIconView.Icon.DISPLAY, "显示车辆里程", "同步到仪表设备信息页和 App 首页",
                 bookkeepingStats, state.odometerDisplayEnabled) { checked ->
                 val started = TripSyncService.setOdometerDisplay(this, checked)
@@ -3407,7 +3501,7 @@ class MainActivity : Activity() {
             appUpdateChecking -> "正在检查最新版本…"
             appUpdateCheckError != null -> appUpdateCheckError!!
             appUpdateCheck != null -> appUpdateCheck!!.message
-            else -> "当前 v${BuildConfig.VERSION_NAME} · 点击检查更新"
+            else -> "当前 v${BuildConfig.VERSION_NAME} · 查看版本与下载安装"
         }
         val firmwareDetail = when {
             state.firmwareUpdateActive -> state.firmwareUpdateMessage
@@ -3418,7 +3512,9 @@ class MainActivity : Activity() {
         }
         settingsListGroup(body, listOf(
             settingsListRow(SettingsIconView.Icon.UPDATE, "App 更新", appDetail, bookkeepingStats,
-                action = { checkAppUpdate() }),
+                action = { appUpdatePage() }),
+            settingsListRow(SettingsIconView.Icon.LEGACY, "数据迁移", "导出完整数据包，或导入并合并旧设备记录",
+                bookkeepingStats, action = { openDataTransfer() }),
             settingsListRow(SettingsIconView.Icon.FIRMWARE, "仪表固件更新", firmwareDetail, bookkeepingMaintenance,
                 action = { firmwareUpdatePage() }),
             settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "查看固件信息和显示参数",
@@ -3445,6 +3541,10 @@ class MainActivity : Activity() {
             11f, muted), 9)
     }
 
+    private fun openDataTransfer() {
+        startActivityForResult(Intent(this, DataTransferActivity::class.java), 202)
+    }
+
     private fun requestGroupedFirmwareCheck() {
         if (!state.connected) {
             toast("请保持仪表上电，等待连接后再扫描")
@@ -3460,6 +3560,37 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun appUpdatePage() {
+        rememberCurrentScroll()
+        showingTripDetail = false
+        showingRefuelDetail = false
+        showingCustomTripDetail = false
+        showingVehicleSettings = false
+        showingGaugeSettings = false
+        showingFeedback = false
+        showingFirmwareUpdate = false
+        showingFirstRunNotice = false
+        showingLegalNotice = false
+        showingAppUpdate = true
+        tab = 3
+        content.removeAllViews()
+        navigation.removeAllViews()
+        navigation.visibility = View.GONE
+
+        val body = page("App 更新", "版本检查、安装包下载与安装")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(
+            body,
+            SettingsIconView.Icon.UPDATE,
+            "BRZ Garage",
+            "当前版本 v${BuildConfig.VERSION_NAME}",
+            "自主选择更新 · 覆盖安装保留数据",
+            bookkeepingStats,
+        )
+        appUpdateCard(body)
+        resumeAppUpdateDownloadPolling()
+    }
+
     private fun firmwareUpdatePage() {
         rememberCurrentScroll()
         showingTripDetail = false
@@ -3469,6 +3600,7 @@ class MainActivity : Activity() {
         showingGaugeSettings = false
         showingFeedback = false
         showingFirmwareUpdate = true
+        showingAppUpdate = false
         tab = 3
         content.removeAllViews()
         navigation.removeAllViews()
@@ -3497,6 +3629,8 @@ class MainActivity : Activity() {
         add(style, label("当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。",
             12f, muted), 8)
         add(style, button("切换到新版分组设置页") { switchSettingsLayout(true) }, 10)
+        val migration = card(body, "数据迁移")
+        add(migration, button("导出完整数据包 / 导入并合并") { openDataTransfer() }, 10)
         val vehicleDisplay = card(body, "我的车辆")
         add(vehicleDisplay, label(state.vehicleDisplayName, 18f, ink, true), 10)
         add(vehicleDisplay, label(state.selectedVehicleModel.title, 13f, muted), 5)
@@ -3506,7 +3640,7 @@ class MainActivity : Activity() {
             startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
         }, 10)
         add(vehicleDisplay, label(
-            "输入完整 7 位车牌号后，可将生成的蓝牌透视安装在首页当前车型的前保险杠牌照位。",
+            "输入完整 7 位车牌号后，可将生成的蓝牌安装在首页 3D 车辆的前后牌照位；在车辆卡片下方切换视角和车色。",
             12f,
             muted,
         ), 8)
@@ -3814,6 +3948,7 @@ class MainActivity : Activity() {
         showingFeedback = false
         showingFirmwareUpdate = false
         showingFirstRunNotice = firstRun
+        showingAppUpdate = false
         showingLegalNotice = !firstRun
         if (!firstRun) tab = 3
         content.removeAllViews()
@@ -4017,6 +4152,7 @@ class MainActivity : Activity() {
         showingGaugeSettings = false
         showingFirmwareUpdate = false
         showingFeedback = true
+        showingAppUpdate = false
         tab = 3
         content.removeAllViews()
         navigation.removeAllViews()
@@ -4062,6 +4198,7 @@ class MainActivity : Activity() {
         showingFeedback = false
         showingFirmwareUpdate = false
         showingVehicleSettings = true
+        showingAppUpdate = false
         tab = 3
         content.removeAllViews()
         navigation.removeAllViews()
@@ -4086,6 +4223,7 @@ class MainActivity : Activity() {
                 bookkeepingFuel, action = {
                     startActivity(Intent(this, LicensePlateGeneratorActivity::class.java))
                 }),
+            vehicle3DSettingsSwitch(),
         ))
 
         val settings = state.gaugeSettings()
@@ -4250,11 +4388,21 @@ class MainActivity : Activity() {
             "更新会优先连接本项目 GitHub 官方 Release；官方版本查询或 APK 下载失败时，自动切换国内镜像。下载完成后会校验文件 SHA-256、包名、版本和 BRZ Garage 固定签名，再交给 Android 系统安装；覆盖安装会保留行程和加油记录。",
             12f, muted), 9)
     }
+    // Only refresh the update page or settings overview, never an unrelated subpage.
+    private fun isSettingsOverviewVisible(): Boolean = tab == 3 && currentPageKey() == 3
+
+    private fun refreshAppUpdateUi() {
+        when {
+            showingAppUpdate -> appUpdatePage()
+            isSettingsOverviewVisible() -> showTab(3)
+        }
+    }
+
     private fun checkAppUpdate() {
         if (appUpdateChecking) return
         appUpdateChecking = true
         appUpdateCheckError = null
-        if (tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+        refreshAppUpdateUi()
         AppUpdater.checkAsync(this) { result ->
             if (isFinishing || isDestroyed) return@checkAsync
             appUpdateChecking = false
@@ -4265,7 +4413,7 @@ class MainActivity : Activity() {
                 appUpdateCheck = null
                 appUpdateCheckError = "检查失败：${it.message ?: "网络不可用"}"
             }
-            if (tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+            refreshAppUpdateUi()
         }
     }
     private fun confirmAppUpdateDownload(release: AppRelease) {
@@ -4277,7 +4425,7 @@ class MainActivity : Activity() {
                     AppUpdater.startDownload(this, release)
                     appUpdatePromptedDownloadId = -1L
                     toast("已交给系统下载")
-                    showTab(3)
+                    refreshAppUpdateUi()
                     resumeAppUpdateDownloadPolling()
                 } catch (error: RuntimeException) {
                     toast("无法开始下载：${error.message ?: "系统错误"}")
@@ -4298,15 +4446,15 @@ class MainActivity : Activity() {
         val changed = snapshot.status != appUpdateLastStatus || snapshot.progress != appUpdateLastProgress
         appUpdateLastStatus = snapshot.status
         appUpdateLastProgress = snapshot.progress
-        if (changed && tab == 3 && !showingGaugeSettings && !showingVehicleSettings) showTab(3)
+        if (changed) refreshAppUpdateUi()
         if (snapshot.status == AppDownloadStatus.DOWNLOADING) {
             if (!appUpdatePollScheduled) {
                 appUpdatePollScheduled = true
                 handler.postDelayed(appUpdatePoll, 1000L)
             }
         } else if (snapshot.status == AppDownloadStatus.READY &&
-            snapshot.downloadId != appUpdatePromptedDownloadId && tab == 3 &&
-            !showingGaugeSettings && !showingVehicleSettings) {
+            snapshot.downloadId != appUpdatePromptedDownloadId &&
+            (showingAppUpdate || isSettingsOverviewVisible())) {
             appUpdatePromptedDownloadId = snapshot.downloadId
             AlertDialog.Builder(this)
                 .setTitle("App 更新已下载")
@@ -4471,6 +4619,7 @@ class MainActivity : Activity() {
         showingFeedback = false
         showingFirmwareUpdate = false
         showingGaugeSettings = true
+        showingAppUpdate = false
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
@@ -4764,6 +4913,10 @@ class MainActivity : Activity() {
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 202) {
+            if (resultCode == RESULT_OK) recreate()
+            return
+        }
         if (requestCode != 201 || resultCode != RESULT_OK) return
         if (Build.VERSION.SDK_INT >= 33) {
             data?.getParcelableExtra(

@@ -33,6 +33,7 @@ static const vehicle_profile_t s_profiles[] = {
         // Standard PIDs provide RPM/speed/coolant; FA20 oil temperature still uses
         // the Toyota Mode 21 01 request because PID 01 5C is not available.
         .name = "ZC6",
+        .obd_standard_gear_pid = true,
         .final_drive_ratio = 4.100f,
         .tire_rolling_radius_m = 0.314f,   // 215/45R17
         .gear_count = 6,
@@ -44,6 +45,7 @@ static const vehicle_profile_t s_profiles[] = {
             .tertiary = OIL_TEMP_MODE_NONE,
         },
         .forced_protocol = 6,
+        .can_broadcast_mode = false,
         .obd_timeout = 0x0A,
         .poll_gap_ms = 1,
     },

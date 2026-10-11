@@ -42,8 +42,8 @@ class LicensePlateAssetTests(unittest.TestCase):
             self.assertAlmostEqual(90.0, max(ys), places=3, msg=province)
         # These straight strokes are PDF rectangles rather than curves and
         # guard against the extraction regression that made the glyphs small.
-        self.assertGreaterEqual(len(glyphs["川"]), 3)
-        self.assertGreaterEqual(len(glyphs["云"]), 2)
+        self.assertGreaterEqual(sum(layer["path"].count("M") for layer in glyphs["川"]), 3)
+        self.assertGreaterEqual(sum(layer["path"].count("M") for layer in glyphs["云"]), 2)
 
     def test_preview_uses_bundled_vector_glyphs_and_standard_slots(self):
         source = ARTWORK_SOURCE.read_text(encoding="utf-8")

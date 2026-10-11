@@ -21,6 +21,7 @@
 /build_*/
 /simulator/build/
 /firmware/release/
+/firmware/local-*/
 /bootmedia.bin
 
 # Android/Gradle generated files

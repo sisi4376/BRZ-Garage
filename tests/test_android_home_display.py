@@ -36,7 +36,7 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn('homeStatsCard(body, "本次行程 · 仪表统计"', source)
         self.assertIn('homeStatsCard(body, "累计驾驶 · 自仪表开始记录"', source)
         self.assertIn('progressTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)', source)
-        self.assertIn('LinearLayout.LayoutParams(-1, dp(184))', source)
+        self.assertIn('LinearLayout.LayoutParams(-1, dp(228))', source)
         self.assertIn("setAutoSizeTextTypeUniformWithConfiguration(9, 13, 1", source)
         self.assertIn("setAutoSizeTextTypeUniformWithConfiguration(8, 9, 1", source)
         self.assertIn("Gravity.CENTER_HORIZONTAL", source)
@@ -73,7 +73,7 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         for label in ("平均时速", "最高速度", "最高转速", "最大加速", "最大减速"):
             self.assertIn(label, activity)
         self.assertIn("view.setOnClickListener { onOpenDetails(trip) }", adapter)
-        self.assertIn('SQLiteOpenHelper(context, "brz_trip_history.db", null, 5)', database)
+        self.assertIn('if (oldVersion < 5)', database)
         self.assertIn("ALTER TABLE trips ADD COLUMN max_speed_kmh", database)
 
     def test_mileage_visibility_sync_and_local_trip_revision_are_wired(self):
@@ -130,6 +130,36 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("LinearLayout.LayoutParams(-1, dp(8))", source)
         self.assertIn("progressTintList = android.content.res.ColorStateList.valueOf(accent)", source)
         self.assertIn("handler.postDelayed(appUpdatePoll, 1000L)", source)
+
+    def test_grouped_app_update_opens_full_page_and_preserves_navigation(self):
+        source = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        grouped = source.split("private fun renderAppSettingsOverview(", 1)[1].split(
+            "private fun requestGroupedFirmwareCheck", 1)[0]
+        self.assertIn("action = { appUpdatePage() }", grouped)
+        self.assertNotIn("action = { checkAppUpdate() }", grouped)
+        page = source.split("private fun appUpdatePage()", 1)[1].split(
+            "private fun firmwareUpdatePage()", 1)[0]
+        for expected in ('page("App 更新"', "appUpdateCard(body)",
+                         "settingsBackPill(body) { showTab(3) }",
+                         "resumeAppUpdateDownloadPolling()"):
+            self.assertIn(expected, page)
+        self.assertIn('getBoolean("app_update_page")', source)
+        self.assertIn('putBoolean("app_update_page", showingAppUpdate)', source)
+        self.assertIn("showingAppUpdate -> showTab(3)", source)
+        self.assertIn("showingAppUpdate -> 13", source)
+        self.assertIn("else if (updated && showingAppUpdate) Unit", source)
+        refresh = source.split("private fun refreshAppUpdateUi()", 1)[1].split(
+            "private fun checkAppUpdate()", 1)[0]
+        self.assertIn("showingAppUpdate -> appUpdatePage()", refresh)
+        self.assertIn("isSettingsOverviewVisible() -> showTab(3)", refresh)
+        callbacks = source.split("private fun checkAppUpdate()", 1)[1].split(
+            "private fun requestInstallDownloadedUpdate()", 1)[0]
+        self.assertNotIn("showTab(3)", callbacks)
+        self.assertEqual(callbacks.count("refreshAppUpdateUi()"), 4)
+        self.assertIn("(showingAppUpdate || isSettingsOverviewVisible())", callbacks)
+        self.assertIn('.setNegativeButton("稍后", null)', callbacks)
 
     def test_app_update_prefers_github_then_uses_verified_domestic_mirror(self):
         updater = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/AppUpdater.kt").read_text(

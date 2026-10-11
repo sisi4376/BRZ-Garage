@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class TripDatabase(context: Context) :
-    SQLiteOpenHelper(context, "brz_trip_history.db", null, 5) {
+    SQLiteOpenHelper(context, "brz_trip_history.db", null, 7) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -28,15 +28,23 @@ class TripDatabase(context: Context) :
                 max_accel_x100 INTEGER,
                 max_decel_x100 INTEGER,
                 data_revised INTEGER NOT NULL DEFAULT 0,
+                poll_requested INTEGER NOT NULL DEFAULT 0,
+                poll_received INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(device_id, trip_id)
             )
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX trips_by_start ON trips(start_epoch_s DESC, trip_id DESC)")
         createDeletedTripsTable(db)
+        TransferMigrations.tripMetadata(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 7) TransferMigrations.tripMetadata(db)
+        if (oldVersion < 6) {
+            db.execSQL("ALTER TABLE trips ADD COLUMN poll_requested INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE trips ADD COLUMN poll_received INTEGER NOT NULL DEFAULT 0")
+        }
         if (oldVersion < 2) {
             db.execSQL("ALTER TABLE trips ADD COLUMN time_revised INTEGER NOT NULL DEFAULT 0")
         }
@@ -88,14 +96,19 @@ class TripDatabase(context: Context) :
         var maxAccelX100 = record.maxAccelX100
         var maxDecelX100 = record.maxDecelX100
         var dataRevised = record.dataRevised
+        var pollRequested = record.pollRequested
+        var pollReceived = record.pollReceived
         db.rawQuery(
             """SELECT start_epoch_s,end_epoch_s,flags,time_revised,
                        duration_s,distance_m,fuel_ml,avg_l100_x100,
-                       max_speed_kmh,max_rpm,max_accel_x100,max_decel_x100,data_revised
+                       max_speed_kmh,max_rpm,max_accel_x100,max_decel_x100,data_revised,poll_requested,poll_received
                 FROM trips WHERE device_id=? AND trip_id=?""".trimIndent(),
             arrayOf(record.deviceId, record.tripId.toString())
         ).use { cursor ->
             if (cursor.moveToFirst()) {
+                // Evidence is immutable and survives revisions and older-firmware resyncs.
+                pollRequested = pollRequested or cursor.getLong(13)
+                pollReceived = pollReceived or cursor.getLong(14)
                 if (cursor.getInt(12) != 0) {
                     durationS = cursor.getLong(4)
                     distanceM = cursor.getLong(5)
@@ -128,6 +141,8 @@ class TripDatabase(context: Context) :
             put("synced_at_s", System.currentTimeMillis() / 1000L)
             put("time_revised", if (revised) 1 else 0)
             put("data_revised", if (dataRevised) 1 else 0)
+            put("poll_requested", pollRequested)
+            put("poll_received", pollReceived)
             if (maxSpeedKmh == null) putNull("max_speed_kmh") else put("max_speed_kmh", maxSpeedKmh)
             if (maxRpm == null) putNull("max_rpm") else put("max_rpm", maxRpm)
             if (maxAccelX100 == null) putNull("max_accel_x100") else put("max_accel_x100", maxAccelX100)
@@ -264,6 +279,8 @@ class TripDatabase(context: Context) :
         put("synced_at_s", System.currentTimeMillis() / 1000L)
         put("time_revised", if (record.timeRevised) 1 else 0)
         put("data_revised", if (record.dataRevised) 1 else 0)
+        put("poll_requested", record.pollRequested)
+        put("poll_received", record.pollReceived)
         if (record.maxSpeedKmh == null) putNull("max_speed_kmh") else put("max_speed_kmh", record.maxSpeedKmh)
         if (record.maxRpm == null) putNull("max_rpm") else put("max_rpm", record.maxRpm)
         if (record.maxAccelX100 == null) putNull("max_accel_x100") else put("max_accel_x100", record.maxAccelX100)
@@ -314,13 +331,29 @@ class TripDatabase(context: Context) :
         }
     }
 
+    fun needsTransferReconcile(deviceId: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM transfer_reconcile WHERE device_id=?", arrayOf(deviceId)
+    ).use { it.moveToFirst() }
+
+    fun completeTransferReconcile(deviceId: String) {
+        writableDatabase.delete("transfer_reconcile", "device_id=?", arrayOf(deviceId))
+    }
+
+    fun needsRefuelTransferReconcile(deviceId: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM transfer_refuel_reconcile WHERE device_id=?", arrayOf(deviceId)
+    ).use { it.moveToFirst() }
+
+    fun completeRefuelTransferReconcile(deviceId: String) {
+        writableDatabase.delete("transfer_refuel_reconcile", "device_id=?", arrayOf(deviceId))
+    }
+
     fun allTrips(): List<TripRecord> {
         val result = ArrayList<TripRecord>()
         readableDatabase.rawQuery(
             """
             SELECT device_id, trip_id, start_epoch_s, end_epoch_s,
                    duration_s, distance_m, fuel_ml, avg_l100_x100, flags, time_revised,
-                   max_speed_kmh, max_rpm, max_accel_x100, max_decel_x100, data_revised
+                   max_speed_kmh, max_rpm, max_accel_x100, max_decel_x100, data_revised, poll_requested, poll_received
             FROM trips
             -- trip_id is assigned by the gauge when the trip occurs, so it remains
             -- a stable occurrence sequence even when the absolute clock was unknown.
@@ -347,6 +380,8 @@ class TripDatabase(context: Context) :
                     maxAccelX100 = if (cursor.isNull(12)) null else cursor.getInt(12),
                     maxDecelX100 = if (cursor.isNull(13)) null else cursor.getInt(13),
                     dataRevised = cursor.getInt(14) != 0,
+                    pollRequested = cursor.getLong(15),
+                    pollReceived = cursor.getLong(16),
                 )
             }
         }

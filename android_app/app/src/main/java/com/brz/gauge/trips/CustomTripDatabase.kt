@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class CustomTripDatabase(context: Context) :
-    SQLiteOpenHelper(context, "brz_custom_trip_intervals.db", null, 1) {
+    SQLiteOpenHelper(context, "brz_custom_trip_intervals.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -24,9 +24,12 @@ class CustomTripDatabase(context: Context) :
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX custom_trip_device_end ON custom_trip_intervals(device_id,end_epoch_s DESC)")
+        TransferMigrations.localIdentity(db, "custom_trip_intervals", "interval_id")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) TransferMigrations.localIdentity(db, "custom_trip_intervals", "interval_id")
+    }
 
     fun insert(record: CustomTripInterval): Boolean {
         if (record.deviceId.isBlank() || record.startEpochS < 0 ||
@@ -45,12 +48,6 @@ class CustomTripDatabase(context: Context) :
                 put("fuel_ml", record.fuelMl)
             }) != -1L
             if (inserted) {
-                db.execSQL(
-                    """DELETE FROM custom_trip_intervals WHERE device_id=? AND interval_id NOT IN
-                       (SELECT interval_id FROM custom_trip_intervals WHERE device_id=?
-                        ORDER BY end_epoch_s DESC, interval_id DESC LIMIT 50)""".trimIndent(),
-                    arrayOf(record.deviceId, record.deviceId)
-                )
                 db.setTransactionSuccessful()
             }
             inserted

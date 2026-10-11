@@ -7,6 +7,17 @@ ANDROID = ROOT / "android_app/app/src/main/java/com/brz/gauge/trips"
 
 
 class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
+    def test_maintenance_heading_is_separate_from_actual_projects(self):
+        main = (ANDROID / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('label("记录类型（列表标题）"', main)
+        self.assertIn('record.resolvedMaintenanceType().title else record.title', main)
+        self.assertIn('label(record.title, 12f, muted)', main)
+        self.assertIn('快捷：仅记录轮胎更换', main)
+        self.assertIn('MaintenanceRecordType.entries[it.selectedItemPosition]', main)
+        self.assertIn('更换后已行驶', main)
+        self.assertIn('addMaintenanceTrackingCard(body, "轮胎寿命", tires)', main)
+        self.assertIn('MaintenanceDueStatus.TRACKED -> "已跟踪"', main)
+
     def test_driving_calendar_and_total_overview_are_present(self):
         main = (ANDROID / "MainActivity.kt").read_text(encoding="utf-8")
         calendar = (ANDROID / "DrivingCalendarView.kt").read_text(encoding="utf-8")
@@ -45,7 +56,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertIn('listOf("加油", "保养", "日常", "统计")', main)
         self.assertIn("attachAccountingSwipe()", main)
         self.assertIn("override fun onFling", main)
-        self.assertIn('card(body, "保养项目跟踪")', main)
+        self.assertIn('addMaintenanceTrackingCard(body, "保养项目跟踪", projects)', main)
         self.assertIn("calculateMaintenanceDueStates", main)
         self.assertIn("MaintenanceDueStatus.OVERDUE", main)
         self.assertIn("MaintenanceDueStatus.MISSING_ODOMETER", main)
@@ -131,7 +142,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertNotIn("importOwnerExpensesOnce", main)
         self.assertNotIn("importCurated2026", expense_database)
         self.assertNotIn("owner_expenses_2026", main)
-        self.assertIn('SQLiteOpenHelper(context, "brz_expenses.db", null, 2)', expense_database)
+        self.assertIn('SQLiteOpenHelper(context, "brz_expenses.db", null, 4)', expense_database)
         self.assertIn('arrayOf("配件用品", ExpenseCategory.DAILY.code, "车辆配件")', expense_database)
         self.assertNotIn("DROP TABLE", expense_database)
         self.assertNotIn("DELETE FROM expenses", expense_database)
@@ -145,7 +156,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         service = (ANDROID / "TripSyncService.kt").read_text(encoding="utf-8")
         protocol = (ANDROID / "TripBleProtocol.kt").read_text(encoding="utf-8")
 
-        self.assertIn("TRIP_SYNC_PROTOCOL_VERSION 3", storage)
+        self.assertRegex(storage, r"TRIP_SYNC_PROTOCOL_VERSION\s+[34]\b")
         ack = storage.split("esp_err_t nvs_trip_sync_ack", 1)[1].split("/* Helpers */", 1)[0]
         self.assertNotIn("memmove", ack)
         self.assertIn("Do not delete acknowledged records", ack)

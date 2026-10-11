@@ -1,5 +1,7 @@
 # ELM327-emulator 开发流程
 
+需要用 **Windows 电脑蓝牙连接实体 ESP32 仪表**、让车速/转速/燃油流量固定为 0，请使用 [BLE 静态 OBD 模拟器](OBD_BLE_SIMULATOR.md)：`.\tools\start_obd_ble_simulator.ps1`。以下内容是 TCP 网页预览链路。
+
 ## 推荐拓扑
 
 ```text

@@ -1,0 +1,81 @@
+{
+  "release": "v4.0.0",
+  "commit": "e11162c87593d18e615dcd23c1be1ca2c6a29c2a",
+  "methods": [
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "update_inferred_gear_locked",
+      "sha256": "45f83df811737d0191251776fd9020b37a53741d32ca737386cebd968cb4854b"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "obd_data_set_rpm",
+      "sha256": "cc345f9e0a68d4ef7d4102036361fd7bffcbd273d9db3861229e2a792efbe0f6"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "obd_data_set_speed",
+      "sha256": "7d62f4b6ac92a663960fc3609904bd7ab20d63ebe231961ec16b221a8b3d6e77"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "obd_data_reset_gear",
+      "sha256": "b740c18f78ceea37d93d23c7881ec8880df1d062462b74ec9624f4f17dd0f77b"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "obd_data_get_gear",
+      "sha256": "7634e8e27966b58042b226c1d02f797376d6fa1ba001bdc6f6235be10ca73ab5"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "obd_data_set_gear_source",
+      "sha256": "e804b6eb936d62aa07f8d7e3edfc71e3ed381df1de8582afdfe7bff9756e44af"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "direct_gear_is_fresh_locked",
+      "sha256": "ef0d3cdbdd5f6c85d876670ff30b5ac93acfc2bbf0a55e0acbaee3457bbba352"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "gear_timing",
+      "sha256": "9f4c7e3be5c70e7fe76d5680d9ef8eb778e804c071c8971e6717d1b70dcb52b2"
+    },
+    {
+      "path": "main/app_obd_dsp/obd_data_cache.c",
+      "selector": "calculate_gear",
+      "sha256": "4baa011568938ebd41cda268adc9f0709d06a02e5b38d6ed50a64f40265ad6b5"
+    },
+    {
+      "path": "main/app_obd_dsp/vehicle_profiles.c",
+      "selector": "zd8_profile",
+      "sha256": "0dda67d583bbc89d3efb38fdfa349a86ad29658b84d29c24db50f9cc3db3dd89"
+    },
+    {
+      "path": "main/app_obd_dsp/vehicle_profiles.c",
+      "selector": "vehicle_profile_calc_constant",
+      "sha256": "fd5583770c7505649542d2c0ae9781102b96037b6cd78b2304bb9216ddace4c4"
+    },
+    {
+      "path": "main/app_obd_dsp/fuel_estimator.c",
+      "selector": "file",
+      "sha256": "21ce04a7a566d8f12d462efdcd1a5190a521564e5a149f9aba487af6192a2279"
+    },
+    {
+      "path": "main/bsp_obd_dsp/elm327_ble_client.c",
+      "selector": "default_on_parsed_speed",
+      "sha256": "9a8678c9a325929231eb5a474df70346bf6140a9c878bb3e2c4a2d042febb67d"
+    },
+    {
+      "path": "main/bsp_obd_dsp/elm327_ble_client.c",
+      "selector": "oil_filter",
+      "sha256": "94c393fd70374dcc49b0182f346c898921d343ca05635fd7506eeec6028721b9"
+    },
+    {
+      "path": "main/bsp_obd_dsp/elm327_ble_client.c",
+      "selector": "obd_data_set_oil_temp_with_offset",
+      "sha256": "fee4f408526093ee3508dc59a54e84f18548b9b7fc3565b2657ed0f512d43bdc"
+    }
+  ]
+}

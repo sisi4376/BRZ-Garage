@@ -66,6 +66,11 @@ void obd_data_set_oil_temp_invalid(void);
 void obd_data_set_speed(uint8_t kmh);
 void obd_data_set_coolant_temp(int16_t temp);
 void obd_data_set_oil_temp(int16_t temp);   // actual oil temp °C (SSM 22 10 17, A-40)
+// Validated ZC6 Mode21 sample; full byte-40 range, expires after 15 s.
+// Separate from the established ZD8 setter/range and filtering behavior.
+void obd_data_set_zc6_oil_temp(int16_t temp);
+// Only for packets explicitly marked as ZC6; preserve the invalid sentinel too.
+void obd_data_set_synced_zc6_oil_temp(int16_t temp);
 void obd_data_set_intake_temp(int16_t temp);
 void obd_data_set_load_pct(int16_t pct);    // engine load 0~100%
 void obd_data_set_tps(int16_t pct);         // throttle opening 0~100%
@@ -106,7 +111,11 @@ int16_t  obd_data_get_afr_x100(void);        // -1 = invalid
 uint16_t obd_data_get_maf_x100(void);        // 0 = unavailable
 void     obd_data_get_snapshot(obd_data_snapshot_t *out);
 enGear calculate_gear(float rpm, float speed);
-void vMileageDataStatisticTask(void);
+// Call once during core startup, before display/radio allocations; safe to retry
+// from the same startup task if creation fails. Does not require a live ECU.
+bool vMileageDataStatisticTask(void);
+uint32_t obd_statistics_update_count(void);
+bool obd_statistics_is_healthy(void);
 
 #ifdef __cplusplus
 }

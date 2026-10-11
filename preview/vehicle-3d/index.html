@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BRZ Garage · 3D 车库模拟</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="#">BRZ <span>GARAGE</span></a><span class="badge">3D 交互原型</span></header>
+    <div class="layout">
+      <section class="showroom" aria-label="三维车辆预览">
+        <div class="identity"><span class="eyebrow">YOUR PERSONAL GARAGE</span><h1>我的 BRZ<span>随心定义你的车色。</span></h1><p id="vehicle-title">SUBARU / ZD8 · 6MT</p></div>
+        <div id="viewport" role="img" aria-label="可旋转的 BRZ 车辆模型，前后保险杠安装立体车牌"><div id="loading" role="status">正在准备 3D 车库…</div></div>
+        <div class="view-controls" aria-label="车辆视角"><button data-view="front" class="selected">前侧</button><button data-view="side">侧面</button><button data-view="rear">后侧</button><button data-view="plate">车牌特写</button><button id="rotate" aria-pressed="false">自动旋转</button></div>
+        <p class="gesture">拖动车辆旋转 · 滚轮或双指缩放</p>
+        <div class="caption"><span id="selection" aria-live="polite">拉力蓝 · 亮面车漆</span><span id="model-status" aria-live="polite">正在加载模型</span></div>
+        <p class="credits">模型：<a id="model-source" href="https://sketchfab.com/3d-models/subaru-brz-zd8-2e8aca0407ae44d2802bc34761054a69" target="_blank" rel="noopener">Subaru BRZ (ZD8)</a> · <a href="https://sketchfab.com/Car2022" target="_blank" rel="noopener">Mona x Supercars / GT Cars: Hyperspeed</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a><br>本预览调整车漆、清理辅助线并添加立体车牌。</p>
+      </section>
+      <aside>
+        <label class="field model-picker">车辆型号<select id="vehicle-model" aria-label="车辆型号"><option value="zd8">BRZ ZD8 · 第二代</option><option value="zc6">BRZ ZC6 · 第一代</option></select></label>
+        <div class="section-title"><span>01</span><h2>车身颜色</h2></div>
+        <div id="swatches" class="swatches"></div>
+        <label class="custom">自定义颜色 <input id="custom-color" type="color" value="#155dcc" aria-label="自定义车身颜色"></label>
+        <label class="field">漆面质感<select id="finish"><option value="gloss">亮面车漆</option><option value="satin">哑光车漆</option></select></label>
+        <div class="divider"></div>
+        <div class="section-title"><span>02</span><h2>立体车牌</h2></div>
+        <label class="field">车牌号码<input id="plate-text" value="粤B·BRZ86" maxlength="10" autocomplete="off" spellcheck="false"></label>
+        <label class="field">车牌样式<select id="plate-style"><option value="blue">蓝底白字</option><option value="green">新能源渐变绿</option><option value="white">白底黑字 · 展示牌</option></select></label>
+        <label class="toggle"><span>安装前后车牌</span><input id="plate-visible" type="checkbox" checked></label>
+        <p class="note">车牌、底座与固定螺丝随车身转动，可从侧面查看厚度与安装位置。</p>
+        <button id="reset" class="reset">恢复默认外观</button>
+        <p class="prototype">功能模拟 · 设置仅保存在当前浏览器<br>未连接车辆或 App 实时数据</p>
+      </aside>
+    </div>
+    <footer>BRZ GARAGE <span>车辆外观实验室</span></footer>
+  </main>
+  <script type="module" src="real-models.js?v=4.1.3"></script>
+</body>
+</html>

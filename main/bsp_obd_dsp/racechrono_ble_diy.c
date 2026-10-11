@@ -56,7 +56,7 @@
 #define VEHICLE_PROFILE_CONTROL_WIRE_SIZE 6
 #define ODOMETER_CONFIG_WIRE_SIZE 12
 #define TRIP_META_WIRE_SIZE 20
-#define TRIP_DATA_WIRE_SIZE 48
+#define TRIP_DATA_WIRE_SIZE 56
 #define REFUEL_META_WIRE_SIZE 36
 #define REFUEL_CONTROL_WIRE_SIZE 10
 #define REFUEL_DATA_WIRE_SIZE 48
@@ -438,10 +438,11 @@ static uint16_t build_trip_data_wire(void)
 {
     nvs_trip_sync_record_t record;
     nvs_trip_detail_t detail;
-    if (nvs_trip_sync_read_after(s_trip_request_after_id, &record, &detail, 1) != 1) return 0;
+    obd_poll_health_t health;
+    if (nvs_trip_sync_read_after(s_trip_request_after_id, &record, &detail, &health, 1) != 1) return 0;
     if (record.id > s_trip_highest_sent_id) s_trip_highest_sent_id = record.id;
     memset(s_trip_data_value, 0, sizeof(s_trip_data_value));
-    s_trip_data_value[0] = 2;
+    s_trip_data_value[0] = 3;
     s_trip_data_value[1] = (uint8_t)record.flags;
     put_le16(&s_trip_data_value[2], TRIP_DATA_WIRE_SIZE);
     put_le32(&s_trip_data_value[4], record.id);
@@ -455,7 +456,9 @@ static uint16_t build_trip_data_wire(void)
     put_le16(&s_trip_data_value[40], detail.max_rpm);
     put_le16(&s_trip_data_value[42], (uint16_t)detail.max_accel_x100);
     put_le16(&s_trip_data_value[44], (uint16_t)detail.max_decel_x100);
-    put_le16(&s_trip_data_value[46], trip_crc16(s_trip_data_value, 46));
+    put_le32(&s_trip_data_value[46], health.requested);
+    put_le32(&s_trip_data_value[50], health.received);
+    put_le16(&s_trip_data_value[54], trip_crc16(s_trip_data_value, 54));
     return sizeof(s_trip_data_value);
 }
 

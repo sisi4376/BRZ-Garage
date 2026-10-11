@@ -4,11 +4,15 @@
 
 ### Release 自动发布
 
+当前发布固件为 **4.0.5**，见 [App 4.3.6 / 固件 4.0.5 发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.6)。`firmware/sdkconfig.release` 保存本次通过设备测试的配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
+
+若草稿中已上传本地验证的烧录 ZIP，发布事件跳过重复构建，保留 APK 与 ZIP 使用同一固件。自动构建优先使用标签内的 `firmware/sdkconfig.release`；上传不覆盖已有同名附件。
+
 `.github/workflows/release-flasher.yml` 在每次 Release **published** 时运行（含 Beta 预发布）：从该 Release 标签的固定提交构建 ESP-IDF 5.5.3 固件，使用默认分支上最新烧录工具（运行时固定其提交），下载并校验官方 esptool，然后在 Windows 上测试备份/写入故障路径、串口识别、实时进度与打包后的 GUI。全部通过后才将 ZIP 和同名 `.zip.sha256` 上传到原 Release；不会修改 APK、标题或 Beta 状态。
 
 文件名中的 `v` 是固件版本（从对应源码读取并与镜像交叉检查），`r` 是工具修订号。App 单独更新时固件版本可以不变。固件升级需在标签对应源码中更新 `CMakeLists.txt` 的 `PROJECT_VER`；修改烧录器时递增打包脚本中的 `FLASHER_REVISION`。
 
-发布后需等 Actions 中 **Release Windows flasher** 成功才有附件；失败时检查该运行日志，不要向用户宣称已准备完成。可以在 Actions 页面手动运行并填写已有 `release_tag`（例如 `v4.0.0`），为旧 Release 补包或重试；仅替换同名烧录包/校验文件，保留其他附件。若由其他工作流使用 `GITHUB_TOKEN` 创建 Release，需显式调用此工作流的 `workflow_dispatch`，不能依赖 `release` 事件递归触发。
+发布后需等 Actions 中 **Release Windows flasher** 成功才有附件；失败时检查该运行日志，不要向用户宣称已准备完成。可以在 Actions 页面手动运行并填写已有 `release_tag`（例如 `v4.0.0`），为旧 Release 补包或重试；补充缺失的烧录包/校验文件；遇到同名附件会拒绝覆盖。若由其他工作流使用 `GITHUB_TOKEN` 创建 Release，需显式调用此工作流的 `workflow_dispatch`，不能依赖 `release` 事件递归触发。
 
 ### 本地打包与验证
 
