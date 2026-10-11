@@ -8,6 +8,14 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-11 — Beta: Android 4.3.6 / firmware 4.0.5
+
+- Publish the current Android client (versionCode 146), including its 3D vehicle display, maintenance tracking and v3 data transfer, with the existing signing certificate and embedded firmware 4.0.5.
+- Reduce two display DMA buffers from 40 to 20 rows, fall back to 10 rows on allocation failure, and enforce the memory budget. Guard OBD polling task creation and OTA startup confirmation against resource failures.
+- Keep optional performance telemetry, poll self-check recording and experimental gear queries disabled in the tested release configuration. Switch Trip Interval pages without vertical animations.
+- Startup symptoms were already recorded on September 5; 3.2.14 and 4.0.0 retained the large buffers. Firmware 4.0.3 added confirmed memory pressure. The exact first introducing release is not established.
+- The user accepted the 4.0.4-dma2 device test. Version 4.0.5 uses the same application code/configuration with updated release metadata; release builds and package checks are recorded separately from that physical test.
+
 ### 2026-10-08 — Local firmware 4.0.4: restore core trip/fuel task startup
 
 - Fix the device-confirmed 4.0.3 internal-memory failure that prevented the trip statistics task from starting, leaving fuel unavailable while RPM/speed still worked. Create and check the core task before display/radio allocations.
@@ -818,6 +826,14 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-11 — Beta：Android 4.3.6 / 仪表固件 4.0.5
+
+- 发布当前 Android 客户端（versionCode 146），保留 3D 车辆显示、保养跟踪及 v3 数据迁移；沿用固定签名，内置 4.0.5 固件。
+- 显示 DMA 双缓冲从 40 行缩至 20 行，分配失败时回退 10 行，并加入内存预算检查；OBD 轮询任务启动和 OTA 启动确认增加资源失败保护。
+- 发布配置沿用实测设置：关闭可选性能监测、轮询自检记录及实验挡位查询。Trip Interval 上下翻页取消动画，直接切换。
+- 9 月 5 日日志已出现同类启动症状，3.2.14 和 4.0.0 已保留大缓冲；4.0.3 另有明确的内存压力加重证据。尚不能确定最初引入版本。
+- 用户已确认 4.0.4-dma2 实机测试通过；4.0.5 保留相同应用代码和配置，更新正式发布版本信息。发布构建与包校验不等同于再次实机测试。
 
 ### 2026-10-08 — 本地固件 4.0.4：修复油耗与行程统计任务启动失败
 

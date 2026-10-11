@@ -31,6 +31,8 @@ extern "C" {
 #define SWEEP_BL_MIN     3      // backlight during sweep & the low flash segment (%), tunable
 #define SWEEP_BL_MAX     100    // backlight for the high flash segment (%)
 #define SWEEP_TOTAL      (SWEEP_STEPS_UP + SWEEP_STEPS_HOLD + 2*SWEEP_STEPS_FLASH)
+// Retain the animation implementation, but suspend connection sweeps on all gauges.
+#define UI_CONNECTION_SWEEP_ENABLED 0
 
 // Whether the sweep animation is running right now (replaces the old IN_SWEEP macro).
 bool ui_ext_sweep_active(void);
@@ -56,7 +58,7 @@ void ui_ext_showroom_tick(bool is_slave); // the whole showroom state machine (m
 /* ---- Boot animation / video / intro ---- */
 bool ui_ext_boot_video_tick(void);        // video boot mode; returns true to make my_timerMain return early
 void ui_ext_intro_tick(bool is_slave);    // RACE/AS/ONE boot animation state machine
-void ui_ext_status_indicators_update(bool obd_ok, bool phone_connected,
+void ui_ext_status_indicators_update(bool obd_connected, bool obd_data_valid, bool phone_connected,
                                      bool time_synchronized); // former NO SIGNAL position
 
 /* ---- RPM warning flash (migrated from ui.c my_timerMain) ---- */

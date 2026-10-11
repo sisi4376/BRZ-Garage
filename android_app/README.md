@@ -4,7 +4,9 @@
 
 ## 当前版本概览
 
-当前本地安装包：**App 4.3.5**（versionCode 145），[下载 APK](BRZ-Garage-v4.3.5-debug.apk)。按当前最新源码构建，内置 **4.0.4** 油耗 / 行程统计启动修复固件；沿用 4.3.4 签名，可覆盖安装。APK 签名、版本与内置固件校验通过，实车新行程至手机的完整同步仍待验证。
+当前 GitHub Beta 发布版：**App 4.3.6**（versionCode 146），[下载安装包](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.6/BRZ-Garage-v4.3.6-debug.apk)。内置仪表固件 **4.0.5**，包含已测试的启动 DMA 内存修复、OBD 轮询任务启动保护和 Trip Interval 无动画切换。APK 沿用固定签名，可覆盖安装；固件升级在 App 中单独执行。
+
+上一轮本地安装包：**App 4.3.5**（versionCode 145），内置 **4.0.4** 油耗 / 行程统计启动修复固件；已由上方 4.3.6 发布版替代。
 
 上一统一测试版：**App 4.3.4**（versionCode 144），安装入口 [BRZ-Garage-v4.3.4-debug.apk](BRZ-Garage-v4.3.4-debug.apk)。与鸿蒙原生 0.3.7 统一使用 v3 数据包，兼容 v1/v2；迁移包含九类历史表、车辆参数、首页布局、车辆/仪表缓存和外观偏好。导出先生成并校验完整包，再打开保存窗口；导入兼容不同文件提供方的 ZIP 类型标识。轮胎寿命独立展示，轮胎换位保留在保养项目中；轮胎更换周期为 50000 km / 8 年。内置固件仍为 **4.0.3**。详见 [数据迁移说明](../docs/DATA_TRANSFER.md) 与 [对齐检查](../docs/APP_PLATFORM_PARITY.md)。
 

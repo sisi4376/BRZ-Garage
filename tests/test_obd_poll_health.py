@@ -66,6 +66,24 @@ int main(void) {
 }
 ''', ['main/app_obd_dsp/obd_poll_health.c'])
 
+    def test_disabled_self_check_is_unrecorded_and_preserves_old_history(self):
+        self.run_c(r'''
+#include <assert.h>
+#include "app_obd_dsp/obd_poll_health.h"
+int main(void) {
+    uint32_t rpm[2] = {0x10, 0x00};
+    obd_poll_health_request((const uint8_t *)"010C\r", 5);
+    obd_poll_health_response(0x0C, rpm, 2);
+    obd_poll_health_toyota_oil_received();
+    obd_poll_health_t h = obd_poll_health_take();
+    assert(h.requested == 0 && h.received == 0);
+    obd_poll_health_t old = {OBD_POLL_HEALTH_PRESENT | 1, 1};
+    obd_poll_health_merge(&old, &h);
+    assert(old.requested == (OBD_POLL_HEALTH_PRESENT | 1) && old.received == 1);
+    return 0;
+}
+''', ['-DCONFIG_OBD_POLL_SELF_CHECK=0', 'main/app_obd_dsp/obd_poll_health.c'])
+
     def test_gear_queries_are_bounded_and_never_catch_up(self):
         source = (ROOT / 'main/bsp_obd_dsp/elm327_ble_client.c').read_text(encoding='utf-8')
         self.run_c(r'''
@@ -73,6 +91,7 @@ int main(void) {
 #include <stdbool.h>
 #include <assert.h>
 #include <string.h>
+#define CONFIG_OBD_EXPERIMENTAL_GEAR_POLL 1
 typedef struct { bool obd_standard_gear_pid; } vehicle_profile_t;
 static vehicle_profile_t profile = {true};
 static const vehicle_profile_t *vehicle_profile_get_active(void) { return &profile; }
@@ -101,6 +120,46 @@ int main(void) {
     send_standard_gear_request(90000002); assert(gear_requests == 6);
     profile.obd_standard_gear_pid = false;
     send_standard_gear_request(99000001); assert(gear_requests == 6);
+    return 0;
+}
+''')
+
+    def test_production_never_sends_experimental_gear_requests(self):
+        source = (ROOT / 'main/bsp_obd_dsp/elm327_ble_client.c').read_text(encoding='utf-8')
+        body = function(source, 'send_standard_gear_request')
+        # Unknown capability, advertised support and repeated reconnects all
+        # keep the released v4.0.0 empty slot. Opt-in behavior is tested above.
+        for define in ('', '#define CONFIG_OBD_EXPERIMENTAL_GEAR_POLL 0\n'):
+            with self.subTest(define=define):
+                self.run_c(r'''
+#include <stdint.h>
+#include <stdbool.h>
+#include <assert.h>
+''' + define + r'''
+typedef struct { bool obd_standard_gear_pid; } vehicle_profile_t;
+static vehicle_profile_t profile = {true};
+static const vehicle_profile_t *vehicle_profile_get_active(void) { return &profile; }
+static int8_t s_standard_gear_pid_support;
+static uint8_t s_gear_support_probes, s_gear_unanswered;
+static int64_t s_gear_poll_us;
+static unsigned requests;
+static bool elm327_ble_send_ascii_blocking(const char *cmd) {
+    (void)cmd; ++requests; return true;
+}
+''' + function(source, 'poll_interval_due') + '\n' + body + r'''
+int main(void) {
+    for (int reconnect = 0; reconnect < 3; ++reconnect) {
+        for (int support = -1; support <= 1; ++support) {
+            s_standard_gear_pid_support = support;
+            s_gear_support_probes = s_gear_unanswered = 0;
+            s_gear_poll_us = 0;
+            for (int64_t t = 1; t < 120000000; t += 1000)
+                send_standard_gear_request(t);
+            assert(requests == 0);
+            assert(s_standard_gear_pid_support == support);
+            assert(s_gear_support_probes == 0 && s_gear_unanswered == 0 && s_gear_poll_us == 0);
+        }
+    }
     return 0;
 }
 ''')

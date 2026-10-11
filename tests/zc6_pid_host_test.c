@@ -12,6 +12,7 @@
 #include "bsp_obd_dsp/espnow_link.h"
 #include "app_obd_dsp/perf_monitor.h"
 #include "esp_timer.h"
+#include "freertos/portmacro.h"
 #define ESP_LOGD(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 #define pdTRUE 1
@@ -21,6 +22,7 @@
 #define APP_EVT_ESPNOW_SYNC_SLOT 1
 #define APP_EVT_ESPNOW_INTRO_STEP 2
 static bool s_rx_linktest;
+static uint8_t s_rx_obd_flags;
 static bool s_rx_zc6_pid, s_linktest_active;
 static uint32_t s_tx_seq;
 static const char MASTER_NAME[] = "SkyGauge";
@@ -43,8 +45,9 @@ static int64_t s_can_oil_last_us;
 static struct { int mode2_ok, mode2_fail, last_raw_temp, last_filtered_temp; } s_oil_diag;
 /* PROFILE_TABLE */
 /* PROFILE_SETTER */
-/* ELM_GLOBALS */
 static bool s_connected = true, s_elm_ready = true, s_expect_mode21;
+static bool s_notify_ready = true, s_ota_paused;
+/* ELM_GLOBALS */
 static bool elm327_ble_is_connected(void) { return s_connected; }
 static int ui_sweep_get_step(void) { return 0; }
 static int ui_intro_get_step(void) { return 0; }
@@ -222,11 +225,16 @@ int main(void)
     // Slave packet application preserves the master's temperature and expired
     // sentinel, without applying local offsets/filtering a second time.
     espnow_obd_packet_t packed;
+    reset_obd_signal();
     init_profile(4); master_pack(&packed); assert(packed.flags == 0x01);
     init_profile(1); master_pack(&packed); assert(packed.flags == (0x01 | ESPNOW_FLAG_ZC6_PID));
     s_linktest_active = true;
     init_profile(4); master_pack(&packed); assert(packed.flags == 0x03);
     s_linktest_active = false;
+    default_on_parsed_oil_temp(100);
+    master_pack(&packed); assert(packed.flags == (0x01 | ESPNOW_FLAG_OBD_DATA_VALID));
+    test_now += 5000;
+    master_pack(&packed); assert(packed.flags == 0x01);
     espnow_obd_packet_t remote = {.flags = ESPNOW_FLAG_ZC6_PID};
     const int remote_values[] = {-40, -25, 0, 100, 151, 215, -100};
     for (unsigned i=0; i<sizeof(remote_values)/sizeof(remote_values[0]); ++i) {

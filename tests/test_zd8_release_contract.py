@@ -49,6 +49,8 @@ def digest(source):
     # Performance work is orthogonal and explicitly preserved in the workspace.
     source = re.sub(r'\buint32_t\s+start\s*=\s*perf_now\(\);', '', source)
     source = re.sub(r'\bperf_emit\([^;]*\);', '', source)
+    # The display's receipt timestamp does not change released decoding/filtering.
+    source = re.sub(r'\bmark_obd_sample_received\(\);', '', source)
     return hashlib.sha256(re.sub(r'\s+', '', source).encode()).hexdigest()
 
 

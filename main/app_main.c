@@ -16,6 +16,7 @@
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
 #include "esp_ota_ops.h"
 #include "sdkconfig.h"
@@ -54,11 +55,30 @@
 
 static const char *TAG = "obd_dsp";
 
+static uint32_t s_startup_dma_failed;
+
+static void record_startup_allocation_failure(size_t size, uint32_t caps, const char *caller)
+{
+    (void)size;
+    (void)caller;
+    /* Allocation hooks can run in low-memory/ISR context. Only latch a bit;
+     * never log, allocate, or take a blocking lock here. PSRAM failures do
+     * not imply that the controller's internal DMA pool failed. */
+    if (caps & MALLOC_CAP_DMA) {
+        __atomic_store_n(&s_startup_dma_failed, 1, __ATOMIC_RELAXED);
+    }
+}
+
 static bool validate_startup(bool statistics_required)
 {
     uint32_t updates_before = obd_statistics_update_count();
     vTaskDelay(pdMS_TO_TICKS(15000));
 
+    if (__atomic_load_n(&s_startup_dma_failed, __ATOMIC_RELAXED) ||
+        elm327_ble_poll_task_start_failed()) {
+        ESP_LOGE(TAG, "Startup unhealthy: DMA allocation or OBD task failed; OTA not confirmed");
+        return false;
+    }
     if (statistics_required && (!obd_statistics_is_healthy() ||
         obd_statistics_update_count() == updates_before)) {
         ESP_LOGE(TAG, "Startup unhealthy: statistics task not progressing; OTA not confirmed");
@@ -108,6 +128,38 @@ static esp_lcd_touch_handle_t s_touch_handle = NULL;
 #define LVGL_TASK_MIN_DELAY_MS      2
 #define LVGL_TASK_STACK_SIZE        (8 * 1024)
 #define LVGL_TASK_PRIORITY          4   // raised (was 2): less prone to dropping frames from preemption by BLE/OBD (priority 4) during animations
+
+/* A display optimization must not silently consume the radio's memory again.
+ * Raising this budget requires explicit cold-boot/connected-device validation. */
+_Static_assert(2 * LVGL_BUFF_SIZE * sizeof(lv_color_t) <= 40 * 1024,
+               "Display DMA buffers exceed the validated 40 KiB budget");
+
+static bool allocate_display_buffers(lv_color_t **first, lv_color_t **second, size_t *pixels)
+{
+    /* The BLE controller also requires internal DMA RAM, even with PSRAM
+     * enabled. Two 40-row AMOLED buffers consumed 74,560 bytes before radio
+     * startup; boot captures showed controller allocation failures in GATT setup.
+     * Cap at 20 rows; a successful display allocation alone is not evidence
+     * that enough internal memory remains for a later BLE connection. */
+    for (size_t rows = LVGL_BUFF_SIZE / LCD_H_RES; rows >= 10; rows /= 2) {
+        size_t count = LCD_H_RES * rows;
+        *first = heap_caps_malloc(count * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+        *second = heap_caps_malloc(count * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+        if (*first && *second) {
+            *pixels = count;
+            ESP_LOGI(TAG, "Display DMA: rows=%u bytes=%u free=%u largest=%u",
+                     (unsigned)rows, (unsigned)(2 * count * sizeof(lv_color_t)),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+            return true;
+        }
+        heap_caps_free(*first);
+        heap_caps_free(*second);
+        *first = *second = NULL;
+    }
+    *pixels = 0;
+    return false;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////// LVGL callbacks /////////////////////////////////////////////////////////////////////////////////////
@@ -310,19 +362,9 @@ void app_main(void)
     /* 5. LVGL init */
     lv_init();
 
-    /* Allocate double buffers (DMA memory). Larger buffers -> full-screen render strips halved -> higher frame rate.
-       Only affects LVGL render chunking, not the SPI single-transfer size (still chunked by max_transfer_sz), so no screen corruption.
-       Falls back automatically to the original 20 lines when internal DMA RAM is insufficient, avoiding boot-time OOM. */
-    size_t buf_px = LCD_H_RES * 40;
-    lv_color_t *buf1 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    lv_color_t *buf2 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    if (!buf1 || !buf2) {
-        heap_caps_free(buf1); heap_caps_free(buf2);
-        buf_px = LVGL_BUFF_SIZE;   // fall back to 20 lines
-        buf1 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
-        buf2 = heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_DMA);
-    }
-    assert(buf1 && buf2);
+    size_t buf_px = 0;
+    lv_color_t *buf1 = NULL, *buf2 = NULL;
+    ESP_ERROR_CHECK(allocate_display_buffers(&buf1, &buf2, &buf_px) ? ESP_OK : ESP_ERR_NO_MEM);
     lv_disp_draw_buf_init(&disp_buf, buf1, buf2, buf_px);
 
     /* Register display driver */
@@ -360,7 +402,8 @@ void app_main(void)
     lvgl_mux = xSemaphoreCreateMutex();
     assert(lvgl_mux);
     static TaskHandle_t s_lvgl_task_handle = NULL;
-    xTaskCreate(lvgl_port_task, "LVGL", LVGL_TASK_STACK_SIZE, NULL, LVGL_TASK_PRIORITY, &s_lvgl_task_handle);
+    ESP_ERROR_CHECK(xTaskCreate(lvgl_port_task, "LVGL", LVGL_TASK_STACK_SIZE, NULL,
+                               LVGL_TASK_PRIORITY, &s_lvgl_task_handle) == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     // exposed to ui.c for temporarily raising priority during flashing
     extern TaskHandle_t g_lvgl_task_handle;
     g_lvgl_task_handle = s_lvgl_task_handle;
@@ -376,6 +419,9 @@ void app_main(void)
     /* 7.5 Mount bootmedia SPIFFS early (saves ~300ms of black screen) */
     boot_media_mount();
     boot_media_recover_previous_if_needed();
+    /* Arm after display fallback allocations, before any controller/radio
+     * startup. A recoverable display fallback must not poison OTA validation. */
+    ESP_ERROR_CHECK(heap_caps_register_failed_alloc_callback(record_startup_allocation_failure));
     elm327_ble_ensure_stack_init();
 
     /* 8. Branch by role: master (connects to ELM327 for readings + ESP-NOW broadcast) / slave (only receives and displays the master's data) */
@@ -460,6 +506,11 @@ void app_main(void)
         }
 
     }
+
+    ESP_LOGI(TAG, "Startup DMA heap: free=%u largest=%u minimum=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
 
     // Reuse the existing main task for the bounded startup check; allocating
     // another 4 KB task here could itself fail under the same memory pressure.

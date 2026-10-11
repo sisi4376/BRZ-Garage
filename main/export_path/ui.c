@@ -1030,10 +1030,12 @@ static void my_timerMain_impl(lv_timer_t * timer)
     ui_ext_rpm_flash_tick(rawRpm, IN_SWEEP);
 
     if (!ui_ext_showroom_is_active()) {
-        ui_ext_status_indicators_update(ble_now, racechrono_ble_diy_is_connected(),
+        bool obd_connected = is_slave ? espnow_link_slave_obd_connected() : ble_now;
+        bool obd_data_valid = is_slave ? espnow_link_slave_obd_has_valid_data() : elm327_ble_has_valid_data();
+        ui_ext_status_indicators_update(obd_connected, obd_data_valid, racechrono_ble_diy_is_connected(),
                                         nvs_trip_phone_time_is_valid());
     } else {
-        ui_ext_status_indicators_update(true, true, true); // showroom hides both inside ui_ext
+        ui_ext_status_indicators_update(true, true, true, true); // showroom hides both inside ui_ext
     }
 
     /* ---- Adaptive refresh rate: data pages run fast, static pages stay slow ----
@@ -1242,7 +1244,7 @@ void ui_event_trip_overview_background(lv_event_t *e)
                           &ui_ScreenPageTripHistory_screen_init);
     } else if (dir == LV_DIR_TOP) {
         lv_indev_wait_release(lv_indev_get_act());
-        _ui_screen_change(&ui_ScreenPageTripIntervals, LV_SCR_LOAD_ANIM_MOVE_TOP, 180, 0,
+        _ui_screen_change(&ui_ScreenPageTripIntervals, LV_SCR_LOAD_ANIM_NONE, 0, 0,
                           &ui_ScreenPageTripIntervals_screen_init);
     }
 }
@@ -1259,7 +1261,7 @@ void ui_event_trip_intervals_background(lv_event_t *e)
         _ui_screen_change(&ui_ScreenPageTripHistory, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
                           &ui_ScreenPageTripHistory_screen_init);
     } else if (dir == LV_DIR_BOTTOM) {
-        _ui_screen_change(&ui_ScreenPageTripOverview, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 180, 0,
+        _ui_screen_change(&ui_ScreenPageTripOverview, LV_SCR_LOAD_ANIM_NONE, 0, 0,
                           &ui_ScreenPageTripOverview_screen_init);
     }
 }

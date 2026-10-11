@@ -89,6 +89,10 @@ void elm327_ble_connect_by_addr(const uint8_t mac[6], const char *name);
 
 // Query the current connection state.
 bool elm327_ble_is_connected(void);
+/* Local resource failure only; an absent/offline ECU is not a startup fault. */
+bool elm327_ble_poll_task_start_failed(void);
+// A decoded vehicle measurement in the last 5 seconds; AT replies do not qualify.
+bool elm327_ble_has_valid_data(void);
 void elm327_ble_disconnect(void);
 
 // WiFi OTA pause/resume: drop the ELM327 link and suppress auto-reconnect +

@@ -1,4 +1,21 @@
 menu "OBD DSP Configuration"
+    config OBD_POLL_SELF_CHECK
+        bool "Record OBD polling self-check results"
+        default y
+        help
+            Record requested/received PID bitsets for trip diagnostics.
+            Disable for the connection regression comparison build. Existing
+            stored records and the phone protocol remain readable.
+
+    config OBD_EXPERIMENTAL_GEAR_POLL
+        bool "Experimental OBD A0/A4 gear queries"
+        default n
+        help
+            Adds optional transmission capability/ratio queries to slot 11.
+            BRZ vehicle/adapter support has not been verified. Leave disabled
+            for the v4.0.0 default acquisition sequence and RPM/speed gear
+            inference. Passive trip poll-health recording remains available.
+
     config OBD_PERF_MONITOR
         bool "Passive gauge performance telemetry"
         default n

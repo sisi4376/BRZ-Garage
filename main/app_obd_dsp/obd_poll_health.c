@@ -1,4 +1,5 @@
 #include "obd_poll_health.h"
+#if defined(CONFIG_OBD_POLL_SELF_CHECK) && CONFIG_OBD_POLL_SELF_CHECK
 
 static uint32_t s_requested;
 static uint32_t s_received;
@@ -53,3 +54,4 @@ obd_poll_health_t obd_poll_health_take(void)
     result.requested |= result.received | OBD_POLL_HEALTH_PRESENT;
     return result;
 }
+#endif

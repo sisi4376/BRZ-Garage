@@ -1,0 +1,32 @@
+name: Firmware startup regression
+
+on:
+  pull_request:
+    paths:
+      - 'main/**'
+      - 'tests/**'
+      - 'sdkconfig*'
+      - 'CMakeLists.txt'
+      - '.github/workflows/firmware-startup.yml'
+  push:
+    paths:
+      - 'main/**'
+      - 'tests/**'
+      - 'sdkconfig*'
+      - 'CMakeLists.txt'
+      - '.github/workflows/firmware-startup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  allocation-and-startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise production allocation and startup failure paths
+        run: python3 -m unittest discover -s tests -p test_firmware_startup.py -v
+      - name: Preserve released ZD8 collection methods
+        run: python3 -m unittest discover -s tests -p test_zd8_release_contract.py -v
