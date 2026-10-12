@@ -138,7 +138,7 @@ class AppState(context: Context) {
         get() = compatibleBoolean("show_custom_license_plate", false) && customLicensePlate != null
         set(value) { prefs.edit().putBoolean("show_custom_license_plate", value).apply() }
     var show3DVehicle: Boolean
-        get() = compatibleBoolean("show_3d_vehicle", true)
+        get() = compatibleBoolean("show_3d_vehicle", false)
         set(value) { prefs.edit().putBoolean("show_3d_vehicle", value).apply() }
     val selectedVehicleModel: SupportedVehicleModel
         get() = SupportedVehicleModel.fromProfileIndex(

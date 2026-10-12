@@ -8,6 +8,11 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-12 — Android 4.3.7: default to 2D vehicle display
+
+- Show the original 2D vehicle image when no 3D preference has been saved. Keep saved choices and allow enabling 3D in vehicle settings.
+- Keep embedded firmware 4.0.5 unchanged; existing installations can update the App without reinstalling gauge firmware.
+
 ### 2026-10-11 — Beta: Android 4.3.6 / firmware 4.0.5
 
 - Publish the current Android client (versionCode 146), including its 3D vehicle display, maintenance tracking and v3 data transfer, with the existing signing certificate and embedded firmware 4.0.5.
@@ -826,6 +831,11 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-12 — Android 4.3.7：默认使用 2D 车辆图片
+
+- 未保存 3D 开关选择时默认关闭，首页显示原有 2D 车辆图片；保留已有选择，可在车辆设置中手动开启 3D。
+- 内置固件仍为 4.0.5，本次只需覆盖安装 App，无需重复升级仪表。
 
 ### 2026-10-11 — Beta：Android 4.3.6 / 仪表固件 4.0.5
 

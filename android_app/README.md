@@ -4,7 +4,7 @@
 
 ## 当前版本概览
 
-当前 GitHub Beta 发布版：**App 4.3.6**（versionCode 146），[下载安装包](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.6/BRZ-Garage-v4.3.6-debug.apk)。内置仪表固件 **4.0.5**，包含已测试的启动 DMA 内存修复、OBD 轮询任务启动保护和 Trip Interval 无动画切换。APK 沿用固定签名，可覆盖安装；固件升级在 App 中单独执行。
+当前 GitHub Beta 发布版：**App 4.3.7**（versionCode 147），[下载安装包](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.7/BRZ-Garage-v4.3.7-debug.apk)。3D 车辆默认关闭，首页使用原有 2D 图片；可在“设置 → 车辆 → 显示 3D 车辆”中开启，已保存的开关选择继续保留。内置固件仍为 **4.0.5**，本次无需重复升级仪表。
 
 上一轮本地安装包：**App 4.3.5**（versionCode 145），内置 **4.0.4** 油耗 / 行程统计启动修复固件；已由上方 4.3.6 发布版替代。
 
