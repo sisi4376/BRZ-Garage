@@ -126,7 +126,7 @@ flowchart LR
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
 | 车辆 | Subaru BRZ ZC6 6MT | 🧪 已接入，等待更多实车验证 |
-| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
+| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
 | 自动挡、其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
@@ -184,7 +184,7 @@ flowchart LR
 
 开始前请准备：
 
-- Waveshare ESP32-S3-Touch-AMOLED-1.75、1.75-B 或 1.75-G（目前尚未开发 GPS 功能；如需为未来扩展预留硬件，请选择 1.75-G）；
+- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐，预留定位功能）、1.75-B 或 1.75（目前尚未开发 GPS 功能；如需为未来扩展预留硬件，请选择 1.75-G）；
 - 一条确认支持数据传输的 USB 线；
 - BLE ELM327 兼容适配器；
 - Android 8.0+ 手机；
