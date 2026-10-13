@@ -51,7 +51,9 @@ function Invoke-FlasherTool {
         $process.WaitForExit()
         $writer.WriteLine()
         if ($process.ExitCode -ne 0) {
-            throw "esptool failed (exit $($process.ExitCode)). See the log. No automatic retry was performed."
+            $failure = New-Object InvalidOperationException("esptool failed (exit $($process.ExitCode)). See the log.")
+            $failure.Data['ToolOutput'] = $result.ToString()
+            throw $failure
         }
         return $result.ToString()
     } finally {
@@ -74,11 +76,19 @@ function Get-FlasherProgress {
             $state.Bytes = [Math]::Min(16777216, [long]$last.Groups[1].Value)
             $state.Percent = [Math]::Min(100, [Math]::Max(0, [int]$last.Groups[2].Value))
         } else { $state.Percent = 0 }
+        $chunk = [regex]::Match($phase, 'offset=(\d+) length=(\d+)')
+        if ($chunk.Success) {
+            $offset = [long]$chunk.Groups[1].Value
+            $length = [long]$chunk.Groups[2].Value
+            $state.Bytes = [Math]::Min(16777216, $offset + [Math]::Min($length, $state.Bytes))
+            $state.Percent = [int][Math]::Floor($state.Bytes * 100.0 / 16777216)
+        }
     } elseif ($phase -like 'Writing*') {
         $state.Phase = 'write'
         $matches = [regex]::Matches($segment, 'Writing at 0x[0-9a-fA-F]+[^\r\n]*?\(\s*(\d+)\s*%\)')
         if ($matches.Count) { $state.Percent = [Math]::Min(100, [int]$matches[$matches.Count - 1].Groups[1].Value) }
-    } elseif ($phase -like 'Verifying*') { $state.Phase = 'verify' }
+    } elseif ($phase -like 'Verifying complete backup*') { $state.Phase = 'backupverify' }
+    elseif ($phase -like 'Verifying*') { $state.Phase = 'verify' }
     elseif ($phase -like 'Restarting*') { $state.Phase = 'restart' }
     return $state
 }

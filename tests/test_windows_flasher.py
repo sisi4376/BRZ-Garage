@@ -54,7 +54,7 @@ class WindowsFlasherTests(unittest.TestCase):
                                      '-File', str(ROOT / 'tests/flash_core_host_test.ps1'), '-Scratch', scratch],
                                     capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual(result.stdout.count('PASS:'), 13, result.stdout)
+            self.assertEqual(result.stdout.count('PASS:'), 18, result.stdout)
 
 if __name__ == '__main__':
     unittest.main()

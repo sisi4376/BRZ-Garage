@@ -9,7 +9,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ESPTOOL_VERSION = '4.12.0'
-FLASHER_REVISION = 3
+FLASHER_REVISION = 4
 ESPTOOL_ZIP_SHA256 = '42fddc5e6a05716868ad77fb43acbf53be041f97abed87ff850df1dc88140889'
 FILES = {
     'bootloader.bin': ('bootloader/bootloader.bin', 0x0, 0x8000),

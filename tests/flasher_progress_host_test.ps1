@@ -39,6 +39,10 @@ Assert-That $failed 'Nonzero native exit must fail'
 Write-Output 'PASS: Nonzero exit propagated'
 $backup = Get-FlasherProgress "PHASE: Backing up all 16 MB`n4096 (0 %)`b8192 (1 %)"
 Assert-That ($backup.Phase -eq 'backup' -and $backup.Percent -eq 1 -and $backup.Bytes -eq 8192) 'Backup progress parsing failed'
+$chunk = Get-FlasherProgress "PHASE: Backing up all 16 MB offset=13631488 length=1048576 attempt=1`n524288 (50 %)"
+Assert-That ($chunk.Bytes -eq 14155776 -and $chunk.Percent -eq 84) 'Chunk progress must use full backup capacity'
+$retry = Get-FlasherProgress "PHASE: Backing up all 16 MB offset=13631488 length=1048576 attempt=1`n524288 (50 %)`nPHASE: Backing up all 16 MB offset=13631488 length=1048576 attempt=2"
+Assert-That ($retry.Bytes -eq 13631488 -and $retry.Percent -eq 81) 'Retry must reset failed chunk progress'
 $write = Get-FlasherProgress "PHASE: Backing up all 16 MB`n16777216 (100 %)`nPHASE: Writing verified firmware`nWriting at 0x00012345... ( 42 %)"
 Assert-That ($write.Phase -eq 'write' -and $write.Percent -eq 42) 'Phase must reset stale backup progress'
 $verify = Get-FlasherProgress "PHASE: Verifying written Flash`n"
