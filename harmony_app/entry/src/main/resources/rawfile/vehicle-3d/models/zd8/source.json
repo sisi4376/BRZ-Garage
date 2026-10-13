@@ -1,0 +1,21 @@
+{
+  "name": "Subaru BRZ (ZD8)",
+  "uid": "2e8aca0407ae44d2802bc34761054a69",
+  "url": "https://sketchfab.com/3d-models/subaru-brz-zd8-2e8aca0407ae44d2802bc34761054a69",
+  "author": "Mona x Supercars",
+  "authorUrl": "https://sketchfab.com/Car2022",
+  "license": {
+    "uri": "https://api.sketchfab.com/v3/licenses/322a749bcfa841b29dff1e8a1bb74b0b",
+    "label": "CC Attribution",
+    "fullName": "Creative Commons Attribution",
+    "requirements": "Author must be credited. Commercial use is allowed.",
+    "url": "http://creativecommons.org/licenses/by/4.0/",
+    "slug": "by"
+  },
+  "triangles": 836016,
+  "vertices": 457095,
+  "isDownloadable": true,
+  "assetStatus": "downloaded-and-packed",
+  "checkedDate": "2026-10-05",
+  "modifications": "Removed invisible helper primitives; packed as GLB. Original license retained beside asset."
+}

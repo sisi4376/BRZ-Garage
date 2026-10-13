@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "device": {
+    "board": "Waveshare ESP32-S3-Touch-AMOLED-1.75-B",
+    "variant": "obd_brz_gauge_amoled175",
+    "lcd": "CO5300",
+    "screen": {
+      "w": 466,
+      "h": 466,
+      "bpp": 16
+    },
+    "flash_mb": 16,
+    "psram_mb": 8,
+    "ota_slots": 2,
+    "bootmedia_slots": 1,
+    "bootmedia_format": 1
+  },
+  "firmware": {
+    "project": "obd_brz_gauge",
+    "version": "2.6.0",
+    "build_tag": "rollback-safe-2.6.0-r1",
+    "idf": "v5.5.3"
+  },
+  "compatibility": {
+    "data_safe": true,
+    "preserve_nvs_schema": 4,
+    "preserve_trip_details": true,
+    "preserve_odometer": true,
+    "app_ota_recovery": true,
+    "original_release_sha256": "55c4f936c1272f26dba92a0088e5016c9058574636b5619536695737436102de",
+    "note": "2.6.0 user interface and vehicle behavior with current storage compatibility and OTA recovery backports"
+  },
+  "files": {
+    "firmware": {
+      "path": "obd_brz_gauge.bin",
+      "size": 2093840,
+      "sha256": "6eff426fc3e8a2bd0c3254b38b3e28b597e9b2a6daad67bbe95acad5198f0a6b",
+      "ota_only": true
+    }
+  }
+}

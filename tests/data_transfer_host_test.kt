@@ -331,8 +331,20 @@ fun main(args: Array<String>) {
     e.getSharedPreferences("vehicle_companion", 0).edit().putInt("refuel_history_revision_$GAUGE", 2).commit()
     storeE.import(portable, false)
     RefuelIntervalDatabase(e).use { check(it.all(GAUGE).size == 2) }
+    val oldRefuelMeta = RefuelIntervalDatabase(e).use { db ->
+        val rows = db.all(GAUGE).sortedBy { it.id }
+        val metadata = TripBleProtocol.RefuelMeta(rows.size, rows.first().id, rows.last().id, 0, 0, 0, 0, 2, 2)
+        db.reconcileSnapshot(GAUGE, metadata, rows)
+        check(db.matchesSnapshot(GAUGE, metadata))
+        metadata
+    }
     storeE.import(portable, true)
-    RefuelIntervalDatabase(e).use { check(it.all(GAUGE).size == 1) }
+    RefuelIntervalDatabase(e).use {
+        check(it.all(GAUGE).size == 1 && !it.matchesSnapshot(GAUGE, oldRefuelMeta))
+        it.readableDatabase.rawQuery("SELECT COUNT(*) FROM refuel_gauge_records", null).use { c ->
+            check(c.moveToFirst() && c.getInt(0) == 0)
+        }
+    }
     check(e.getSharedPreferences("vehicle_companion", 0).all["refuel_history_revision_$GAUGE"] == 1)
     passed("refuel history and its revision resolve as one vehicle-level generation")
 
@@ -424,5 +436,8 @@ fun main(args: Array<String>) {
     check(tireState(listOf(leapTire)).dueDate == java.time.LocalDate.parse("2032-02-29"))
     check(MaintenanceServiceKind.TIRE_ROTATION.intervalKm == 10000 && MaintenanceServiceKind.TIRE_ROTATION.intervalMonths == null)
     passed("tire starts at zero without a date; latest replacement resets 50000 km / 8 year reminders, whichever comes first")
+    refuelHistoryChecks(File(args[0]))
+    refuelServiceChecks(File(args[0]))
+    customTripChecks(File(args[0]))
     println("$passed transfer scenarios passed")
 }

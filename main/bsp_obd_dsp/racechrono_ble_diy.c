@@ -182,6 +182,7 @@ static const uint16_t s_attr_uuid_char_client_cfg = ESP_GATT_UUID_CHAR_CLIENT_CO
 
 static const uint8_t s_char_prop_read_notify = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static const uint8_t s_char_prop_write = ESP_GATT_CHAR_PROP_BIT_WRITE;
+static const uint8_t s_char_prop_read_write = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_WRITE;
 static const uint8_t s_char_prop_read = ESP_GATT_CHAR_PROP_BIT_READ;
 static const uint8_t s_char_prop_time_write = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ;
 
@@ -807,10 +808,10 @@ static const esp_gatts_attr_db_t s_gatt_db_info[IDX_INFO_NB] = {
     [IDX_INFO_CHAR_CUSTOM_TRIP_CONTROL] =
     {{ESP_GATT_AUTO_RSP},
      {ESP_UUID_LEN_16, (uint8_t *)&s_attr_uuid_char_declare, ESP_GATT_PERM_READ,
-      sizeof(uint8_t), sizeof(uint8_t), (uint8_t *)&s_char_prop_write}},
+      sizeof(uint8_t), sizeof(uint8_t), (uint8_t *)&s_char_prop_read_write}},
     [IDX_INFO_CHAR_VAL_CUSTOM_TRIP_CONTROL] =
     {{ESP_GATT_RSP_BY_APP},
-     {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_custom_trip_control, ESP_GATT_PERM_WRITE,
+     {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_custom_trip_control, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       sizeof(s_custom_trip_control_value), 0, s_custom_trip_control_value}},
     /* Dedicated one-shot clock path for the HarmonyOS PartnerAgent bridge.
      * It intentionally is not treated as an Android phone/data connection:
@@ -1470,15 +1471,18 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             if (param->write.len == CUSTOM_TRIP_CONTROL_WIRE_SIZE &&
                 param->write.offset == 0) {
                 const uint8_t *value = param->write.value;
-                bool valid = value[0] == 1U && value[1] == 1U &&
+                bool legacy = value[0] == 1U && value[1] == 1U &&
                              get_le16(value + 2) == CUSTOM_TRIP_CONTROL_WIRE_SIZE &&
                              value[16] == 0U && value[17] == 0U &&
                              trip_crc16(value, 18) == get_le16(value + 18);
+                bool confirmed = value[0] == 2U && value[1] == 1U && get_le32(value + 14) != 0 &&
+                                 trip_crc16(value, 18) == get_le16(value + 18);
+                bool valid = legacy || confirmed;
                 if (!valid) {
                     status = ESP_GATT_INVALID_PDU;
                 } else if (app_event_send_custom_trip_baseline(
-                               get_le32(value + 4), get_le32(value + 8),
-                               get_le32(value + 12))) {
+                               get_le32(value + (confirmed ? 2 : 4)), get_le32(value + (confirmed ? 6 : 8)),
+                               get_le32(value + (confirmed ? 10 : 12)), confirmed ? get_le32(value + 14) : 0)) {
                     status = ESP_GATT_OK;
                 } else {
                     status = ESP_GATT_ERROR;
@@ -1493,6 +1497,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
     case ESP_GATTS_READ_EVT:
         if (param->read.handle == s_handle_manifest ||
+            param->read.handle == s_handle_custom_trip_control ||
             param->read.handle == s_handle_time_sync ||
             param->read.handle == s_handle_vehicle_state ||
             param->read.handle == s_handle_gauge_settings ||
@@ -1508,7 +1513,19 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
 
             const uint8_t *source = s_manifest_blob;
             uint16_t source_len = s_manifest_len;
-            if (param->read.handle == s_handle_trip_meta) {
+            if (param->read.handle == s_handle_custom_trip_control) {
+                if (param->read.offset == 0) {
+                    nvs_custom_trip_receipt_t receipt;
+                    nvs_custom_trip_get_receipt(&receipt);
+                    uint8_t *out = s_custom_trip_control_value;
+                    out[0] = 2; out[1] = receipt.durable ? 1 : 0;
+                    put_le32(out + 2, receipt.distance_m); put_le32(out + 6, receipt.duration_s);
+                    put_le32(out + 10, receipt.fuel_ml); put_le32(out + 14, receipt.token);
+                    put_le16(out + 18, trip_crc16(out, 18));
+                }
+                source = s_custom_trip_control_value;
+                source_len = sizeof(s_custom_trip_control_value);
+            } else if (param->read.handle == s_handle_trip_meta) {
                 source_len = build_trip_meta_wire();
                 source = s_trip_meta_value;
             } else if (param->read.handle == s_handle_trip_data) {

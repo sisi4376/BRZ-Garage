@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "latest": "latest",
+  "packages": [
+    {
+      "id": "latest",
+      "label": "最新固件",
+      "manifest": "firmware/latest.json",
+      "rollback": false
+    },
+    {
+      "id": "2.6.0-safe",
+      "label": "2.6.0（数据安全版）",
+      "manifest": "firmware/history/2.6.0/latest.json",
+      "rollback": true
+    }
+  ]
+}

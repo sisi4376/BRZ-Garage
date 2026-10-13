@@ -1,0 +1,11 @@
+Model Information:
+* title:	Subaru BRZ (ZC6)
+* source:	https://sketchfab.com/3d-models/subaru-brz-zc6-321a9ece66bb4616872892c01d279542
+* author:	Mona x Supercars (https://sketchfab.com/Car2022)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Subaru BRZ (ZC6)" (https://sketchfab.com/3d-models/subaru-brz-zc6-321a9ece66bb4616872892c01d279542) by Mona x Supercars (https://sketchfab.com/Car2022) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

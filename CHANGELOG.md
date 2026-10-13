@@ -8,6 +8,14 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-13 — Beta: Android 4.3.10 / HarmonyOS 0.4.0 / firmware 4.0.6
+
+- Preserve phone refuel history beyond the gauge's 20-record window and improve deletion/merge sync to prevent restored records and double counting.
+- Update custom trips immediately after archive/reset, resume pending sync after reconnect, and confirm durable gauge saves with firmware 4.0.6.
+- Keep refuel and custom trip details read-only until revision mode is enabled.
+- Publish HarmonyOS 0.4.0 with current Android data and interaction parity, optional offline 3D vehicles (off by default), companion discovery and background sync entry points.
+- Support cross-platform data transfer and bundle firmware 4.0.6 in both apps. The HarmonyOS HAP requires an authorized test device.
+
 ### 2026-10-12 — Android 4.3.7: default to 2D vehicle display
 
 - Show the original 2D vehicle image when no 3D preference has been saved. Keep saved choices and allow enabling 3D in vehicle settings.
@@ -831,6 +839,14 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-13 — Beta：Android 4.3.10 / 鸿蒙 0.4.0 / 仪表固件 4.0.6
+
+- 改善超过仪表最近 20 次容量的加油历史保存与节点删除、合并同步，避免历史回流和重复累计。
+- 自定义行程归档、重置立即更新手机页面，断线后继续同步；固件 4.0.6 增加可靠的仪表保存确认。
+- 加油与自定义行程详情默认只读，仅在修订模式显示修改、删除等操作。
+- 发布鸿蒙原生 0.4.0，对齐 Android 4.3.10 的数据与操作逻辑，补齐默认关闭的离线 3D 车辆、伴生设备发现及后台同步入口。
+- 两端支持双向数据迁移，均内置固件 4.0.6；鸿蒙 HAP 仅适用于已授权测试设备。
 
 ### 2026-10-12 — Android 4.3.7：默认使用 2D 车辆图片
 
