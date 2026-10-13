@@ -164,6 +164,7 @@ $timer.Add_Tick({
             'backup' { '备份原有数据 {0}%（{1:N1} / 16 MB）' -f $progress.Percent, ($progress.Bytes / 1MB) }
             'write' { if ($progress.Percent -ge 0) { "写入当前分区 $($progress.Percent)%" } else { '准备写入固件' } }
             'verify' { '校验已写入的数据' }
+            'backupverify' { '核对完整备份，尚未写入仪表' }
             'restart' { '校验完成，正在重启仪表' }
             default { '正在识别仪表' }
         }

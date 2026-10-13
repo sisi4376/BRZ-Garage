@@ -12,19 +12,31 @@ class FakeEsptool {
         string scenario = Environment.GetEnvironmentVariable("FLASH_TEST_SCENARIO") ?? "normal";
         File.AppendAllText(Path.Combine(root, "calls.txt"), String.Join("|", args) + "\n");
         int read = Array.IndexOf(args, "read_flash");
+        int offset = read >= 0 ? Convert.ToInt32(args[read+1].Substring(2), 16) : 0;
+        Console.WriteLine("MAC: " + (scenario == "devicechange" && offset > 0 ? "11:22:33:44:55:66" : "aa:bb:cc:dd:ee:ff"));
         if (Array.IndexOf(args, "flash_id") >= 0) {
             Console.WriteLine("Detected flash size: " + (scenario == "wrongsize" ? "8MB" : "16MB"));
         } else if (read >= 0) {
             if (scenario == "readerror") return 2;
-            byte[] image = new byte[scenario == "shortbackup" ? 4096 : 16777216];
+            if ((scenario == "readretry" || scenario == "persistent") && offset == 13 * 1048576 &&
+                (scenario == "persistent" || args[read+3].Contains("attempt1"))) {
+                File.WriteAllBytes(args[read+3], new byte[2534]);
+                Console.Error.WriteLine("A fatal error occurred: Corrupt data, expected 0x1000 bytes but received 0x9e6 bytes");
+                return 2;
+            }
+            int length = Convert.ToInt32(args[read+2].Substring(2), 16);
+            byte[] image = new byte[scenario == "shortbackup" ? 4096 : length];
             for (int i=0; i<image.Length; i++) image[i]=255;
-            if (image.Length == 16777216) {
+            if (image.Length == 1048576 && offset == 0) {
                 byte[] table = File.ReadAllBytes(Path.Combine(root, "firmware", "partition-table.bin"));
                 Array.Copy(table, 0, image, 32768, table.Length);
                 if (scenario == "foreign") image[32768]=0;
             }
             File.WriteAllBytes(args[read+3], image);
-        } else if (Array.IndexOf(args, "verify_flash") >= 0 && scenario == "verifyerror") return 3;
+        } else if (Array.IndexOf(args, "verify_flash") >= 0) {
+            bool backup = String.Join("|",args).Contains("flash-before.partial.bin");
+            if ((backup && scenario == "backupverifyerror") || (!backup && scenario == "verifyerror")) return 3;
+        } else if (Array.IndexOf(args, "write_flash") >= 0 && scenario == "writeerror") return 2;
         return 0;
     }
 }
@@ -68,28 +80,39 @@ foreach ($invalid in @('version', 'offset', 'duplicate')) {
 }
 $manifest | ConvertTo-Json -Depth 6 | Set-Content "$root/package.json" -Encoding UTF8
 
-foreach ($scenario in @('normal', 'wrongsize', 'readerror', 'shortbackup', 'foreign', 'verifyerror', 'first')) {
+foreach ($scenario in @('normal', 'wrongsize', 'readerror', 'shortbackup', 'foreign', 'verifyerror', 'first', 'readretry', 'persistent', 'backupverifyerror', 'devicechange', 'writeerror')) {
     $env:FLASH_TEST_SCENARIO = if ($scenario -eq 'first') { 'foreign' } else { $scenario }
     [IO.File]::WriteAllText("$root/calls.txt", '')
     $failed = $false
     try { Invoke-GaugeFlash $root 'COM42' (Join-Path $Scratch $scenario) -FirstInstall:($scenario -eq 'first') }
     catch { $failed = $true }
     $calls = Get-Content "$root/calls.txt" -Raw
-    if ($scenario -in @('normal', 'first')) {
+    if ($scenario -in @('normal', 'first', 'readretry')) {
         Assert-That (-not $failed) "Unexpected failure: $scenario"
         Assert-That ($calls.IndexOf('read_flash') -lt $calls.IndexOf('write_flash')) 'Backup must precede writing'
-        Assert-That ($calls.IndexOf('write_flash') -lt $calls.IndexOf('verify_flash')) 'Verify must follow writing'
+        Assert-That ($calls.IndexOf('verify_flash') -lt $calls.IndexOf('write_flash')) 'Full backup verification must precede writing'
+        Assert-That ($calls.IndexOf('write_flash') -lt $calls.LastIndexOf('verify_flash')) 'Written firmware verification must follow writing'
+        Assert-That (([regex]::Matches($calls, 'read_flash').Count) -eq $(if ($scenario -eq 'readretry') {17} else {16})) 'Unexpected chunk/retry count'
+        if ($scenario -eq 'readretry') {
+            Assert-That ($calls -match '--baud\|115200\|.*read_flash\|0xd00000\|') 'Retry must use compatibility baud for the failed chunk'
+            Assert-That (([IO.File]::ReadAllBytes((Join-Path $Scratch "$scenario/flash-before.bin")))[13631488] -eq 255) 'Failed chunk must not enter backup'
+        }
         Assert-That ($calls -match '\|run\s*$') 'Success must restart gauge after verification'
         Assert-That ($calls -notmatch 'erase_flash|\|0x9000\|') 'Never erase all or write NVS'
         Assert-That ($calls -match '^--chip\|esp32s3\|') 'Require esptool chip validation'
         Assert-That (($calls -match 'bootmedia.bin') -eq ($scenario -eq 'first')) 'Incorrect bootmedia preservation'
         Assert-That ((Get-Item (Join-Path $Scratch "$scenario/flash-before.bin")).Length -eq 16777216) 'Backup size mismatch'
-    } elseif ($scenario -eq 'verifyerror') {
+    } elseif ($scenario -in @('verifyerror', 'writeerror')) {
         Assert-That $failed 'Verification failure must fail operation'
         Assert-That ($calls -notmatch '\|run\s*$') 'Do not report success or restart on verification failure'
+        Assert-That (([regex]::Matches($calls, 'write_flash').Count) -eq 1) 'Writes must never retry automatically'
     } else {
         Assert-That $failed "Expected rejection for $scenario"
-        Assert-That ($calls -notmatch 'write_flash|verify_flash') "Must not write for $scenario"
+        Assert-That ($calls -notmatch 'write_flash') "Must not write for $scenario"
+        if ($scenario -eq 'persistent') {
+            Assert-That (([regex]::Matches($calls, 'read_flash\|0xd00000\|').Count) -eq 2) 'Read retries must be bounded'
+            Assert-That (-not (Test-Path (Join-Path $Scratch "$scenario/flash-before.bin"))) 'Incomplete backup must not be published'
+        }
     }
     Write-Output "PASS: simulated $scenario sequence"
 }

@@ -84,9 +84,55 @@ function Invoke-GaugeFlash {
         Write-FlashLog 'PHASE: Detecting ESP32-S3 and Flash capacity'
         $identity = Run-Tool ($common + @('flash_id'))
         if ($identity -notmatch '(?im)Detected flash size:\s*16MB\s*$') { throw 'This package requires exactly 16 MB Flash.' }
-        Write-FlashLog 'PHASE: Backing up all 16 MB of Flash - do not unplug USB'
+        # Each read is bounded to 1 MB. esptool validates the device digest for
+        # each completed read; failed/partial chunks are never assembled.
+        # Only transport failures while reading may retry, never flash writes.
+        $deviceMac = [regex]::Match($identity, '(?im)^MAC:\s*([0-9a-f:]{17})\s*$')
+        if (-not $deviceMac.Success) { throw 'Cannot identify device for a consistent full backup.' }
+        $expectedMac = $deviceMac.Groups[1].Value.ToLowerInvariant()
         $backup = Join-Path $RunDirectory 'flash-before.bin'
-        $null = Run-Tool ($common + @('read_flash', '0x0', '0x1000000', $backup))
+        $partial = Join-Path $RunDirectory 'flash-before.partial.bin'
+        $chunkDirectory = Join-Path $RunDirectory 'backup-chunks'
+        New-Item -ItemType Directory -Path $chunkDirectory -ErrorAction Stop | Out-Null
+        $output = [IO.File]::Open($partial, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+        try {
+            for ($offset = 0; $offset -lt 16777216; $offset += 1048576) {
+                $completed = $false
+                for ($attempt = 1; $attempt -le 2; $attempt++) {
+                    $chunk = Join-Path $chunkDirectory ('{0:x8}-attempt{1}.bin' -f $offset, $attempt)
+                    $baud = if ($attempt -eq 1) { '460800' } else { '115200' }
+                    $readCommon = @('--chip', 'esp32s3', '--port', $Port, '--baud', $baud, '--before', 'default_reset', '--after', 'no_reset')
+                    Write-FlashLog "PHASE: Backing up all 16 MB offset=$offset length=1048576 attempt=$attempt - do not unplug USB"
+                    try {
+                        $readResult = Run-Tool ($readCommon + @('read_flash', ('0x{0:x}' -f $offset), '0x100000', $chunk))
+                    } catch {
+                        $detail = [string]$_.Exception.Data['ToolOutput']
+                        $transportFailure = $detail -match '(?i)Corrupt data, expected|Invalid head of packet|Packet content transfer stopped|Timed out waiting for packet|Serial data stream stopped|Digest mismatch'
+                        if ($attempt -eq 2 -or -not $transportFailure) { throw }
+                        Write-FlashLog 'READ RETRY: Transport failed; reconnecting and rereading this chunk once at 115200 baud. No Flash writes have started.'
+                        continue
+                    }
+                    $readMac = [regex]::Match($readResult, '(?im)^MAC:\s*([0-9a-f:]{17})\s*$')
+                    if (-not $readMac.Success -or $readMac.Groups[1].Value.ToLowerInvariant() -ne $expectedMac) {
+                        throw 'Device identity changed during backup; refusing to write.'
+                    }
+                    if ((Get-Item -LiteralPath $chunk).Length -ne 1048576) { throw 'Backup chunk is incomplete; refusing to write.' }
+                    $bytes = [IO.File]::ReadAllBytes($chunk)
+                    $output.Write($bytes, 0, $bytes.Length)
+                    $completed = $true
+                    break
+                }
+                if (-not $completed) { throw 'Backup read failed; refusing to write.' }
+            }
+        } finally { $output.Dispose() }
+        if ((Get-Item -LiteralPath $partial).Length -ne 16777216) { throw 'Full backup is incomplete; refusing to write.' }
+        Write-FlashLog 'PHASE: Verifying complete backup against device - no Flash writes yet'
+        $backupCheck = Run-Tool ($common + @('verify_flash', '0x0', $partial))
+        $checkMac = [regex]::Match($backupCheck, '(?im)^MAC:\s*([0-9a-f:]{17})\s*$')
+        if (-not $checkMac.Success -or $checkMac.Groups[1].Value.ToLowerInvariant() -ne $expectedMac) {
+            throw 'Device identity changed during backup verification; refusing to write.'
+        }
+        Move-Item -LiteralPath $partial -Destination $backup -ErrorAction Stop
         if ((Get-Item -LiteralPath $backup).Length -ne 16777216) { throw 'Full backup is incomplete; refusing to write.' }
         $digest = Get-PackageHash $backup
         "$digest  flash-before.bin" | Set-Content -LiteralPath (Join-Path $RunDirectory 'SHA256SUMS.txt') -Encoding ASCII
