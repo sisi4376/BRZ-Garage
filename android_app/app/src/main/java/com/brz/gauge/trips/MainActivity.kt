@@ -88,6 +88,7 @@ class MainActivity : Activity() {
     private var refuelLoading = false
     private var customTripIntervals = emptyList<CustomTripInterval>()
     private var customTripLoading = false
+    private var customTripResetInFlight = false
     private var tab = 0
     private var accountingSection = 0
     private var settingsSection = 0
@@ -111,6 +112,7 @@ class MainActivity : Activity() {
     private var showingCustomTripDetail = false
     private var tripDetailReturnTab = 1
     private var refuelRevisionMode = false
+    private var customTripRevisionMode = false
     private var currentScrollView: ScrollView? = null
     private val pageScrollPositions = mutableMapOf<Int, Int>()
     private var pendingScrollRestoreKey: Int? = null
@@ -869,7 +871,8 @@ class MainActivity : Activity() {
         try {
             if (!state.firmwareUpdateActive) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             if (updated) { loadTrips(); loadRefuelIntervals() }
-            if (updated && showingFirmwareUpdate) firmwareUpdatePage()
+            if (updated && showingCustomTripDetail) showCustomTripDetails()
+            else if (updated && showingFirmwareUpdate) firmwareUpdatePage()
             else if (updated && showingAppUpdate) Unit
             else if (updated && showingVehicleSettings) vehicleSettingsPage()
             else if (updated && showingGaugeSettings) gaugeSettingsPage()
@@ -1290,6 +1293,7 @@ class MainActivity : Activity() {
         bookkeepingMetric(name, value ?: "旧记录未采集", if (value == null) muted else color)
 
     private fun showCustomTripDetails() {
+        if (!showingCustomTripDetail) customTripRevisionMode = false
         rememberCurrentScroll()
         showingGaugeSettings = false
         showingVehicleSettings = false
@@ -1320,19 +1324,31 @@ class MainActivity : Activity() {
         add(current.content, label(if (startedAt > 0L) "开始于 ${date(startedAt)}" else "等待起始时间",
             11f, muted), 7)
 
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        add(body, homeDetailAction(if (customTripRevisionMode) "完成修订" else "修订记录",
+            bookkeepingDaily, filled = customTripRevisionMode) {
+            customTripRevisionMode = !customTripRevisionMode
+            showCustomTripDetails()
+        }, 12)
+        if (customTripRevisionMode) {
+            val controls = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            controls.addView(homeDetailAction("修改名称", bookkeepingDaily) {
+                showCustomTripNameDialog(reset = false)
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+            controls.addView(homeDetailAction("重置并归档", bookkeepingDaily, filled = true) {
+                val vehicle = state.vehicle()
+                if (vehicle == null) toast("尚未收到车辆数据")
+                else showCustomTripNameDialog(reset = true, vehicle = vehicle)
+            }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
+            add(body, controls, 8)
         }
-        controls.addView(homeDetailAction("修改名称", bookkeepingDaily) {
-            showCustomTripNameDialog(reset = false)
-        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        controls.addView(homeDetailAction("重置并归档", bookkeepingDaily, filled = true) {
-            val vehicle = state.vehicle()
-            if (vehicle == null) toast("尚未收到车辆数据")
-            else showCustomTripNameDialog(reset = true, vehicle = vehicle)
-        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
-        add(body, controls, 12)
+        add(body, homeDetailNote(when (state.customTripSyncStatus) {
+            "confirmed" -> "当前起点已由仪表保存并确认"
+            "legacy_sent" -> "当前起点已发送 · 旧固件不支持保存确认，升级仪表后可确认"
+            else -> "手机起点已保存 · 等待仪表同步确认"
+        }, bookkeepingDaily), 8)
         add(body, homeDetailNote(
             "重置时会先把当前区间保存到下方历史，再从仪表当前累计值开始新的区间；自定义名称不会发送到仪表。",
             bookkeepingDaily), 8)
@@ -1354,6 +1370,7 @@ class MainActivity : Activity() {
     }
 
     private fun showCustomTripNameDialog(reset: Boolean, vehicle: VehicleState? = null) {
+        val expectedGeneration = state.customTripGeneration()
         val form = column().apply { setPadding(dp(20), dp(4), dp(20), 0) }
         val presets = listOf("", "上次保养以来", "上次洗车以来", "上次长途以来")
         val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
@@ -1393,7 +1410,7 @@ class MainActivity : Activity() {
             presets.firstOrNull { if (reset) it.isEmpty() else it == currentName } ?: ""
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (reset) "重置后的自定义行程名称" else "修改自定义行程名称")
-            .setMessage(if (reset) "直接确认将不设置名称，并把当前区间归入历史。" else
+            .setMessage(if (reset) "直接确认将不设置名称，并把当前区间归入历史。以最近一次收到的车辆累计值为分界；离线时不是点击当下的实时数据。" else
                 "名称只影响 App 显示，不会同步到仪表。")
             .setView(form)
             .setNegativeButton("取消", null)
@@ -1408,7 +1425,7 @@ class MainActivity : Activity() {
                     return@setOnClickListener
                 }
                 dialog.dismiss()
-                if (reset) archiveAndResetCustomTrip(vehicle ?: return@setOnClickListener, chosen)
+                if (reset) archiveAndResetCustomTrip(vehicle ?: return@setOnClickListener, chosen, expectedGeneration)
                 else {
                     state.setCustomTripName(chosen)
                     toast(if (chosen.isEmpty()) "已恢复显示“自定义行程”" else "名称已修改为 $chosen")
@@ -1419,33 +1436,37 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun archiveAndResetCustomTrip(vehicle: VehicleState, newName: String) {
+    private fun archiveAndResetCustomTrip(vehicle: VehicleState, newName: String, expectedGeneration: String) {
+        if (customTripResetInFlight) return
+        if (state.customTripGeneration() != expectedGeneration) {
+            toast("该区间已重置，请查看最新记录")
+            return
+        }
         val hadBaseline = state.customTripBaseline() != null
         val stats = if (hadBaseline) state.customTrip(vehicle) else null
         val oldName = state.customTripName
-        val endEpochS = System.currentTimeMillis() / 1000L
+        val endEpochS = vehicle.epochS.takeIf { it in 1704067200L..4102444800L }
+            ?: (state.vehicleAt / 1000L).takeIf { it > 0 } ?: (System.currentTimeMillis() / 1000L)
         val fallbackStart = endEpochS - (stats?.second ?: 0L)
         val startEpochS = (state.customTripResetAtMs / 1000L).takeIf { it in 1..endEpochS }
             ?: fallbackStart.coerceAtLeast(0L)
         fun finishReset() {
-            state.resetCustomTrip(vehicle, newName)
             TripSyncService.syncCustomTripBaseline(this)
             loadCustomTripIntervals()
             toast(if (state.connected) "自定义行程已归档并重置 · 正在同步到仪表"
                 else "自定义行程已归档并重置 · 下次连接时同步到仪表")
             if (showingCustomTripDetail) showCustomTripDetails()
         }
-        if (!hadBaseline || stats == null) {
-            finishReset()
-            return
-        }
-        val record = CustomTripInterval(deviceId = state.dataDeviceId, name = oldName,
+        val record = if (!hadBaseline || stats == null) null else CustomTripInterval(deviceId = state.dataDeviceId, name = oldName,
             startEpochS = startEpochS, endEpochS = endEpochS,
             durationS = stats.second, distanceM = stats.first, fuelMl = stats.third)
+        customTripResetInFlight = true
         io.execute {
-            val saved = try { customTripDatabase.insert(record) } catch (_: RuntimeException) { false }
+            val saved = try { state.commitCustomTripReset(vehicle, newName, record, expectedGeneration, endEpochS * 1000L) } catch (_: RuntimeException) { false }
             runOnUiThread {
-                if (saved) finishReset() else toast("当前自定义行程归档失败，尚未重置")
+                customTripResetInFlight = false
+                if (isDestroyed) return@runOnUiThread
+                if (saved) finishReset() else toast("自定义行程尚未完成更新，请重新打开页面确认；不会重复归档")
             }
         }
     }
@@ -1467,6 +1488,7 @@ class MainActivity : Activity() {
     }
 
     private fun showRefuelDetails() {
+        if (!showingRefuelDetail) refuelRevisionMode = false
         rememberCurrentScroll()
         showingGaugeSettings = false
         showingVehicleSettings = false
@@ -1499,7 +1521,7 @@ class MainActivity : Activity() {
             refuelRevisionMode = !refuelRevisionMode
             showRefuelDetails()
         }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
-        controls.addView(homeDetailAction("手动重置", bookkeepingMaintenance, filled = true) {
+        if (refuelRevisionMode) controls.addView(homeDetailAction("手动重置", bookkeepingMaintenance, filled = true) {
             confirmManualRefuelReset()
         }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(4) })
         add(body, controls, 12)
@@ -1511,7 +1533,7 @@ class MainActivity : Activity() {
             bookkeepingMaintenance,
         ), 8)
 
-        refuelIntervals.minByOrNull { it.id }?.let { oldest ->
+        if (refuelRevisionMode) refuelIntervals.minByOrNull { it.id }?.let { oldest ->
             add(body, homeDetailAction("删除第一个节点以前的数据", bookkeepingMaintenance) {
                 confirmDiscardBeforeFirstRefuelNode(oldest)
             }, 10)
@@ -1543,10 +1565,7 @@ class MainActivity : Activity() {
                     reviseRefuelInterval(interval)
                 }, 8)
             }
-            // History is newest first. Keep the most recent node directly
-            // removable so an accidental refuel detection can be undone
-            // without enabling the broader test-data revision mode.
-            if (index == 0 || refuelRevisionMode) add(item.content,
+            if (refuelRevisionMode) add(item.content,
                 homeDetailAction(if (index == 0) "删除最近加油节点" else "删除此加油节点",
                     bookkeepingMaintenance) {
                     confirmDeleteRefuelNode(interval)
@@ -1560,7 +1579,7 @@ class MainActivity : Activity() {
             else "下一个加油节点对应的区间"
         AlertDialog.Builder(this)
             .setTitle("删除这个加油节点？")
-            .setMessage("删除后，该节点前的行程数据会自动合并到$mergeTarget。此操作会同步到仪表，且无法撤销；不会影响普通行程和手动加油记录。")
+            .setMessage("删除后，该节点前的行程数据会合并到$mergeTarget。连接后会先确认仪表保留范围：仍在仪表中的节点会同步删除，更早的节点只修改本机历史。操作无法撤销；不会影响普通行程和手动加油记录。")
             .setNegativeButton("取消", null)
             .setPositiveButton("删除并合并") { _, _ ->
                 val started = TripSyncService.deleteRefuelNode(this, interval.id)
@@ -1572,7 +1591,7 @@ class MainActivity : Activity() {
     private fun confirmDiscardBeforeFirstRefuelNode(oldest: RefuelInterval) {
         AlertDialog.Builder(this)
             .setTitle("删除第一个节点以前的数据？")
-            .setMessage("这会永久删除最早一次重置点之前累计的加油以来数据，但保留该重置点之后的所有区间和当前累计。数据不会合并到下一段，且无法撤销；普通行程和手动加油记录不受影响。")
+            .setMessage("这会永久删除最早一次重置点之前累计的加油以来数据，保留之后的区间和当前累计。连接后会先确认仪表保留范围：更早的历史只在本机删除，仍在仪表中的记录会同步删除。数据不会合并到下一段，且无法撤销；普通行程和手动加油记录不受影响。")
             .setNegativeButton("取消", null)
             .setPositiveButton("确认删除") { _, _ ->
                 val started = TripSyncService.discardRefuelBeforeFirstNode(this, oldest.id)

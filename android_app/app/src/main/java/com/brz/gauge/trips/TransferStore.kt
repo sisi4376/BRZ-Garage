@@ -18,6 +18,7 @@ class BrzApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         TransferStore.recoverPreferences(this)
+        CustomTripDatabase.recover(this)
     }
 }
 
@@ -27,6 +28,7 @@ internal class TransferStore(private val context: Context) {
     fun backups(): List<File> = backupDirectory.listFiles()?.filter { it.extension == "zip" }?.sortedByDescending { it.name }.orEmpty()
 
     private fun initialize() {
+        CustomTripDatabase.recover(context)
         val helpers = listOf<SQLiteOpenHelper>(TripDatabase(context), FuelDatabase(context), ExpenseDatabase(context),
             RefuelIntervalDatabase(context), CustomTripDatabase(context))
         helpers.forEach { helper -> helper.use { it.writableDatabase } }
@@ -227,6 +229,11 @@ internal class TransferStore(private val context: Context) {
                 .map { it.getValue("device_id") as String }.toSet().forEach { gauge ->
                     db.execSQL("INSERT OR IGNORE INTO transfer_reconcile(device_id) VALUES(?)", arrayOf(gauge))
                 }
+            // Imported history may belong to another revision. Its previous raw
+            // baseline must not be used to calculate local correction deltas.
+            db.execSQL("DELETE FROM refuel.refuel_gauge_records")
+            db.execSQL("DELETE FROM refuel.refuel_sync_state")
+            db.execSQL("DELETE FROM custom.custom_reset_state")
             merged.snapshot.tables.getValue("refuel").map { it.getValue("device_id") as String }.toSet().forEach { gauge ->
                 db.execSQL("INSERT OR IGNORE INTO transfer_refuel_reconcile(device_id) VALUES(?)", arrayOf(gauge))
             }
@@ -310,9 +317,11 @@ internal class TransferStore(private val context: Context) {
                     val appearanceEdit = context.getSharedPreferences("vehicle_appearance", Context.MODE_PRIVATE).edit()
                     var count = 0
                     var appearanceCount = 0
+                    val customDevices = mutableSetOf<String>()
                     db.rawQuery("SELECT key,value FROM transfer_preferences", null).use { cursor ->
                         while (cursor.moveToNext()) {
                             val key = cursor.getString(0)
+                            if (key.startsWith("custom_base_distance_")) customDevices += key.removePrefix("custom_base_distance_")
                             val value = JSONObject(cursor.getString(1))
                             if (key == ARCHIVE_GAUGE_KEY) {
                                 val gauge = value.getString("value")
@@ -339,6 +348,13 @@ internal class TransferStore(private val context: Context) {
                         }
                     }
                     if (count > 0) {
+                        // An imported baseline is a new local synchronization intent.
+                        // It must not inherit a previous device command's receipt.
+                        customDevices.forEach { device ->
+                            edit.remove("custom_generation_$device").remove("custom_wire_token_$device")
+                                .putBoolean("custom_sync_pending_$device", true)
+                                .putString("custom_sync_status_$device", "pending")
+                        }
                         DataTransferSession.recoveryRequired = true
                         check(edit.commit()) { "配置尚未完成恢复，请重新打开 App" }
                         if (appearanceCount > 0) check(appearanceEdit.commit()) { "车辆外观尚未完成恢复，请重新打开 App" }

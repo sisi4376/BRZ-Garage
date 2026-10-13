@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN" data-embedded="true">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob:; object-src 'none'; frame-src 'none'">
+<title>BRZ 3D 车辆</title>
+<style>
+html,body,#viewport{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}
+#viewport{position:relative;touch-action:none}canvas{display:block;touch-action:none}
+#loading{position:absolute;inset:0;display:grid;place-items:center;color:#cfdded;font:12px sans-serif}
+#loading[hidden]{display:none}
+</style>
+</head>
+<body>
+<div id="viewport" role="img" aria-label="可拖动旋转的 BRZ 三维车辆"><div id="loading" role="status">正在加载 3D 车辆…</div></div>
+<!-- Standalone controls are inert here; Android owns all settings. -->
+<div hidden inert>
+<span id="selection"></span><span id="model-status"></span><span id="vehicle-title"></span><a id="model-source"></a>
+<select id="vehicle-model"><option value="zd8">ZD8</option><option value="zc6">ZC6</option></select>
+<div id="swatches"></div><input id="custom-color"><select id="finish"><option value="gloss">亮面</option><option value="satin">哑光</option></select>
+<input id="plate-text"><select id="plate-style"><option value="blue">蓝牌</option></select><input id="plate-visible" type="checkbox">
+<button id="rotate"></button><button id="reset"></button>
+</div>
+<script type="module" src="real-models.js?v=4.1.3"></script>
+</body>
+</html>

@@ -655,10 +655,11 @@ static void my_timerMain_impl(lv_timer_t * timer)
                     break;
                 }
                 case APP_EVT_PHONE_CUSTOM_TRIP_BASELINE: {
-                    esp_err_t err = nvs_custom_trip_set_baseline(
+                    esp_err_t err = nvs_custom_trip_set_confirmed_baseline(
                         evt.data.trip_baseline.distance_m,
                         evt.data.trip_baseline.duration_s,
-                        evt.data.trip_baseline.fuel_ml);
+                        evt.data.trip_baseline.fuel_ml,
+                        evt.data.trip_baseline.token);
                     if (err == ESP_OK) {
                         ESP_LOGI(TAG, "Phone custom-trip baseline persisted");
                     } else {

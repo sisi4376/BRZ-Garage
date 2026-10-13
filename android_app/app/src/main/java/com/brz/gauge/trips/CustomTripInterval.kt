@@ -2,6 +2,9 @@ package com.brz.gauge.trips
 
 const val MAX_CUSTOM_TRIP_NAME_LENGTH = 8
 
+data class CustomTripSyncRequest(val generation: String, val token: Long,
+    val distanceM: Long, val durationS: Long, val fuelMl: Long)
+
 fun normalizeCustomTripName(value: String?): String {
     val cleaned = value.orEmpty().replace(Regex("\\s+"), " ").trim()
     if (cleaned.isEmpty()) return ""

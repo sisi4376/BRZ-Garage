@@ -228,6 +228,16 @@ esp_err_t nvs_refuel_discard_before_first_node(uint32_t oldest_id);
 /* The phone owns the custom-trip reset point. Its lifetime baseline is copied
  * to the gauge so the companion page remains correct while the phone is away. */
 void nvs_custom_trip_get_meta(nvs_custom_trip_meta_t *out);
+typedef struct {
+    uint32_t token;
+    uint32_t distance_m;
+    uint32_t duration_s;
+    uint32_t fuel_ml;
+    bool durable;
+} nvs_custom_trip_receipt_t;
+void nvs_custom_trip_get_receipt(nvs_custom_trip_receipt_t *out);
+esp_err_t nvs_custom_trip_set_confirmed_baseline(uint32_t distance_m, uint32_t duration_s,
+                                                uint32_t fuel_ml, uint32_t token);
 esp_err_t nvs_custom_trip_set_baseline(uint32_t distance_m,
                                        uint32_t duration_s,
                                        uint32_t fuel_ml);

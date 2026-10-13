@@ -1,0 +1,11 @@
+/oh_modules/
+/.hvigor/
+/entry/build/
+/build/
+/local.properties
+/signing/
+/test-output/
+/tools/.cache/
+
+/dist/
+*.log

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from refuel_service_harness import write_harness
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLCHAIN_ROOT = Path(os.environ.get('BRZ_TOOLCHAIN_ROOT', ROOT))
@@ -36,11 +37,16 @@ class DataTransferTest(unittest.TestCase):
                  'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState',
                  'MileageEstimator', 'RangeEstimator', 'VehicleDisplayName', 'LicensePlateGenerator']
         with tempfile.TemporaryDirectory(prefix='brz-transfer-') as temp:
+            harness = Path(temp) / 'RefuelServiceHarness.kt'
+            write_harness(ROOT, harness)
             result = subprocess.run([str(java), '-cp', cp, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
                 '-no-stdlib', '-no-reflect', '-classpath', cp, '-d', temp,
                 *[str(sources / (name + '.kt')) for name in names],
                 *map(str, (ROOT / 'tests/transfer_host_stubs').glob('*.kt')),
-                str(ROOT / 'tests/data_transfer_host_test.kt')], capture_output=True, text=True, encoding='utf-8', errors='replace')
+                str(ROOT / 'tests/data_transfer_host_test.kt'),
+                str(ROOT / 'tests/custom_trip_host_test.kt'),
+                str(harness), str(ROOT / 'tests/refuel_service_host_test.kt'),
+                str(ROOT / 'tests/refuel_history_host_test.kt')], capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(java), '-cp', temp + os.pathsep + cp,
                 'com.brz.gauge.trips.Data_transfer_host_testKt', temp,

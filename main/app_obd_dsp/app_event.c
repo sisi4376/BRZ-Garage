@@ -34,7 +34,7 @@ bool app_event_send(app_event_type_t type, uint32_t data)
 
 bool app_event_send_custom_trip_baseline(uint32_t distance_m,
                                          uint32_t duration_s,
-                                         uint32_t fuel_ml)
+                                         uint32_t fuel_ml, uint32_t token)
 {
     if (!s_queue) return false;
     app_event_t evt = {
@@ -43,6 +43,7 @@ bool app_event_send_custom_trip_baseline(uint32_t distance_m,
             .distance_m = distance_m,
             .duration_s = duration_s,
             .fuel_ml = fuel_ml,
+            .token = token,
         },
     };
     return xQueueSend(s_queue, &evt, 0) == pdTRUE;

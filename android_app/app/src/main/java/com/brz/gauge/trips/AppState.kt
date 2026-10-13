@@ -4,7 +4,13 @@ import android.content.Context
 import android.util.Base64
 
 class AppState(context: Context) {
+    private val customContext = context
     val prefs = context.getSharedPreferences("vehicle_companion", Context.MODE_PRIVATE)
+    init { CustomTripDatabase.recover(context) }
+
+    private fun recoverCustomTrip() {
+        if (CustomTripDatabase.recoveryRequired) CustomTripDatabase.recover(customContext)
+    }
 
     /**
      * Some development builds stored newly introduced numeric preferences as
@@ -250,19 +256,33 @@ class AppState(context: Context) {
         get() = compatibleBoolean(deviceKey("show_custom_trip"), false)
         set(value) { prefs.edit().putBoolean(deviceKey("show_custom_trip"), value).apply() }
     val customTripName: String
-        get() = normalizeCustomTripName(compatibleString(deviceKey("custom_trip_name"), ""))
+        get() { recoverCustomTrip(); return normalizeCustomTripName(compatibleString(deviceKey("custom_trip_name"), "")) }
     val customTripResetAtMs: Long
-        get() = compatibleLongOrNull(deviceKey("custom_reset_at")) ?: 0L
-    fun setCustomTripName(name: String?) {
+        get() { recoverCustomTrip(); return compatibleLongOrNull(deviceKey("custom_reset_at")) ?: 0L }
+    fun setCustomTripName(name: String?) = synchronized(CustomTripDatabase.lock) {
+        recoverCustomTrip()
+        CustomTripDatabase(customContext).use { it.renameCurrent(dataDeviceId, name.orEmpty()) }
+        recoverCustomTrip()
         prefs.edit().putString(deviceKey("custom_trip_name"), normalizeCustomTripName(name)).apply()
     }
-    fun resetCustomTrip(vehicle: VehicleState?, name: String? = null) {
+    fun resetCustomTrip(vehicle: VehicleState?, name: String? = null) = synchronized(CustomTripDatabase.lock) {
+        recoverCustomTrip()
+        if (vehicle != null && dataDeviceId.isNotBlank()) {
+            commitCustomTripReset(vehicle, name.orEmpty(), null, customTripGeneration())
+            return@synchronized
+        }
         val edit = prefs.edit()
         if (vehicle == null) {
+            CustomTripDatabase(customContext).use {
+                it.writableDatabase.delete("custom_reset_state", "device_id=?", arrayOf(dataDeviceId))
+            }
             edit.remove(deviceKey("custom_base_distance"))
                 .remove(deviceKey("custom_base_duration"))
                 .remove(deviceKey("custom_base_fuel"))
                 .remove(deviceKey("custom_sync_pending"))
+                .remove(deviceKey("custom_generation"))
+                .remove(deviceKey("custom_wire_token"))
+                .remove(deviceKey("custom_sync_status"))
         } else {
             edit.putLong(deviceKey("custom_base_distance"), vehicle.totalDistanceM)
                 .putLong(deviceKey("custom_base_duration"), vehicle.totalDurationS)
@@ -273,6 +293,7 @@ class AppState(context: Context) {
             .putLong(deviceKey("custom_reset_at"), System.currentTimeMillis()).apply()
     }
     fun customTrip(vehicle: VehicleState?): Triple<Long, Long, Long>? {
+        recoverCustomTrip()
         vehicle ?: return null
         val distance = compatibleLongOrNull(deviceKey("custom_base_distance")) ?: run {
             resetCustomTrip(vehicle)
@@ -287,15 +308,52 @@ class AppState(context: Context) {
         )
     }
     fun customTripBaseline(): Triple<Long, Long, Long>? {
+        recoverCustomTrip()
         val distance = compatibleLongOrNull(deviceKey("custom_base_distance")) ?: return null
         val duration = compatibleLongOrNull(deviceKey("custom_base_duration")) ?: return null
         val fuel = compatibleLongOrNull(deviceKey("custom_base_fuel")) ?: return null
         return Triple(distance.coerceAtLeast(0L), duration.coerceAtLeast(0L), fuel.coerceAtLeast(0L))
     }
     val pendingCustomTripSync: Boolean
-        get() = compatibleBoolean(deviceKey("custom_sync_pending"), false)
-    fun confirmCustomTripSync() {
-        prefs.edit().putBoolean(deviceKey("custom_sync_pending"), false).apply()
+        get() { recoverCustomTrip(); return compatibleBoolean(deviceKey("custom_sync_pending"), false) }
+    val customTripSyncStatus: String
+        get() { recoverCustomTrip(); return compatibleString(deviceKey("custom_sync_status"), "pending") ?: "pending" }
+    fun customTripGeneration(): String {
+        recoverCustomTrip()
+        return compatibleString(deviceKey("custom_generation")) ?: "legacy:$customTripResetAtMs:${customTripBaseline()}"
+    }
+    fun commitCustomTripReset(vehicle: VehicleState, name: String, archive: CustomTripInterval?,
+                              expectedGeneration: String, resetAtMs: Long = System.currentTimeMillis()): Boolean = synchronized(CustomTripDatabase.lock) {
+        recoverCustomTrip()
+        val saved = CustomTripDatabase(customContext).use { db ->
+            db.archiveAndReset(dataDeviceId, expectedGeneration, customTripGeneration(), archive, name,
+                Triple(vehicle.totalDistanceM, vehicle.totalDurationS, vehicle.totalFuelMl), resetAtMs)
+        }
+        recoverCustomTrip()
+        saved
+    }
+    fun customTripSyncRequest(): CustomTripSyncRequest? = synchronized(CustomTripDatabase.lock) {
+        recoverCustomTrip()
+        val baseline = customTripBaseline() ?: return@synchronized null
+        if (compatibleLongOrNull(deviceKey("custom_wire_token")) == null ||
+            !CustomTripDatabase(customContext).use { it.hasCurrent(dataDeviceId, customTripGeneration()) }) {
+            CustomTripDatabase(customContext).use { db ->
+                db.archiveAndReset(dataDeviceId, customTripGeneration(), customTripGeneration(), null,
+                    customTripName, baseline, customTripResetAtMs)
+            }
+            recoverCustomTrip()
+        }
+        CustomTripSyncRequest(customTripGeneration(), compatibleLongOrNull(deviceKey("custom_wire_token")) ?: return@synchronized null,
+            baseline.first, baseline.second, baseline.third)
+    }
+    fun confirmCustomTripSync(request: CustomTripSyncRequest, actual: Triple<Long,Long,Long>?): Boolean = synchronized(CustomTripDatabase.lock) {
+        recoverCustomTrip()
+        if (customTripGeneration() != request.generation || customTripBaseline() != Triple(request.distanceM, request.durationS, request.fuelMl)) return@synchronized false
+        val updated = CustomTripDatabase(customContext).use {
+            it.updateSync(dataDeviceId, request, actual, if (actual == null) "legacy_sent" else "confirmed")
+        }
+        recoverCustomTrip()
+        updated
     }
     fun saveRefuelMeta(meta: TripBleProtocol.RefuelMeta) {
         prefs.edit()

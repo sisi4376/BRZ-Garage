@@ -200,6 +200,27 @@ object TripBleProtocol {
     }
 
     /** Read a named object from the gauge's fixed JSON manifest without regex. */
+    data class CustomTripReceipt(val durable: Boolean, val token: Long, val distanceM: Long,
+        val durationS: Long, val fuelMl: Long)
+
+    /** v2 keeps the complete command/receipt within the default 20-byte ATT payload. */
+    fun customTripConfirmedPacket(request: CustomTripSyncRequest): ByteArray {
+        require(listOf(request.token, request.distanceM, request.durationS, request.fuelMl).all { it in 0..0xffff_ffffL } && request.token != 0L)
+        val bytes = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN)
+            .put(2).put(1).putInt(request.distanceM.toInt()).putInt(request.durationS.toInt())
+            .putInt(request.fuelMl.toInt()).putInt(request.token.toInt()).putShort(0).array()
+        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putShort(18, crc16(bytes, 18).toShort())
+        return bytes
+    }
+
+    fun parseCustomTripReceipt(bytes: ByteArray): CustomTripReceipt? {
+        if (bytes.size != 20 || bytes[0].toInt() != 2 || bytes[1].toInt() !in 0..1) return null
+        val data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        if ((data.getShort(18).toInt() and 0xffff) != crc16(bytes, 18)) return null
+        fun u32(at: Int) = data.getInt(at).toLong() and 0xffff_ffffL
+        return CustomTripReceipt(bytes[1].toInt() == 1, u32(14), u32(2), u32(6), u32(10))
+    }
+
     private fun jsonObject(json: String, name: String): String? {
         val keyAt = json.indexOf("\"$name\"")
         if (keyAt < 0) return null

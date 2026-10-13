@@ -60,6 +60,7 @@ typedef struct {
             uint32_t distance_m;
             uint32_t duration_s;
             uint32_t fuel_ml;
+            uint32_t token;
         } trip_baseline;
     } data;
 } app_event_t;
@@ -76,7 +77,7 @@ bool app_event_send(app_event_type_t type, uint32_t data);
 // cannot overwrite it before the UI/config task persists it.
 bool app_event_send_custom_trip_baseline(uint32_t distance_m,
                                          uint32_t duration_s,
-                                         uint32_t fuel_ml);
+                                         uint32_t fuel_ml, uint32_t token);
 
 // Receive an event (non-blocking, returns false when there is no event)
 bool app_event_recv(app_event_t *out);

@@ -256,6 +256,14 @@ class TripSyncService : Service() {
     private var refuelControl = 0
     private var refuelDeleteAwaitingRevision = false
     private var refuelDeleteVerifyAttempts = 0
+    private val refuelSnapshot = mutableListOf<RefuelInterval>()
+    private var refuelSnapshotMeta: TripBleProtocol.RefuelMeta? = null
+    private var refuelVerifyingSnapshot = false
+    private var refuelWindowReadyForMutation = false
+    private var refuelMutationDeferred = false
+    private var refuelMutationId: Long? = null
+    private var refuelMutationCommand = 0
+    private var refuelMutationRevision: Int? = null
     private var operation: UUID? = null
     private var operationPayload: ByteArray? = null
     private var operationRetries = 0
@@ -273,6 +281,9 @@ class TripSyncService : Service() {
     private var refuelReadForConnection = false
     private var customTripSyncedForConnection = false
     private var customTripDeferredForConnection = false
+    private var customTripRequest: CustomTripSyncRequest? = null
+    private var customTripReceiptAttempts = 0
+    private var customTripReceiptSupported = false
     private var manifestReadForConnection = false
     /* Only reuse identity data that was read on this exact GATT connection.
      * Persisted AppState data may describe the previous firmware after an
@@ -828,11 +839,7 @@ class TripSyncService : Service() {
                     }
                 }
                 TripBleProtocol.CUSTOM_TRIP_CONTROL -> {
-                    completeOperation()
-                    customTripSyncedForConnection = true
-                    customTripDeferredForConnection = false
-                    state.confirmCustomTripSync()
-                    continueAfterGattIdle { readRefuelOrSettings() }
+                    finishCustomTripWrite()
                 }
             }
         }
@@ -894,6 +901,7 @@ class TripSyncService : Service() {
             return
         }
         when (uuid) {
+            TripBleProtocol.CUSTOM_TRIP_CONTROL -> receiveCustomTripReceipt(bytes)
             TripBleProtocol.TIME_SYNC -> {
                 val epoch = if (bytes.size == 8) ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).long else 0L
                 if (epoch !in 1704067200L..4102444800L || abs(epoch - System.currentTimeMillis() / 1000) > 5) {
@@ -990,93 +998,27 @@ class TripSyncService : Service() {
                     return
                 }
                 completeOperation()
-                val previousRevision = state.refuelHistoryRevision
-                val revisionChanged = previousRevision != null &&
-                    previousRevision != parsed.historyRevision
-                if (revisionChanged) {
-                    val pendingDeleteId = state.pendingRefuelDeleteId
-                        ?.takeIf { refuelDeleteAwaitingRevision && refuelControl == 3 }
-                    val pendingDiscardId = state.pendingRefuelDiscardOldestId
-                        ?.takeIf { refuelDeleteAwaitingRevision && refuelControl == 5 }
-                    val locallyMerged = pendingDeleteId != null && try {
-                        refuelDatabase.mergeAfterDeletedNode(address, pendingDeleteId)
-                    } catch (_: RuntimeException) { false }
-                    val locallyDiscarded = pendingDiscardId != null && try {
-                        refuelDatabase.discardBeforeFirstNode(address, pendingDiscardId)
-                    } catch (_: RuntimeException) { false }
-                    if (!locallyMerged && !locallyDiscarded) {
-                        try { refuelDatabase.clearDevice(address) } catch (_: RuntimeException) { }
-                    }
-                    state.confirmRefuelHistoryRevision(parsed.historyRevision)
-                    if (pendingDeleteId != null) state.confirmRefuelDelete()
-                    if (pendingDiscardId != null) state.confirmRefuelDiscardOldest()
-                    refuelDeleteAwaitingRevision = false
-                    refuelDeleteVerifyAttempts = 0
-                    publish(when {
-                        pendingDiscardId != null -> "第一个节点以前的数据已删除"
-                        pendingDeleteId != null -> "加油节点已删除 · 相邻区间已自动合并"
-                        else -> "加油节点历史已变化 · 正在重新同步"
-                    }, true)
-                } else if (previousRevision == null) {
-                    state.confirmRefuelHistoryRevision(parsed.historyRevision)
-                } else if (refuelDeleteAwaitingRevision &&
-                    (state.pendingRefuelDeleteId != null || state.pendingRefuelDiscardOldestId != null)) {
-                    if (refuelDeleteVerifyAttempts < 4) {
-                        ++refuelDeleteVerifyAttempts
-                        state.saveRefuelMeta(parsed)
-                        handler.postDelayed({
-                            if (connected && operation == null) read(TripBleProtocol.REFUEL_META)
-                        }, 600L)
-                        return
-                    }
-                    refuelDeleteAwaitingRevision = false
-                    refuelDeleteVerifyAttempts = 0
-                    val wasDiscard = state.pendingRefuelDiscardOldestId != null
-                    state.confirmRefuelDelete()
-                    state.confirmRefuelDiscardOldest()
-                    publish(if (wasDiscard) "第一个节点以前的数据删除未生效 · 正常数据同步继续"
-                        else "加油节点删除未生效 · 正常数据同步继续", true)
-                }
-                state.saveRefuelMeta(parsed)
-                refuelMeta = parsed
-                refuelCursor = try {
-                    if (database.needsRefuelTransferReconcile(address)) 0L else refuelDatabase.latestId(address)
-                } catch (_: RuntimeException) { 0L }
-                if (refuelCursor < parsed.newestId) {
-                    refuelControl = 1
-                    continueAfterGattIdle {
-                        write(TripBleProtocol.REFUEL_CONTROL,
-                            TripBleProtocol.refuelControlPacket(1, refuelCursor))
-                    }
-                } else {
-                    database.completeRefuelTransferReconcile(address)
-                    readSettingsAfterVehicle()
-                }
+                receiveRefuelMeta(parsed)
             }
             TripBleProtocol.REFUEL_DATA -> {
                 val record = TripBleProtocol.parseRefuelRecord(address, bytes)
-                val newest = refuelMeta?.newestId ?: 0L
-                if (record == null || record.id <= refuelCursor || record.id > newest) {
+                val window = refuelSnapshotMeta
+                if (record == null || window == null || record.id <= refuelCursor ||
+                    record.id !in window.oldestId..window.newestId || refuelSnapshot.size >= window.count) {
                     retryOperation("加油以来历史暂时不完整")
                     return
                 }
-                val saved = try { refuelDatabase.upsert(record) } catch (_: RuntimeException) { false }
-                if (!saved) {
-                    completeOperation()
-                    idle("加油以来记录暂时无法保存；正常车辆同步继续")
-                    return
-                }
                 completeOperation()
+                refuelSnapshot += record
                 refuelCursor = record.id
-                if (refuelCursor < newest) {
+                if (refuelCursor < window.newestId) {
                     refuelControl = 1
                     continueAfterGattIdle {
-                        write(TripBleProtocol.REFUEL_CONTROL,
-                            TripBleProtocol.refuelControlPacket(1, refuelCursor))
+                        write(TripBleProtocol.REFUEL_CONTROL, TripBleProtocol.refuelControlPacket(1, refuelCursor))
                     }
                 } else {
-                    database.completeRefuelTransferReconcile(address)
-                    readSettingsAfterVehicle()
+                    refuelVerifyingSnapshot = true
+                    continueAfterGattIdle { read(TripBleProtocol.REFUEL_META) }
                 }
             }
             TripBleProtocol.GAUGE_SETTINGS -> {
@@ -1189,6 +1131,154 @@ class TripSyncService : Service() {
             }
         }
     }
+    private fun sameRefuelWindow(a: TripBleProtocol.RefuelMeta, b: TripBleProtocol.RefuelMeta) =
+        a.historyRevision == b.historyRevision && a.count == b.count &&
+            a.oldestId == b.oldestId && a.newestId == b.newestId
+
+    private fun stopRefuelSnapshot(message: String) {
+        refuelSnapshot.clear()
+        refuelSnapshotMeta = null
+        refuelVerifyingSnapshot = false
+        refuelWindowReadyForMutation = false
+        refuelMutationDeferred = true
+        // Do not advance the revision or discard pending commands on a partial read.
+        readSettingsAfterVehicle()
+        publish(message, true)
+    }
+
+    private fun receiveRefuelMeta(parsed: TripBleProtocol.RefuelMeta) {
+        if (refuelVerifyingSnapshot) {
+            val before = refuelSnapshotMeta
+            if (before == null || !sameRefuelWindow(before, parsed) || refuelSnapshot.size != parsed.count) {
+                stopRefuelSnapshot("读取期间加油记录发生变化 · 已保留手机历史，稍后重试")
+                return
+            }
+            val mutationSucceeded = refuelDeleteAwaitingRevision &&
+                refuelMutationRevision != parsed.historyRevision &&
+                refuelSnapshot.none { it.id == refuelMutationId }
+            try {
+                refuelDatabase.reconcileSnapshot(address, parsed, refuelSnapshot,
+                    refuelMutationId.takeIf { mutationSucceeded && refuelMutationCommand == 3 },
+                    refuelMutationId.takeIf { mutationSucceeded && refuelMutationCommand == 5 })
+                state.confirmRefuelHistoryRevision(parsed.historyRevision)
+                database.completeRefuelTransferReconcile(address)
+            } catch (_: RefuelIntervalDatabase.UnresolvedLocalRevision) {
+                stopRefuelSnapshot("手机修订暂时无法合并到完整区间 · 已保留历史，稍后重试")
+                return
+            } catch (_: RuntimeException) {
+                stopRefuelSnapshot("加油历史保存失败 · 原有记录已保留，稍后重试")
+                return
+            }
+            refuelVerifyingSnapshot = false
+            refuelSnapshotMeta = null
+            refuelSnapshot.clear()
+            refuelWindowReadyForMutation = true
+            refuelMutationDeferred = false
+            if (refuelDeleteAwaitingRevision) {
+                finishRefuelMutation(if (mutationSucceeded) {
+                    if (refuelMutationCommand == 5) "第一个节点以前的数据已删除"
+                    else "加油节点已删除 · 相邻区间已自动合并"
+                } else "加油节点删除未生效 · 手机历史已保留")
+            }
+            refuelMeta = parsed
+            state.saveRefuelMeta(parsed)
+            readSettingsAfterVehicle()
+            return
+        }
+        if (refuelDeleteAwaitingRevision && parsed.historyRevision == refuelMutationRevision) {
+            if (refuelDeleteVerifyAttempts++ < 4) {
+                handler.postDelayed({
+                    if (connected && operation == null) read(TripBleProtocol.REFUEL_META)
+                }, 600L)
+                return
+            }
+            finishRefuelMutation("加油节点删除未生效 · 正常数据同步继续")
+        }
+        refuelMeta = parsed
+        val needsRead = try {
+            !refuelDatabase.matchesSnapshot(address, parsed) || database.needsRefuelTransferReconcile(address) ||
+                refuelDeleteAwaitingRevision || state.pendingRefuelDeleteId != null || state.pendingRefuelDiscardOldestId != null
+        } catch (_: RuntimeException) { true }
+        if (!needsRead) {
+            state.confirmRefuelHistoryRevision(parsed.historyRevision)
+            state.saveRefuelMeta(parsed)
+            readSettingsAfterVehicle()
+            return
+        }
+        refuelSnapshot.clear()
+        refuelSnapshotMeta = parsed
+        refuelCursor = 0L
+        refuelWindowReadyForMutation = false
+        if (parsed.count == 0) {
+            refuelVerifyingSnapshot = true
+            continueAfterGattIdle { read(TripBleProtocol.REFUEL_META) }
+        } else {
+            refuelControl = 1
+            continueAfterGattIdle {
+                write(TripBleProtocol.REFUEL_CONTROL, TripBleProtocol.refuelControlPacket(1, 0L))
+            }
+        }
+    }
+
+    private fun finishRefuelMutation(message: String) {
+        if (refuelMutationCommand == 3 && state.pendingRefuelDeleteId == refuelMutationId) state.confirmRefuelDelete()
+        if (refuelMutationCommand == 5 && state.pendingRefuelDiscardOldestId == refuelMutationId) state.confirmRefuelDiscardOldest()
+        refuelDeleteAwaitingRevision = false
+        refuelDeleteVerifyAttempts = 0
+        refuelMutationId = null
+        refuelMutationCommand = 0
+        refuelMutationRevision = null
+        publish(message, true)
+    }
+
+    /** A fresh complete window decides whether a queued edit belongs to the
+     * gauge or only to archived phone history. No stale cached bound is trusted. */
+    private fun prepareRefuelMutation(nodeId: Long, discard: Boolean): Boolean {
+        if (!refuelWindowReadyForMutation) {
+            publish("正在确认仪表保留的加油记录…")
+            continueAfterGattIdle { read(TripBleProtocol.REFUEL_META) }
+            return true
+        }
+        val window = refuelMeta ?: return true
+        refuelWindowReadyForMutation = false
+        val records = try { refuelDatabase.all(address) } catch (_: RuntimeException) {
+            stopRefuelSnapshot("加油历史读取失败 · 修改已保留，稍后重试")
+            return true
+        }
+        if (records.none { it.id == nodeId }) {
+            if (discard) state.confirmRefuelDiscardOldest() else state.confirmRefuelDelete()
+            idle("该加油节点已不存在 · 无需重复删除")
+            return true
+        }
+        if (window.count == 0 || nodeId < window.oldestId) {
+            val success = try {
+                if (discard) refuelDatabase.discardBeforeFirstNode(address, nodeId)
+                else refuelDatabase.mergeAfterDeletedNode(address, nodeId, archiveOnly = true)
+            } catch (_: RuntimeException) { false }
+            if (success) {
+                if (discard) state.confirmRefuelDiscardOldest() else state.confirmRefuelDelete()
+                idle(if (discard) "手机历史数据已删除 · 仪表无对应记录"
+                    else "手机历史节点已删除并合并 · 仪表无对应记录")
+            } else stopRefuelSnapshot("手机历史修改未完成 · 原有记录已保留")
+            return true
+        }
+        if (window.count == 0 || nodeId !in window.oldestId..window.newestId ||
+            (discard && nodeId != window.oldestId)) {
+            if (discard) state.confirmRefuelDiscardOldest() else state.confirmRefuelDelete()
+            idle("无法确认该节点对应的仪表区间 · 未修改历史记录")
+            return true
+        }
+        if (!discard && nodeId == window.newestId && records.any { it.id == nodeId && it.dataRevised }) {
+            state.confirmRefuelDelete()
+            idle("该区间含手机修订 · 请在下一次加油形成后续区间后删除")
+            return true
+        }
+        refuelMutationId = nodeId
+        refuelMutationCommand = if (discard) 5 else 3
+        refuelMutationRevision = window.historyRevision
+        return false
+    }
+
     private fun readRefuelOrSettings() {
         val supported = info?.getCharacteristic(TripBleProtocol.REFUEL_META) != null
         if (supported && (!refuelReadForConnection || state.showSinceRefuelTrip)) {
@@ -1206,16 +1296,7 @@ class TripSyncService : Service() {
             readRefuelOrSettings()
             return
         }
-        val baseline = state.customTripBaseline()
-        val supported = info?.getCharacteristic(TripBleProtocol.CUSTOM_TRIP_CONTROL) != null
-        if (baseline == null || !supported) {
-            customTripDeferredForConnection = !supported
-            readRefuelOrSettings()
-            return
-        }
-        publish("正在同步自定义行程起点…")
-        write(TripBleProtocol.CUSTOM_TRIP_CONTROL,
-            TripBleProtocol.customTripBaselinePacket(baseline.first, baseline.second, baseline.third))
+        if (!startPendingCustomTripSync()) readRefuelOrSettings()
     }
     private fun readSettingsAfterVehicle() {
         if (!settingsReadForConnection &&
@@ -1357,20 +1438,70 @@ class TripSyncService : Service() {
         }
     }
     private fun startPendingCustomTripSync(): Boolean {
-        val baseline = state.customTripBaseline() ?: return false
-        val supported = info?.getCharacteristic(TripBleProtocol.CUSTOM_TRIP_CONTROL) != null
-        if (!supported) {
+        val request = state.customTripSyncRequest() ?: return false
+        val characteristic = info?.getCharacteristic(TripBleProtocol.CUSTOM_TRIP_CONTROL)
+        if (characteristic == null) {
             customTripDeferredForConnection = true
             publish("手机已重置自定义行程 · 仪表固件升级后将自动同步", true)
             handler.postDelayed(cycle, if (foregroundUi) FOREGROUND_CYCLE_MS else BACKGROUND_CYCLE_MS)
             return true
         }
+        customTripRequest = request
+        customTripReceiptAttempts = 0
+        customTripReceiptSupported = characteristic.properties and BluetoothGattCharacteristic.PROPERTY_READ != 0
         publish("正在把自定义行程起点同步到仪表…")
         write(TripBleProtocol.CUSTOM_TRIP_CONTROL,
-            TripBleProtocol.customTripBaselinePacket(baseline.first, baseline.second, baseline.third))
+            if (customTripReceiptSupported) TripBleProtocol.customTripConfirmedPacket(request)
+            else TripBleProtocol.customTripBaselinePacket(request.distanceM, request.durationS, request.fuelMl))
         return true
     }
+    private fun receiveCustomTripReceipt(bytes: ByteArray) {
+        val receipt = TripBleProtocol.parseCustomTripReceipt(bytes)
+        val request = customTripRequest
+        completeOperation()
+        if (request == null) { readRefuelOrSettings(); return }
+        if (state.customTripGeneration() != request.generation) {
+            customTripRequest = null
+            customTripSyncedForConnection = false
+            readRefuelOrSettings()
+            return
+        }
+        if (receipt != null && receipt.durable && receipt.token == request.token &&
+            receipt.distanceM <= request.distanceM && receipt.durationS <= request.durationS && receipt.fuelMl <= request.fuelMl) {
+            val confirmed = state.confirmCustomTripSync(request, Triple(receipt.distanceM, receipt.durationS, receipt.fuelMl))
+            customTripSyncedForConnection = confirmed
+            customTripRequest = null
+            publish(if (confirmed) "自定义行程起点已由仪表保存并确认" else "自定义起点已更新 · 等待同步最新起点", true)
+            readRefuelOrSettings()
+            return
+        }
+        if (++customTripReceiptAttempts < 5) {
+            handler.postDelayed({ if (connected && operation == null) read(TripBleProtocol.CUSTOM_TRIP_CONTROL) }, 600L)
+        } else {
+            customTripDeferredForConnection = true
+            customTripRequest = null
+            publish("仪表尚未确认自定义起点 · 已保留待同步任务，下次连接重试", true)
+            readRefuelOrSettings()
+        }
+    }
+    private fun finishCustomTripWrite() {
+        completeOperation()
+        if (customTripReceiptSupported) {
+            continueAfterGattIdle { read(TripBleProtocol.CUSTOM_TRIP_CONTROL) }
+        } else {
+            val accepted = customTripRequest?.let { state.confirmCustomTripSync(it, null) } == true
+            // A late legacy write callback must not defer a newer queued reset.
+            customTripDeferredForConnection = accepted
+            customTripSyncedForConnection = false
+            customTripRequest = null
+            publish(if (accepted) "自定义起点已发送 · 旧固件不支持保存确认"
+                else "自定义起点已更新 · 等待同步最新起点", true)
+            continueAfterGattIdle { readRefuelOrSettings() }
+        }
+    }
     private fun requestRefuelDelete() {
+        refuelWindowReadyForMutation = false
+        refuelMutationDeferred = false
         publish("删除加油节点已排队 · 等待当前同步完成")
         if (!busy && operation == null) {
             handler.removeCallbacks(cycle)
@@ -1379,13 +1510,15 @@ class TripSyncService : Service() {
     }
     private fun startPendingRefuelDelete(): Boolean {
         val nodeId = state.pendingRefuelDeleteId ?: return false
-        val supported = info?.getCharacteristic(TripBleProtocol.REFUEL_CONTROL) != null
+        val supported = info?.getCharacteristic(TripBleProtocol.REFUEL_CONTROL) != null &&
+            info?.getCharacteristic(TripBleProtocol.REFUEL_META) != null
         if (!supported) {
             state.confirmRefuelDelete()
             publish("加油节点未删除 · 请先升级仪表固件", true)
             handler.postDelayed(cycle, if (foregroundUi) FOREGROUND_CYCLE_MS else BACKGROUND_CYCLE_MS)
             return true
         }
+        if (prepareRefuelMutation(nodeId, discard = false)) return true
         val protocolVersion = refuelMeta?.protocolVersion
         if (protocolVersion == null) {
             publish("正在确认仪表是否支持删除加油节点…")
@@ -1406,6 +1539,8 @@ class TripSyncService : Service() {
         return true
     }
     private fun requestRefuelDiscardOldest() {
+        refuelWindowReadyForMutation = false
+        refuelMutationDeferred = false
         publish("删除第一个节点以前的数据已排队 · 等待当前同步完成")
         if (!busy && operation == null) {
             handler.removeCallbacks(cycle)
@@ -1414,12 +1549,14 @@ class TripSyncService : Service() {
     }
     private fun startPendingRefuelDiscardOldest(): Boolean {
         val nodeId = state.pendingRefuelDiscardOldestId ?: return false
-        if (info?.getCharacteristic(TripBleProtocol.REFUEL_CONTROL) == null) {
+        if (info?.getCharacteristic(TripBleProtocol.REFUEL_CONTROL) == null ||
+            info?.getCharacteristic(TripBleProtocol.REFUEL_META) == null) {
             state.confirmRefuelDiscardOldest()
             publish("数据未删除 · 请先升级仪表固件", true)
             handler.postDelayed(cycle, if (foregroundUi) FOREGROUND_CYCLE_MS else BACKGROUND_CYCLE_MS)
             return true
         }
+        if (prepareRefuelMutation(nodeId, discard = true)) return true
         if (!settingsReadForConnection) {
             publish("正在确认仪表是否支持删除第一个节点以前的数据…")
             settingsReadForConnection = true
@@ -1854,11 +1991,11 @@ class TripSyncService : Service() {
             continueAfterGattIdle { startPendingRefuelReset() }
             return
         }
-        if (state.pendingRefuelDiscardOldestId != null) {
+        if (state.pendingRefuelDiscardOldestId != null && !refuelMutationDeferred) {
             continueAfterGattIdle { startPendingRefuelDiscardOldest() }
             return
         }
-        if (state.pendingRefuelDeleteId != null) {
+        if (state.pendingRefuelDeleteId != null && !refuelMutationDeferred) {
             continueAfterGattIdle { startPendingRefuelDelete() }
             return
         }
@@ -2044,14 +2181,7 @@ class TripSyncService : Service() {
         if (operationRetries >= MAX_OPERATION_RETRIES) {
             completeOperation()
             refuelMeta = null
-            if (refuelControl == 3 || refuelControl == 5) {
-                refuelDeleteAwaitingRevision = false
-                refuelDeleteVerifyAttempts = 0
-                if (refuelControl == 3) state.confirmRefuelDelete()
-                else state.confirmRefuelDiscardOldest()
-            }
-            readSettingsAfterVehicle()
-            publish("$message；加油以来数据本次未同步，正常车辆采集继续", true)
+            stopRefuelSnapshot("$message；加油以来数据本次未同步，正常车辆采集继续")
             return
         }
         operationRetries++
@@ -2157,6 +2287,14 @@ class TripSyncService : Service() {
         notificationVehicle = null
         meta = null
         refuelMeta = null
+        refuelSnapshot.clear()
+        refuelSnapshotMeta = null
+        refuelVerifyingSnapshot = false
+        refuelWindowReadyForMutation = false
+        refuelMutationDeferred = false
+        refuelMutationId = null
+        refuelMutationCommand = 0
+        refuelMutationRevision = null
         refuelCursor = 0L
         refuelControl = 0
         refuelDeleteAwaitingRevision = false
@@ -2168,6 +2306,9 @@ class TripSyncService : Service() {
         refuelReadForConnection = false
         customTripSyncedForConnection = false
         customTripDeferredForConnection = false
+        customTripRequest = null
+        customTripReceiptAttempts = 0
+        customTripReceiptSupported = false
         manifestReadForConnection = false
         firmwareInfoForConnection = null
         pendingBrightness = null

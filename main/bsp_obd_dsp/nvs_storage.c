@@ -27,12 +27,13 @@
 #define KEY_ODOMETER_CFG      "odometer"  // phone calibration + shared home visibility
 #define KEY_REFUEL_HISTORY    "refuelhist" // independent automatic/manual refuel intervals
 #define KEY_CUSTOM_TRIP       "customtrip" // phone-selected lifetime baseline for the gauge page
+#define KEY_CUSTOM_TRIP_V2    "customtrip2" // baseline + applied command receipt, committed together
 #define FUEL_STORE_VERSION    4
 #define TRIP_SYNC_STORE_VERSION 1
 #define TRIP_SYNC_PROTOCOL_VERSION 4
 #define REFUEL_STORE_VERSION 1U
 #define REFUEL_PROTOCOL_VERSION 2U
-#define CUSTOM_TRIP_STORE_VERSION 1U
+#define CUSTOM_TRIP_STORE_VERSION 2U
 #define KEY_CFG_VERSION       "cfgver"    // config version (missing = v0)
 #define CFG_VERSION_CURRENT   12          // current version; bump on field add/semantic change (migration in nvs_storage_init)
 
@@ -136,11 +137,22 @@ typedef struct {
     uint64_t baseline_duration_ms;
     uint64_t baseline_distance_mm;
     uint64_t baseline_fuel_ul;
+} custom_trip_store_v1_t;
+
+typedef struct {
+    uint32_t version;
+    uint64_t baseline_duration_ms;
+    uint64_t baseline_distance_mm;
+    uint64_t baseline_fuel_ul;
+    uint32_t token;
+    uint32_t requested_distance_m;
+    uint32_t requested_duration_s;
+    uint32_t requested_fuel_ml;
 } custom_trip_store_t;
 
 static custom_trip_store_t s_custom_trip;
-static custom_trip_store_t s_custom_trip_save_copy;
 static bool s_custom_trip_dirty;
+static SemaphoreHandle_t s_custom_trip_save_mux;
 
 typedef struct {
     uint32_t version;
@@ -656,11 +668,13 @@ esp_err_t nvs_storage_init(void)
 #endif
 
     s_mux = xSemaphoreCreateMutex();
+    s_custom_trip_save_mux = xSemaphoreCreateMutex();
+    if (!s_mux || !s_custom_trip_save_mux) return ESP_ERR_NO_MEM;
 
     load_blob(NS_CFG, KEY_FUEL_TRIPS, &s_fuel, sizeof(s_fuel));
     load_blob(NS_CFG, KEY_TRIP_SYNC, &s_trip_sync, sizeof(s_trip_sync));
     load_blob(NS_CFG, KEY_REFUEL_HISTORY, &s_refuel, sizeof(s_refuel));
-    load_blob(NS_CFG, KEY_CUSTOM_TRIP, &s_custom_trip, sizeof(s_custom_trip));
+    load_blob(NS_CFG, KEY_CUSTOM_TRIP_V2, &s_custom_trip, sizeof(s_custom_trip));
     if (s_trip_sync.version != TRIP_SYNC_STORE_VERSION ||
         s_trip_sync.count > NVS_TRIP_SYNC_QUEUE_MAX) {
         memset(&s_trip_sync, 0, sizeof(s_trip_sync));
@@ -712,12 +726,17 @@ esp_err_t nvs_storage_init(void)
     }
     s_custom_trip_dirty = false;
     if (s_custom_trip.version != CUSTOM_TRIP_STORE_VERSION) {
+        custom_trip_store_v1_t legacy = {0};
+        load_blob(NS_CFG, KEY_CUSTOM_TRIP, &legacy, sizeof(legacy));
         memset(&s_custom_trip, 0, sizeof(s_custom_trip));
         s_custom_trip.version = CUSTOM_TRIP_STORE_VERSION;
-        s_custom_trip.baseline_duration_ms = s_fuel.lifetime_duration_ms;
-        s_custom_trip.baseline_distance_mm = s_fuel.lifetime_distance_mm;
-        s_custom_trip.baseline_fuel_ul = s_fuel.lifetime_fuel_ul;
-        if (save_blob(NS_CFG, KEY_CUSTOM_TRIP, &s_custom_trip,
+        s_custom_trip.baseline_duration_ms = legacy.version == 1 ? legacy.baseline_duration_ms : s_fuel.lifetime_duration_ms;
+        s_custom_trip.baseline_distance_mm = legacy.version == 1 ? legacy.baseline_distance_mm : s_fuel.lifetime_distance_mm;
+        s_custom_trip.baseline_fuel_ul = legacy.version == 1 ? legacy.baseline_fuel_ul : s_fuel.lifetime_fuel_ul;
+        s_custom_trip.requested_distance_m = clamp_u32_u64(s_custom_trip.baseline_distance_mm / 1000);
+        s_custom_trip.requested_duration_s = clamp_u32_u64(s_custom_trip.baseline_duration_ms / 1000);
+        s_custom_trip.requested_fuel_ml = clamp_u32_u64(s_custom_trip.baseline_fuel_ul / 1000);
+        if (save_blob(NS_CFG, KEY_CUSTOM_TRIP_V2, &s_custom_trip,
                       sizeof(s_custom_trip)) != ESP_OK) {
             s_custom_trip_dirty = true;
         }
@@ -1137,44 +1156,71 @@ void nvs_custom_trip_get_meta(nvs_custom_trip_meta_t *out)
     xSemaphoreGive(s_mux);
 }
 
-esp_err_t nvs_custom_trip_set_baseline(uint32_t distance_m,
-                                       uint32_t duration_s,
-                                       uint32_t fuel_ml)
+/* Caller holds save_mux: checkpoints and UI writes cannot commit out of order. */
+static esp_err_t custom_trip_flush_locked(void)
 {
-    if (!s_mux) return ESP_ERR_INVALID_STATE;
     custom_trip_store_t copy;
     xSemaphoreTake(s_mux, portMAX_DELAY);
-    uint64_t distance_mm = (uint64_t)distance_m * 1000ULL;
-    uint64_t duration_ms = (uint64_t)duration_s * 1000ULL;
-    uint64_t fuel_ul = (uint64_t)fuel_ml * 1000ULL;
-    /* A phone snapshot can be one checkpoint ahead after an abrupt power cut.
-     * Clamp instead of allowing an underflow to hide the custom trip forever. */
-    if (distance_mm > s_fuel.lifetime_distance_mm) distance_mm = s_fuel.lifetime_distance_mm;
-    if (duration_ms > s_fuel.lifetime_duration_ms) duration_ms = s_fuel.lifetime_duration_ms;
-    if (fuel_ul > s_fuel.lifetime_fuel_ul) fuel_ul = s_fuel.lifetime_fuel_ul;
-    bool changed = s_custom_trip.version != CUSTOM_TRIP_STORE_VERSION ||
-                   s_custom_trip.baseline_distance_mm != distance_mm ||
-                   s_custom_trip.baseline_duration_ms != duration_ms ||
-                   s_custom_trip.baseline_fuel_ul != fuel_ul;
-    s_custom_trip.version = CUSTOM_TRIP_STORE_VERSION;
-    s_custom_trip.baseline_distance_mm = distance_mm;
-    s_custom_trip.baseline_duration_ms = duration_ms;
-    s_custom_trip.baseline_fuel_ul = fuel_ul;
     copy = s_custom_trip;
-    bool needs_save = changed || s_custom_trip_dirty;
-    if (needs_save) s_custom_trip_dirty = false;
+    bool needs_save = s_custom_trip_dirty;
     xSemaphoreGive(s_mux);
     if (!needs_save) return ESP_OK;
-    esp_err_t err = save_blob(NS_CFG, KEY_CUSTOM_TRIP, &copy, sizeof(copy));
-    if (err != ESP_OK) {
-        /* Keep the RAM baseline active and let the regular checkpoint retry
-         * persistence. A repeated identical phone packet must not be mistaken
-         * for an already durable value after a transient NVS failure. */
-        xSemaphoreTake(s_mux, portMAX_DELAY);
-        s_custom_trip_dirty = true;
-        xSemaphoreGive(s_mux);
-    }
+    esp_err_t err = save_blob(NS_CFG, KEY_CUSTOM_TRIP_V2, &copy, sizeof(copy));
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    s_custom_trip_dirty = err != ESP_OK;
+    xSemaphoreGive(s_mux);
     return err;
+}
+
+void nvs_custom_trip_get_receipt(nvs_custom_trip_receipt_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (!s_mux) return;
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    out->token = s_custom_trip.token;
+    out->distance_m = clamp_u32_u64(s_custom_trip.baseline_distance_mm / 1000ULL);
+    out->duration_s = clamp_u32_u64(s_custom_trip.baseline_duration_ms / 1000ULL);
+    out->fuel_ml = clamp_u32_u64(s_custom_trip.baseline_fuel_ul / 1000ULL);
+    out->durable = !s_custom_trip_dirty && s_custom_trip.version == CUSTOM_TRIP_STORE_VERSION;
+    xSemaphoreGive(s_mux);
+}
+
+esp_err_t nvs_custom_trip_set_confirmed_baseline(uint32_t distance_m, uint32_t duration_s,
+                                                uint32_t fuel_ml, uint32_t token)
+{
+    if (!s_mux || !s_custom_trip_save_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_custom_trip_save_mux, portMAX_DELAY);
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    bool same = s_custom_trip.version == CUSTOM_TRIP_STORE_VERSION && s_custom_trip.token == token &&
+        s_custom_trip.requested_distance_m == distance_m && s_custom_trip.requested_duration_s == duration_s &&
+        s_custom_trip.requested_fuel_ml == fuel_ml;
+    if (!same) {
+        uint64_t distance_mm = (uint64_t)distance_m * 1000ULL;
+        uint64_t duration_ms = (uint64_t)duration_s * 1000ULL;
+        uint64_t fuel_ul = (uint64_t)fuel_ml * 1000ULL;
+        if (distance_mm > s_fuel.lifetime_distance_mm) distance_mm = s_fuel.lifetime_distance_mm;
+        if (duration_ms > s_fuel.lifetime_duration_ms) duration_ms = s_fuel.lifetime_duration_ms;
+        if (fuel_ul > s_fuel.lifetime_fuel_ul) fuel_ul = s_fuel.lifetime_fuel_ul;
+        s_custom_trip.version = CUSTOM_TRIP_STORE_VERSION;
+        s_custom_trip.token = token;
+        s_custom_trip.requested_distance_m = distance_m;
+        s_custom_trip.requested_duration_s = duration_s;
+        s_custom_trip.requested_fuel_ml = fuel_ml;
+        s_custom_trip.baseline_distance_mm = distance_mm;
+        s_custom_trip.baseline_duration_ms = duration_ms;
+        s_custom_trip.baseline_fuel_ul = fuel_ul;
+        s_custom_trip_dirty = true;
+    }
+    xSemaphoreGive(s_mux);
+    esp_err_t err = custom_trip_flush_locked();
+    xSemaphoreGive(s_custom_trip_save_mux);
+    return err;
+}
+
+esp_err_t nvs_custom_trip_set_baseline(uint32_t distance_m, uint32_t duration_s, uint32_t fuel_ml)
+{
+    return nvs_custom_trip_set_confirmed_baseline(distance_m, duration_s, fuel_ml, 0);
 }
 
 esp_err_t nvs_refuel_delete_node(uint32_t id)
@@ -1286,7 +1332,6 @@ esp_err_t nvs_fuel_save(void)
     bool save_fuel = false;
     bool save_sync = false;
     bool save_refuel = false;
-    bool save_custom_trip = false;
     xSemaphoreTake(s_mux, portMAX_DELAY);
     if (s_fuel_dirty) {
         copy = s_fuel;
@@ -1303,11 +1348,6 @@ esp_err_t nvs_fuel_save(void)
         s_refuel_save_copy = s_refuel;
         s_refuel_dirty = false;
         save_refuel = true;
-    }
-    if (s_custom_trip_dirty) {
-        s_custom_trip_save_copy = s_custom_trip;
-        s_custom_trip_dirty = false;
-        save_custom_trip = true;
     }
     xSemaphoreGive(s_mux);
 
@@ -1326,18 +1366,15 @@ esp_err_t nvs_fuel_save(void)
         refuel_err = save_blob(NS_CFG, KEY_REFUEL_HISTORY, &s_refuel_save_copy,
                                sizeof(s_refuel_save_copy));
     }
-    if (save_custom_trip) {
-        custom_trip_err = save_blob(NS_CFG, KEY_CUSTOM_TRIP,
-                                    &s_custom_trip_save_copy,
-                                    sizeof(s_custom_trip_save_copy));
-    }
+    xSemaphoreTake(s_custom_trip_save_mux, portMAX_DELAY);
+    custom_trip_err = custom_trip_flush_locked();
+    xSemaphoreGive(s_custom_trip_save_mux);
     if (fuel_err != ESP_OK || sync_err != ESP_OK || refuel_err != ESP_OK ||
         custom_trip_err != ESP_OK) {
         xSemaphoreTake(s_mux, portMAX_DELAY);
         if (fuel_err != ESP_OK) s_fuel_dirty = true;
         if (sync_err != ESP_OK) s_trip_sync_dirty = true;
         if (refuel_err != ESP_OK) s_refuel_dirty = true;
-        if (custom_trip_err != ESP_OK) s_custom_trip_dirty = true;
         xSemaphoreGive(s_mux);
     }
     if (fuel_err != ESP_OK) return fuel_err;
