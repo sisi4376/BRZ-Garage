@@ -64,10 +64,13 @@ static uint32_t s_trip_request_after_id, s_trip_highest_sent_id;
     source += '\n' + '\n'.join(function(ble, n) for n in (
         'put_le16', 'put_le32', 'put_le64', 'trip_crc16', 'build_trip_meta_wire', 'build_trip_data_wire'))
     source += r'''
-static bool s_fuel_dirty, s_refuel_dirty, s_custom_trip_dirty;
+static bool s_fuel_dirty, s_refuel_dirty;
 static trip_sync_store_t s_trip_sync_save_copy, persisted_sync;
 // Unrelated stores are inert: this test faults the trip-queue checkpoint only.
-static int s_refuel, s_refuel_save_copy, s_custom_trip, s_custom_trip_save_copy;
+static int s_refuel, s_refuel_save_copy;
+// Custom-trip persistence is covered with real functions in test_custom_trip_sync.
+// This fixture focuses on the independent retained history checkpoint.
+static esp_err_t custom_trip_flush_locked(void) { return ESP_OK; }
 #define NS_CFG "cfg"
 #define KEY_FUEL_TRIPS "fueltrips"
 #define KEY_TRIP_SYNC "tripsync"

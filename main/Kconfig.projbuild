@@ -43,6 +43,16 @@ menu "OBD DSP Configuration"
             bool "ESP32-S3-Touch-LCD-1.85 (360x360 legacy)"
     endchoice
 
+    config OBD_GNSS_TIME
+        bool "One-shot automatic GNSS time fallback"
+        depends on OBD_BOARD_AMOLED_175
+        default y
+        help
+            Detect onboard LC76G via I2C or external NMEA via UART2 RX GPIO18.
+            Acquisition runs after normal startup and never waits for a fix
+            in the recorder. No receiver: bounded passive probe then exit.
+            Phone or GNSS time synchronization ends the task for this boot.
+
     config OBD_RS485_TX_GPIO
         int "RS485 TX GPIO"
         range 0 48

@@ -3,7 +3,7 @@
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地用车管家**
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
-[![Firmware](https://img.shields.io/badge/Firmware-4.0.6-00C853)](CHANGELOG.md)
+[![Firmware](https://img.shields.io/badge/Firmware-4.0.7-00C853)](CHANGELOG.md)
 [![Android](https://img.shields.io/badge/BRZ_Garage-4.3.10-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
@@ -17,9 +17,27 @@
 >
 > 你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
 
+## GNSS 一次性授时（固件 4.0.7）
+
+[下载独立 GNSS 固件](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.7)。本次仅发布应用固件、清单和校验文件，不附带 APK 或一键烧录包。上方完整下载入口继续指向 v4.3.10（Android 4.3.10 + 固件 4.0.6）。升级方法见 [固件说明](firmware/README.md#独立固件-407gnss-授时)。
+
+- 每次开机以“尚未授时”开始。已有手机时间则跳过 GNSS；否则在仪表正常启动后进行有限硬件探测。
+- 同一个 AMOLED 1.75 固件适用于普通版、带壳 B 版、G 版。G 版使用 LC76G I²C 邮箱；普通版/B 版被动检测外接 UART NMEA。
+- 外接微雪 LC76G 成品板：仪表 VBUS→VCC、GND→GND、GPIO18→TX；目前只接收，因此 GPIO17→RX 可以预留但无需连接。信号为 3.3V TTL。模块使用原配天线。不要按线束颜色猜引脚。
+- UART2 仅用于 GNSS，9600/115200 各探测约 6 秒。仅收到校验正确的 GNSS NMEA 才认定模块存在；没有模块则释放串口并退出，本次开机不重复扫描。不支持开机探测结束后热插模块。
+- 检测到模块但没有卫星定位时，继续后台等待，不等待定位才开始记录。接收连续静默 30 秒或 I²C 连续失败 3 次则关闭该接收通道。
+- 接受校验和正确、状态 A、有效日期的 RMC UTC 时间，需两个时间递增且与单调时钟一致的样本；拒绝无定位、模拟模式、错误日期和积压的旧数据。
+- GNSS 成功一次即释放接收资源并删除任务；手机先授时也会结束 GNSS。之后手机可以正常校时，GNSS 本次开机不再启动。这里停止的是固件读取/授时任务，不是切断模块供电。
+- TIME：未授时红色；已授时且手机断开黄色（包括 GNSS 成功）；已授时且手机 App 保持 BLE 连接绿色。手机断开后恢复黄色。
+- 后台任务优先级 1，低于行程记录的 2 和 OBD 采集的 4；不增加 OBD 查询、BLE 流量或独立 Flash 写入。I²C 单次最多 64 字节、超时 10ms，协议等待不持锁。
+- 补时只在 RAM 中更新时钟和已有行程时间锚点，沿用原有周期保存。GNSS 遇记录锁忙立即让步，下一条新时间再试；手机授时与 GNSS 应用在同一记录锁内仲裁。
+- 内存不足、接口占用或模块不可用时，跳过 GNSS，仪表继续原有记录和手机授时。非 1.75 板型及关闭 `CONFIG_OBD_GNSS_TIME` 的构建不启动探测。
+
+已完成解析、授时与记录并发、无模块退出及 UART/I²C 任务生命周期测试。1.75-B 外接 LC76G 已由用户反馈授时成功；1.75-G 板载 I²C 路径仍需实机验证。
+
 ## Beta 公测版说明
 
-当前 **Beta 公测**版本为 Android App **4.3.10**、鸿蒙原生 App **0.4.0** 与仪表固件 **4.0.6**。
+最近一次完整 **Beta 公测**发布为 Android App **4.3.10**、鸿蒙原生 App **0.4.0** 与仪表固件 **4.0.6**。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
@@ -30,11 +48,11 @@
 >
 > ❌ 目前仅对 **ZD8** 完成实车验证，ZC6 尚需更多实车测试；
 >
-> ❌ 目前仪表断电后需要手机重新授时。使用时仍需检查授时状态；
+> ❗ 仪表断电后需重新授时：固件 4.0.7 可通过可用的 GNSS 模块或手机获取时间；未接 GNSS 时仍依赖手机。使用时请检查 TIME 状态；
 >
 > ❗ Android App 目前主要在 HarmonyOS 6 上测试，其他 Android 系统可能存在厂商兼容性差异；暂不支持 iOS；
 >
-> ❌ 本项目不能远程访问或控制车辆，也未实现 GPS 功能；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G（推荐）；
+> ❌ 本项目不能远程访问或控制车辆；GNSS 目前仅用于授时，未实现轨迹或导航。需要板载 GNSS 可选择 ESP32-S3-Touch-AMOLED-1.75-G（推荐，I²C 路径仍需实机验证）；
 >
 > ❌ 当前不建议外接锂电，也未采用保险盒常电供电方案，以避免额外的电气与蓄电池风险；
 >
@@ -126,7 +144,7 @@ flowchart LR
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
 | 车辆 | Subaru BRZ ZC6 6MT | 🧪 已接入，等待更多实车验证 |
-| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
+| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（普通版/B 版可外接 LC76G；G 版板载 GNSS 路径仍需实机验证），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
 | 自动挡、其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
@@ -184,7 +202,7 @@ flowchart LR
 
 开始前请准备：
 
-- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐，预留定位功能）、1.75-B 或 1.75（目前尚未开发 GPS 功能；如需为未来扩展预留硬件，请选择 1.75-G）；
+- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐，板载 GNSS 路径待实测）、1.75-B 或 1.75（普通版/B 版可外接 LC76G 授时）；
 - 一条确认支持数据传输的 USB 线；
 - BLE ELM327 兼容适配器；
 - Android 8.0+ 手机；
@@ -201,7 +219,7 @@ flowchart LR
 
 #### Windows 一键烧录（免安装开发环境）
 
-在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。每次发布 Beta / 正式版后自动构建、测试并附加烧录包；附件需等待发布工作流成功完成。下载完整烧录包后：
+在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。完整版本发布后自动构建、测试并附加烧录包；独立固件小更新可以省略该包，首次安装请使用上方 v4.3.10 完整下载入口；附件需等待发布工作流成功完成。下载完整烧录包后：
 
 1. 将 ZIP **完整解压**，用 USB 数据线连接仪表。
 2. 双击 `Start-Flasher.cmd`，等待自动识别 USB 串口并确认开发板型号。工具每 2 秒监测插拔、显示设备名称并排除蓝牙虚拟串口；多个 USB 候选设备需要手动选择。
@@ -258,7 +276,7 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.3.6 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10) 下载并安装 **BRZ Garage**。完成第一次烧录后，App 和仪表固件的后续升级都可以直接在 App 内完成。
+前往 [v4.3.10 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10) 下载并安装 **BRZ Garage**。完成第一次烧录后，App 可更新其内置固件；4.0.7 独立固件不在 App 4.3.10 内，也不能在该 App 中直接导入。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；
@@ -276,7 +294,7 @@ cd C:\path\to\BRZ_OBD
 6. 回到仪表页，确认转速、车速和温度开始刷新。
 
 > [!TIP]
-> 仪表断电后需要手机重新授时。建议打开 App 的“开机自启 / 自动连接”，并在“设置 → 应用 → 系统级 BLE 唤醒”确认系统伴生关联有效。
+> 仪表断电后需要重新授时；4.0.7 可用 GNSS 或手机，未接 GNSS 时需要手机。建议打开 App 的“开机自启 / 自动连接”，并在“设置 → 应用 → 系统级 BLE 唤醒”确认系统伴生关联有效。
 
 ## 日常使用
 

@@ -8,6 +8,13 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-21 — Firmware 4.0.7 Beta: optional one-shot GNSS time
+
+- Adds background GNSS clock acquisition with passive UART GPIO18 detection for external LC76G and an onboard I²C path for 1.75-G. Absent hardware exits the probe; phone time remains supported. The external 1.75-B path has user-reported success; the G-board path still needs hardware validation.
+- Clock acquisition yields to recording, stops after GNSS or phone synchronization, and does not restart after phone disconnect. TIME is red before synchronization, yellow with valid time and no phone, green while the phone remains connected.
+- Validates checksummed, live RMC time across two samples; rejects invalid fixes and the 1980 reset date. Adds rate-limited receiver diagnostics.
+- Firmware-only `firmware-v4.0.7` release: application image, manifest and checksums; no APK or flasher. The homepage retains the complete v4.3.10 download, and the Android update manifest remains unchanged. App 4.3.10 cannot import this standalone image.
+
 ### 2026-10-13 — Beta: Android 4.3.10 / HarmonyOS 0.4.0 / firmware 4.0.6
 
 - Preserve phone refuel history beyond the gauge's 20-record window and improve deletion/merge sync to prevent restored records and double counting.
@@ -839,6 +846,13 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-21 — 固件 4.0.7 Beta：可选 GNSS 一次性授时
+
+- 普通版/B 版支持 GPIO18 被动接收外接 LC76G，G 版包含板载 I²C 路径。无模块时退出探测，手机授时照常可用。B 版外接模块已由用户反馈成功，G 版仍待实机验证。
+- 后台获取时间时不等待定位才开始记录，记录锁忙立即让步；GNSS 或手机成功授时后结束本次开机的 GNSS 任务，手机断开不重新启动。TIME 未授时红色、有效时间且手机断开黄色、手机保持连接绿色。
+- 校验 RMC 校验和、有效状态和两个连续时间样本，拒绝无效定位及 1980 初始日期；新增低频接收诊断。
+- `firmware-v4.0.7` 仅发布应用镜像、清单和校验文件，不附 APK 或烧录包。主页保留 v4.3.10 完整下载入口，Android 更新清单不变；App 4.3.10 不能导入该独立镜像。
 
 ### 2026-10-13 — Beta：Android 4.3.10 / 鸿蒙 0.4.0 / 仪表固件 4.0.6
 

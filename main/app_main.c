@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
+#include "app_obd_dsp/gnss_time.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -516,5 +517,6 @@ void app_main(void)
     // another 4 KB task here could itself fail under the same memory pressure.
     if (validate_startup(dev_role != ESPNOW_ROLE_SLAVE)) {
         perf_monitor_start();
+        gnss_time_start();
     }
 }

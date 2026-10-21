@@ -23,7 +23,7 @@ class GaugeStatusIndicatorsTest(unittest.TestCase):
     def test_time_indicator_reuses_cached_phone_link_state(self):
         ui = (ROOT / "main/export_path/ui.c").read_text(encoding="utf-8")
         self.assertIn("ui_ext_status_indicators_update(obd_connected, obd_data_valid, racechrono_ble_diy_is_connected(),", ui)
-        self.assertIn("nvs_trip_phone_time_is_valid());", ui)
+        self.assertIn("nvs_trip_time_is_valid());", ui)
         phone = (ROOT / "main/bsp_obd_dsp/racechrono_ble_diy.c").read_text(encoding="utf-8")
         getter = phone.split("bool racechrono_ble_diy_is_connected(void)", 1)[1].split("}", 1)[0]
         self.assertIn("return s_connected", getter)

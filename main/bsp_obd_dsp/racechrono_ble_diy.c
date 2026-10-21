@@ -1,4 +1,5 @@
 #include "racechrono_ble_diy.h"
+#include <stdatomic.h>
 
 #include <string.h>
 #include <inttypes.h>
@@ -83,7 +84,7 @@ typedef struct {
 
 static esp_gatt_if_t s_gatts_if = ESP_GATT_IF_NONE;
 static uint16_t s_conn_id = 0xFFFF;
-static bool s_connected = false;
+static atomic_bool s_connected = false;
 static bool s_notify_enabled = false;
 static bool s_started = false;
 static bool s_rc_enabled = true;          // when false, skip RC (0x1FF8) + Pair (0x1FF9), only create Info (0x1FFA) + OTA (0x1FFB)
@@ -1271,6 +1272,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         if (param->write.handle == s_handle_can_cccd ||
             param->write.handle == s_handle_filter ||
             param->write.handle == s_handle_time_sync ||
+            param->write.handle == s_handle_harmony_time_sync ||
             param->write.handle == s_handle_trip_control ||
             param->write.handle == s_handle_brightness_control ||
             param->write.handle == s_handle_vehicle_profile_control ||

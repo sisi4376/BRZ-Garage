@@ -1034,7 +1034,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
         bool obd_connected = is_slave ? espnow_link_slave_obd_connected() : ble_now;
         bool obd_data_valid = is_slave ? espnow_link_slave_obd_has_valid_data() : elm327_ble_has_valid_data();
         ui_ext_status_indicators_update(obd_connected, obd_data_valid, racechrono_ble_diy_is_connected(),
-                                        nvs_trip_phone_time_is_valid());
+                                        nvs_trip_time_is_valid());
     } else {
         ui_ext_status_indicators_update(true, true, true, true); // showroom hides both inside ui_ext
     }

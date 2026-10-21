@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 #include "espnow_link.h"   // ESPNOW_ROLE_* (device_role default / bounds)
 #include <time.h>
+#include <stdatomic.h>
 #include <sys/time.h>
 
 #define TAG                   "nvs_storage"
@@ -178,7 +179,8 @@ static bool s_trip_sync_dirty;
 static bool s_fuel_data_valid;
 static bool s_fuel_instant_is_lph;
 static uint16_t s_fuel_instant_x100;
-static volatile bool s_phone_time_valid;
+static atomic_bool s_time_valid;
+static atomic_int s_time_source;
 static fuel_estimator_t s_fuel_estimator;
 static fuel_source_t s_fuel_source;
 static trip_time_anchor_t s_trip_time_anchor;
@@ -201,7 +203,7 @@ static uint32_t add_u32_saturated(uint32_t left, uint32_t right)
 
 static void refuel_reset_locked(uint16_t flags, uint16_t detected_added_ml)
 {
-    uint64_t now_epoch = s_phone_time_valid ? (uint64_t)time(NULL) : 0;
+    uint64_t now_epoch = s_time_valid ? (uint64_t)time(NULL) : 0;
     uint64_t duration_ms = s_fuel.lifetime_duration_ms >= s_refuel.baseline_duration_ms
                          ? s_fuel.lifetime_duration_ms - s_refuel.baseline_duration_ms : 0;
     uint64_t distance_mm = s_fuel.lifetime_distance_mm >= s_refuel.baseline_distance_mm
@@ -384,7 +386,7 @@ static void fuel_finish_active_trip(void)
     /* Re-anchor the boundary immediately before archiving.  The end of a trip
      * is the last engine-running sample, never the time at which the 15-minute
      * finalization timer expires. */
-    if (s_phone_time_valid && s_trip_time_anchor.seen) {
+    if (s_time_valid && s_trip_time_anchor.seen) {
         time_t now = time(NULL);
         uint64_t estimated_start = 0;
         uint64_t estimated_end = 0;
@@ -960,7 +962,7 @@ void nvs_fuel_update(const fuel_sample_t *sample, uint32_t dt_ms)
         trip_time_anchor_observe(&s_trip_time_anchor, now_us, dt_ms);
         s_fuel.active_duration_ms += dt_ms;
         s_fuel.lifetime_duration_ms += dt_ms;
-        if (s_phone_time_valid) {
+        if (s_time_valid) {
             time_t now = time(NULL);
             if (now >= (time_t)1704067200) {
                 uint64_t now_s = (uint64_t)now;
@@ -1387,20 +1389,29 @@ uint64_t nvs_trip_phone_clock_epoch(void)
 {
     if (!s_mux) return 0;
     xSemaphoreTake(s_mux, portMAX_DELAY);
-    uint64_t epoch = s_phone_time_valid ? (uint64_t)time(NULL) : 0;
+    uint64_t epoch = s_time_valid ? (uint64_t)time(NULL) : 0;
     xSemaphoreGive(s_mux);
     return epoch;
 }
 
-bool nvs_trip_phone_time_is_valid(void)
+bool nvs_trip_time_is_valid(void)
 {
-    /* Single-byte, write-once-per-boot status for UI indication. Deliberately
-     * lock-free so the LVGL refresh path can never delay OBD/trip storage. */
-    return s_phone_time_valid;
+    return atomic_load(&s_time_valid);
 }
 
-esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s,
-                                    nvs_trip_time_sync_result_t *result)
+nvs_trip_time_source_t nvs_trip_time_source(void)
+{
+    return (nvs_trip_time_source_t)atomic_load(&s_time_source);
+}
+
+/* Retained API for existing consumers; either trusted time source is valid. */
+bool nvs_trip_phone_time_is_valid(void)
+{
+    return nvs_trip_time_is_valid();
+}
+
+static esp_err_t trip_apply_time(uint64_t epoch_s, nvs_trip_time_source_t source,
+                                 nvs_trip_time_sync_result_t *result)
 {
     /* Reject corrupted packets and millisecond timestamps accidentally sent
        as seconds. Accepted range is 2024-01-01 through 2100-01-01 UTC. */
@@ -1409,15 +1420,27 @@ esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s,
     }
     if (!s_mux) return ESP_ERR_INVALID_STATE;
 
+    /* Serialize clock publication with the recorder and phone. GNSS never
+     * waits for the recording mutex, and must not overwrite a phone sync
+     * that won the race. All work below is in RAM; no GNSS I/O under lock. */
+    TickType_t wait = source == NVS_TRIP_TIME_GNSS ? 0 : portMAX_DELAY;
+    if (xSemaphoreTake(s_mux, wait) != pdTRUE) return ESP_ERR_TIMEOUT;
+    if (source == NVS_TRIP_TIME_GNSS && s_time_valid) {
+        xSemaphoreGive(s_mux);
+        return ESP_ERR_INVALID_STATE;
+    }
     struct timeval tv = {
         .tv_sec = (time_t)epoch_s,
         .tv_usec = 0,
     };
-    if (settimeofday(&tv, NULL) != 0) return ESP_FAIL;
+    if (settimeofday(&tv, NULL) != 0) {
+        xSemaphoreGive(s_mux);
+        return ESP_FAIL;
+    }
 
     nvs_trip_time_sync_result_t resolved = NVS_TRIP_TIME_SYNC_NO_PENDING;
-    xSemaphoreTake(s_mux, portMAX_DELAY);
-    s_phone_time_valid = true;
+    atomic_store(&s_time_source, source);
+    atomic_store(&s_time_valid, true);
     if (s_refuel.current_start_epoch_s < 1704067200ULL) {
         s_refuel.current_start_epoch_s = epoch_s;
         s_refuel_dirty = true;
@@ -1502,6 +1525,16 @@ esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s,
        one-minute/stop-edge checkpoint persists both fuel and sync state.
        This keeps the phone link from starving the simultaneous ELM327 link. */
     return ESP_OK;
+}
+
+esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s, nvs_trip_time_sync_result_t *result)
+{
+    return trip_apply_time(epoch_s, NVS_TRIP_TIME_PHONE, result);
+}
+
+esp_err_t nvs_trip_apply_gnss_time(uint64_t epoch_s, nvs_trip_time_sync_result_t *result)
+{
+    return trip_apply_time(epoch_s, NVS_TRIP_TIME_GNSS, result);
 }
 
 void nvs_trip_sync_get_meta(nvs_trip_sync_meta_t *out)

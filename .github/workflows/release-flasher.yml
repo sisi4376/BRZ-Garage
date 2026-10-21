@@ -21,7 +21,8 @@ jobs:
   build:
     # A locally verified package is uploaded while the release is still a draft.
     # Publishing it must not replace the tested binaries with a second build.
-    if: github.event_name == 'workflow_dispatch' || !contains(join(github.event.release.assets.*.name, ','), 'BRZ-Garage-Flasher-')
+    # Standalone firmware updates omit the flasher; manual repair remains available.
+    if: github.event_name == 'workflow_dispatch' || (!startsWith(github.event.release.tag_name, 'firmware-') && !contains(join(github.event.release.assets.*.name, ','), 'BRZ-Garage-Flasher-'))
     runs-on: ubuntu-24.04
     container: espressif/idf:v5.5.3
     timeout-minutes: 45

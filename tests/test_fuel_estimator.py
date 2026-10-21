@@ -120,7 +120,7 @@ class FuelEstimatorTests(unittest.TestCase):
         self.assertIn("periodic_due || (checkpoint_edge && save_err == ESP_OK)", cache)
         self.assertIn("trip_time_anchor_estimate(&s_trip_time_anchor", storage)
         self.assertIn("s_fuel.active_last_epoch_s = estimated_end", storage)
-        self.assertIn("s_phone_time_valid && s_trip_time_anchor.seen", storage)
+        self.assertIn("s_time_valid && s_trip_time_anchor.seen", storage)
         self.assertIn("s_fuel.active_last_epoch_s = s_fuel.pending_last_epoch_s", storage)
         self.assertIn("!estimated && !s_active_contains_pending", storage)
         self.assertIn("bool engine_running = sample && sample->rpm_valid", storage)

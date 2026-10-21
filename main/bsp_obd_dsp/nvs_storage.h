@@ -94,7 +94,7 @@ typedef struct {
 } nvs_trip_detail_t;
 
 /* Full record transferred to the companion phone. Timestamps are Unix UTC
- * seconds; zero means that the phone did not provide valid time during that
+ * seconds; zero means that neither phone nor GNSS provided valid time during that
  * ignition session (legacy records are intentionally reported this way). */
 typedef struct {
     uint32_t id;
@@ -259,8 +259,18 @@ typedef enum {
  * retained by a power loss that occurred before the live engine-off timer. */
 esp_err_t nvs_trip_apply_phone_time(uint64_t epoch_s,
                                     nvs_trip_time_sync_result_t *result);
-uint64_t nvs_trip_phone_clock_epoch(void); // zero until this boot was phone-synchronized
-bool nvs_trip_phone_time_is_valid(void);   // lock-free UI status; false until phone sync this boot
+typedef enum {
+    NVS_TRIP_TIME_NONE = 0,
+    NVS_TRIP_TIME_PHONE,
+    NVS_TRIP_TIME_GNSS,
+} nvs_trip_time_source_t;
+/* GNSS applies only to an unsynchronized clock, with a nonblocking recorder
+ * lock. ESP_ERR_TIMEOUT means retry using a fresh fix; never queue an epoch. */
+esp_err_t nvs_trip_apply_gnss_time(uint64_t epoch_s, nvs_trip_time_sync_result_t *result);
+bool nvs_trip_time_is_valid(void); // lock-free, this boot only
+nvs_trip_time_source_t nvs_trip_time_source(void);
+uint64_t nvs_trip_phone_clock_epoch(void); // legacy wire API: either time source
+bool nvs_trip_phone_time_is_valid(void);   // legacy alias of time_is_valid
 
 /* Phone history synchronization. Records remain queued until the phone ACKs
  * them. read_after() returns records in ascending trip-id order. */
