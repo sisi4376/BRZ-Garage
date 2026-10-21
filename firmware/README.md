@@ -1,8 +1,18 @@
 # Firmware Package
 
+## App 4.3.11 内置 GNSS 固件 4.0.7
+
+[v4.3.11 完整下载页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11) 包含 Android APK（内置 4.0.7）、Windows r4 一键烧录包、独立应用镜像及校验文件。主页下载入口指向该完整版本。
+
+已有仪表的用户：覆盖安装 App 4.3.11，连接仪表，进入“设置 → 应用 → 仪表固件更新”，点击“扫描是否需要更新”，再点击“手动进入 OTA 并更新”。无需导入文件。需要回退时在同页选择“选择历史版本回滚 → 4.0.6（GNSS 更新前版本）”。更新期间请停车并保持供电。
+
+App、独立文件及烧录包内的 4.0.7 应用镜像与 `firmware-v4.0.7` 已发布镜像逐字节一致。本次新增 App 内置与完整打包方式，不修改固件代码。后续仅发布小改动固件时，主页入口仍保留在最近一次完整发布。
+
+以下记录保留先前独立固件发布方式；普通用户现在优先使用上方 App 升级。
+
 ## 独立固件 4.0.7：GNSS 授时
 
-[固件 4.0.7 Beta 下载](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.7) 提供 `obd_brz_gauge-v4.0.7-ota.bin`、`firmware-v4.0.7.json` 和 SHA-256 校验文件。本次不发布 APK 或一键烧录包。主页主要下载入口继续指向 [v4.3.10 完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10)，其中包含 Android 4.3.10、固件 4.0.6 和 r4 烧录包。
+[固件 4.0.7 Beta 下载](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.7) 提供 `obd_brz_gauge-v4.0.7-ota.bin`、`firmware-v4.0.7.json` 和 SHA-256 校验文件。该独立发布当时未附 APK 或一键烧录包，完整下载入口当时保留在 [v4.3.10 完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10)，其中包含 Android 4.3.10、固件 4.0.6 和 r4 烧录包。
 
 - 1.75 / 1.75-B / 1.75-G 使用同一固件；普通版/B 版外接模块 TX 接仪表 GPIO18，并共地。微雪 LC76G 成品板 VCC 可接仪表 VBUS；串口信号为 3.3V TTL。G 版走板载 I²C，仍需实机验证。
 - 时钟无效时后台探测模块并等待有效 RMC，不阻塞正常记录；无模块则退出探测，手机授时保持可用。每次开机成功授时一次即结束 GNSS 接收任务；手机先授时也会结束任务，手机随后断开不会重启 GNSS。模块仍可能耗电，并非物理断电。
@@ -25,7 +35,7 @@ r4 已通过模拟短包恢复、重复短包、备份校验失败、设备切�
 
 ### Release 自动发布
 
-最近一次完整发布的固件为 **4.0.6**（独立更新为上方 **4.0.7**），见 [App 4.3.10 / 固件 4.0.6 发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
+当前完整发布为 **App 4.3.11 / 固件 4.0.7**，见 [完整发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
 
 若草稿中已上传本地验证的烧录 ZIP，发布事件跳过重复构建，保留 APK 与 ZIP 使用同一固件。自动构建优先使用标签内的 `firmware/sdkconfig.release`；上传不覆盖已有同名附件。
 

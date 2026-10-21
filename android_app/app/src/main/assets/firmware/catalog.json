@@ -9,6 +9,12 @@
       "rollback": false
     },
     {
+      "id": "4.0.6",
+      "label": "4.0.6（GNSS 更新前版本）",
+      "manifest": "firmware/history/4.0.6/latest.json",
+      "rollback": true
+    },
+    {
       "id": "2.6.0-safe",
       "label": "2.6.0（数据安全版）",
       "manifest": "firmware/history/2.6.0/latest.json",

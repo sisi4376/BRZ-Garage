@@ -4,11 +4,11 @@
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.0.7-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.3.10-3DDC84)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.3.11-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.3.10 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.3.11 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
@@ -19,7 +19,7 @@
 
 ## GNSS 一次性授时（固件 4.0.7）
 
-[下载独立 GNSS 固件](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.7)。本次仅发布应用固件、清单和校验文件，不附带 APK 或一键烧录包。上方完整下载入口继续指向 v4.3.10（Android 4.3.10 + 固件 4.0.6）。升级方法见 [固件说明](firmware/README.md#独立固件-407gnss-授时)。
+[下载 App 4.3.11 + GNSS 固件 4.0.7 完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11)。App 已内置 4.0.7，安装后进入“设置 → 应用 → 仪表固件更新”扫描并手动升级，无需导入独立文件。“选择历史版本回滚”中保留 4.0.6。完整发布同时提供 Windows r4 烧录包供首次安装。
 
 - 每次开机以“尚未授时”开始。已有手机时间则跳过 GNSS；否则在仪表正常启动后进行有限硬件探测。
 - 同一个 AMOLED 1.75 固件适用于普通版、带壳 B 版、G 版。G 版使用 LC76G I²C 邮箱；普通版/B 版被动检测外接 UART NMEA。
@@ -37,7 +37,7 @@
 
 ## Beta 公测版说明
 
-最近一次完整 **Beta 公测**发布为 Android App **4.3.10**、鸿蒙原生 App **0.4.0** 与仪表固件 **4.0.6**。
+当前完整 **Beta 公测**发布为 Android App **4.3.11**（内置仪表固件 **4.0.7**），附 Windows r4 烧录包。鸿蒙原生 App **0.4.0** 本次未更新。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
@@ -219,7 +219,7 @@ flowchart LR
 
 #### Windows 一键烧录（免安装开发环境）
 
-在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。完整版本发布后自动构建、测试并附加烧录包；独立固件小更新可以省略该包，首次安装请使用上方 v4.3.10 完整下载入口；附件需等待发布工作流成功完成。下载完整烧录包后：
+在 [GitHub Releases](https://github.com/sisi4376/BRZ-Garage/releases) 对应版本的 **Assets** 中下载 `BRZ-Garage-Flasher-v<固件版本>-r<工具修订>-Windows-x64.zip`（及同名 `.zip.sha256` 校验文件）。完整版本发布后自动构建、测试并附加烧录包；独立固件小更新可以省略该包，首次安装请使用上方 v4.3.11 完整下载入口；附件需等待发布工作流成功完成。下载完整烧录包后：
 
 1. 将 ZIP **完整解压**，用 USB 数据线连接仪表。
 2. 双击 `Start-Flasher.cmd`，等待自动识别 USB 串口并确认开发板型号。工具每 2 秒监测插拔、显示设备名称并排除蓝牙虚拟串口；多个 USB 候选设备需要手动选择。
@@ -276,7 +276,7 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.3.10 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.10) 下载并安装 **BRZ Garage**。完成第一次烧录后，App 可更新其内置固件；4.0.7 独立固件不在 App 4.3.10 内，也不能在该 App 中直接导入。
+前往 [v4.3.11 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11) 下载并安装 **BRZ Garage**。完成第一次烧录后，App 4.3.11 已内置固件 4.0.7，可直接在 App 内执行仪表升级。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；

@@ -1,9 +1,9 @@
 {
-  "version": "4.3.10",
-  "name": "BRZ Garage v4.3.10 (Beta)",
-  "apk_name": "BRZ-Garage-v4.3.10-debug.apk",
-  "apk_url": "https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.10/BRZ-Garage-v4.3.10-debug.apk",
-  "apk_size": 32736041,
-  "sha256": "679a98af24901dba38a865f8faf666fd8b9190b9b52d9fae04f05c9c28045450",
+  "version": "4.3.11",
+  "name": "BRZ Garage v4.3.11 (Beta)",
+  "apk_name": "BRZ-Garage-v4.3.11-debug.apk",
+  "apk_url": "https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.11/BRZ-Garage-v4.3.11-debug.apk",
+  "apk_size": 34004857,
+  "sha256": "6a99fe102135426bb7018ac0e2be434bdba6a4edbedb1cf7635195c0eb8b3657",
   "prerelease": true
 }

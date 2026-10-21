@@ -8,6 +8,12 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-21 — Android 4.3.11: bundled GNSS firmware 4.0.7
+
+- Bundle the exact published 4.0.7 GNSS image so users can update through the existing in-app OTA page without importing a file.
+- Keep the previous 4.0.6 image in the app's explicit rollback picker, alongside the existing 2.6.0 safe rollback package.
+- Publish APK, matching Windows r4 flasher, application image, manifest and checksums together. Move the homepage download and Android update manifest to this complete v4.3.11 release. No firmware code change.
+
 ### 2026-10-21 — Firmware 4.0.7 Beta: optional one-shot GNSS time
 
 - Adds background GNSS clock acquisition with passive UART GPIO18 detection for external LC76G and an onboard I²C path for 1.75-G. Absent hardware exits the probe; phone time remains supported. The external 1.75-B path has user-reported success; the G-board path still needs hardware validation.
@@ -846,6 +852,12 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-21 — Android 4.3.11：内置 GNSS 固件 4.0.7
+
+- 内置与已发布镜像完全一致的 4.0.7 GNSS 固件，用户可通过现有 App OTA 页面直接升级，无需导入文件。
+- 在历史版本回滚列表中保留 4.0.6，同时保留已有 2.6.0 数据安全回滚包。
+- 同时发布 APK、匹配的 Windows r4 烧录包、独立固件及校验文件，主页和 Android 更新清单转向 v4.3.11 完整版本；固件代码不变。
 
 ### 2026-10-21 — 固件 4.0.7 Beta：可选 GNSS 一次性授时
 
