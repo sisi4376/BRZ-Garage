@@ -8,6 +8,11 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-23 — Android 4.3.12: pairing compatibility fix
+
+- Fix selecting a gauge calling the API-37-only transport pairing overload on older Android versions. API 26–36 now use the supported no-argument method, avoiding a possible `NoSuchMethodError` on devices such as Galaxy Z Flip7 / Android 16.
+- Publish the signed App update through the existing in-app updater. Firmware remains 4.0.7; the previously verified firmware and Windows r4 flasher are reused.
+
 ### 2026-10-21 — Android 4.3.11: bundled GNSS firmware 4.0.7
 
 - Bundle the exact published 4.0.7 GNSS image so users can update through the existing in-app OTA page without importing a file.
@@ -852,6 +857,11 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-23 — Android 4.3.12：绑定仪表兼容性修复
+
+- 修复选中仪表后，在旧版 Android 上误调用仅 API 37 公开的带参数配对接口。API 26–36 改用受支持的无参数接口，避免在三星 Z Flip7 / Android 16 等设备上可能触发的 `NoSuchMethodError`。
+- 通过现有 App 更新入口发布同签名安装包。固件继续为 4.0.7，沿用已经验证的固件与 Windows r4 烧录包。
 
 ### 2026-10-21 — Android 4.3.11：内置 GNSS 固件 4.0.7
 

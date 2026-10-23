@@ -73,7 +73,9 @@ object GaugeBondManager {
             }
             else -> {
                 val requested = try {
-                    if (Build.VERSION.SDK_INT >= 23) {
+                    // The transport overload became public in API 37. Older devices
+                    // may hide it; NoSuchMethodError is not a RuntimeException.
+                    if (Build.VERSION.SDK_INT >= 37) {
                         device.createBond(BluetoothDevice.TRANSPORT_LE)
                     } else {
                         device.createBond()
