@@ -4112,7 +4112,7 @@ class MainActivity : Activity() {
             "自动连接：${if (state.automatic) "已开启" else "已关闭"}",
             "仪表固件：${state.firmwareVersion ?: "未读取"}",
             "仪表硬件：$gaugeHardware",
-        ).joinToString("\n")
+        ).joinToString("\n") + "\n\n" + AppCrashDiagnostics.summary(this)
     }
 
     private fun feedbackTemplate(): String = """
@@ -4199,7 +4199,7 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
             background = rounded(Color.rgb(247, 248, 251), 13)
         }, 8)
-        add(diagnostics, label("不会包含行程、位置、车牌、账目、日志正文或完整蓝牙地址，也不会在后台自动上传。", 11f, muted), 8)
+        add(diagnostics, label("诊断包包含最近一次异常类型、代码堆栈和绑定步骤；不记录异常消息、行程或完整蓝牙地址，不会自动上传。复现后重新打开本页，复制反馈模板即可。", 11f, muted), 8)
 
         add(body, primaryBookkeepingAction("在 GitHub 提交问题", bookkeepingStats) {
             openFeedbackIssue()
@@ -4889,6 +4889,7 @@ class MainActivity : Activity() {
         } else toast("需要附近设备权限才能发现仪表")
     }
     private fun bindGauge(addressHint: String? = null) {
+        AppCrashDiagnostics.step("binding.begin")
         val bluetooth = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         if (bluetooth?.isEnabled != true) { toast("请先开启手机蓝牙，并让仪表保持上电"); return }
         val manager = getSystemService(CompanionDeviceManager::class.java)
@@ -4909,11 +4910,13 @@ class MainActivity : Activity() {
         ).setSingleDevice(addressHint != null).build()
         val callback = object : CompanionDeviceManager.Callback() {
             override fun onDeviceFound(chooserLauncher: IntentSender) {
+                AppCrashDiagnostics.step("binding.open-chooser")
                 try { startIntentSenderForResult(chooserLauncher, 201, null, 0, 0, 0) }
                 catch (_: IntentSender.SendIntentException) { toast("无法打开系统设备选择器") }
             }
             override fun onAssociationPending(intentSender: IntentSender) = onDeviceFound(intentSender)
             override fun onAssociationCreated(associationInfo: AssociationInfo) {
+                AppCrashDiagnostics.step("binding.association-created")
                 if (Build.VERSION.SDK_INT >= 33) {
                     associationInfo.deviceMacAddress?.toString()?.let { saveBinding(it) }
                 }
@@ -4936,6 +4939,7 @@ class MainActivity : Activity() {
             if (resultCode == RESULT_OK) recreate()
             return
         }
+        if (requestCode == 201) AppCrashDiagnostics.step("binding.activity-result=$resultCode")
         if (requestCode != 201 || resultCode != RESULT_OK) return
         if (Build.VERSION.SDK_INT >= 33) {
             data?.getParcelableExtra(
@@ -4953,39 +4957,58 @@ class MainActivity : Activity() {
         }
     }
     private fun saveBinding(address: String) {
+        AppCrashDiagnostics.step("binding.save.begin")
+        AppCrashDiagnostics.step("binding.previous")
         val previous = state.address
         if (previous != address) {
+            AppCrashDiagnostics.step("binding.cancel-wake")
             BackgroundBleWake.cancel(this)
+            AppCrashDiagnostics.step("binding.stop-presence")
             stopPresence()
         }
+        AppCrashDiagnostics.step("binding.save-address")
         state.address = address
+        AppCrashDiagnostics.step("binding.enable-auto")
         state.automatic = true
+        AppCrashDiagnostics.step("binding.check-association")
         if (GaugePresenceObserver.hasAssociation(this, address)) {
             state.prefs.edit().putLong("companion_privilege_granted_at", System.currentTimeMillis()).apply()
         }
+        AppCrashDiagnostics.step("binding.check-bond")
         if (!GaugeBondManager.isBonded(this, address)) {
+            AppCrashDiagnostics.step("binding.cancel-wake")
             BackgroundBleWake.cancel(this)
+            AppCrashDiagnostics.step("binding.stop-presence")
             stopPresence()
+            AppCrashDiagnostics.step("binding.cancel-watchdog")
             ServiceWatchdogReceiver.cancel(this)
+            AppCrashDiagnostics.step("binding.stop-service")
             stopService(Intent(this, TripSyncService::class.java))
         }
+        AppCrashDiagnostics.step("binding.create-bond")
         val bond = GaugeBondManager.ensureBond(this, address)
         if (bond == GaugeBondManager.SetupResult.STARTED) {
             // Some vendor stacks accept createBond() but never deliver a final
             // broadcast. Reuse the existing watchdog as a bounded fallback so
             // normal synchronization cannot remain disabled indefinitely.
+            AppCrashDiagnostics.step("binding.schedule-watchdog")
             ServiceWatchdogReceiver.schedule(this, 60_000L)
             toast("已绑定仪表，正在建立系统 LE 配对；完成后会自动启动 BRZ Garage 后台连接")
         } else {
+            AppCrashDiagnostics.step("binding.start-presence")
             observePresence()
+            AppCrashDiagnostics.step("binding.register-wake")
             BackgroundBleWake.register(this, force = true)
+            AppCrashDiagnostics.step("binding.schedule-watchdog")
             ServiceWatchdogReceiver.schedule(this)
+            AppCrashDiagnostics.step("binding.start-service")
             TripSyncService.start(this, true, reason = if (bond == GaugeBondManager.SetupResult.READY) {
                 "仪表已完成系统配对"
             } else {
                 "系统配对不可用，兼容模式"
             })
         }
+        AppCrashDiagnostics.step("binding.render-home")
         showTab(0)
     }
     private fun observePresence() {

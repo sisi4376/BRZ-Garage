@@ -17,6 +17,7 @@ import java.util.UUID
 class BrzApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppCrashDiagnostics.install(this)
         TransferStore.recoverPreferences(this)
         CustomTripDatabase.recover(this)
     }

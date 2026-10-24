@@ -8,6 +8,12 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-25 — Android 4.3.13: local crash diagnostics
+
+- Save the latest unhandled Java/Kotlin exception types and bounded code frames locally, with recent gauge-binding steps and available process-exit reasons.
+- After reproducing a crash, reopen Settings → Applications → Feedback and copy the report. Exception messages, trip data and Bluetooth addresses are excluded; reports are not uploaded automatically.
+- Publish the diagnostic capability through the existing App updater. This update helps investigate the remaining Samsung report; it does not claim another verified crash fix. Embedded firmware remains 4.0.7.
+
 ### 2026-10-23 — Android 4.3.12: pairing compatibility fix
 
 - Fix selecting a gauge calling the API-37-only transport pairing overload on older Android versions. API 26–36 now use the supported no-argument method, avoiding a possible `NoSuchMethodError` on devices such as Galaxy Z Flip7 / Android 16.
@@ -857,6 +863,12 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-25 — Android 4.3.13：本地异常诊断
+
+- 本地保存最近一次未捕获 Java/Kotlin 异常的类型与有限代码堆栈，附带近期仪表绑定步骤及系统可提供的进程退出原因。
+- 复现闪退后重新打开“设置 → 应用 → 问题反馈”，复制反馈模板即可提交诊断。排除异常消息正文、行程数据和完整蓝牙地址，不自动上传。
+- 通过现有 App 更新入口发布诊断功能，用于继续定位三星用户反馈；此次不宣称已解决剩余闪退问题。内置固件仍为 4.0.7。
 
 ### 2026-10-23 — Android 4.3.12：绑定仪表兼容性修复
 
