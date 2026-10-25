@@ -8,6 +8,12 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-25 — Android 4.3.14: gauge-binding service lifecycle fix
+
+- Handle one gauge selection once when companion callbacks and the activity result both report it. Pause BLE work during system pairing instead of stopping and immediately restarting the foreground service; resume on the pairing result or after a bounded wait.
+- Confirm foreground startup before initialization and on each service start request. This addresses the lifecycle path identified by the Samsung Android 16 crash report; confirmation on the affected Z Flip7 remains pending.
+- Preserve local crash diagnostics, the existing installation signature and embedded firmware 4.0.7. The 49 related regression checks pass.
+
 ### 2026-10-25 — Android 4.3.13: local crash diagnostics
 
 - Save the latest unhandled Java/Kotlin exception types and bounded code frames locally, with recent gauge-binding steps and available process-exit reasons.
@@ -863,6 +869,12 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-25 — Android 4.3.14：仪表绑定服务时序修复
+
+- 系统伴生回调和页面返回同时报告同一次选择时，只完成一次绑定。系统配对期间暂停蓝牙连接，避免停止后立即重启前台服务；配对结果返回或等待到期后恢复。
+- 在初始化前及每次服务启动时确认前台状态，修正三星 Android 16 诊断报告所指向的服务启动路径；受影响 Z Flip7 的实机验证仍待反馈。
+- 保留本地异常诊断、原安装签名和内置固件 4.0.7。49 项相关回归检查通过。
 
 ### 2026-10-25 — Android 4.3.13：本地异常诊断
 

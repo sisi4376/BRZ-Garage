@@ -20,6 +20,7 @@ import kotlin.math.abs
 class TripSyncService : Service() {
     companion object {
         const val ACTION_SYNC_NOW = "com.brz.gauge.trips.SYNC_NOW"
+        private const val ACTION_PAUSE_FOR_BOND = "com.brz.gauge.trips.PAUSE_FOR_BOND"
         const val ACTION_AUTOSTART = "com.brz.gauge.trips.AUTOSTART"
         const val ACTION_GAUGE_SIGNAL = "com.brz.gauge.trips.GAUGE_SIGNAL"
         const val ACTION_SET_BRIGHTNESS = "com.brz.gauge.trips.SET_BRIGHTNESS"
@@ -84,6 +85,15 @@ class TripSyncService : Service() {
                 state.status("系统限制后台启动，请打开应用并允许后台运行", false)
                 false
             }
+        }
+        fun pauseForBond(context: Context): Boolean {
+            return try {
+                // Do not stop a service with a pending foreground-start request.
+                context.startForegroundService(Intent(context, TripSyncService::class.java).apply {
+                    action = ACTION_PAUSE_FOR_BOND
+                })
+                true
+            } catch (_: RuntimeException) { false }
         }
         fun wakeFromGaugeSignal(
             context: Context,
@@ -340,6 +350,11 @@ class TripSyncService : Service() {
             startScan()
         }
     }
+    private val bondPause = BondConnectionPause()
+    private val bondPauseExpired = Runnable {
+        bondPause.resume()
+        if (!destroyed && !otaSessionActive) beginReconnect()
+    }
     private val cycle = Runnable { nextCycle() }
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -355,6 +370,14 @@ class TripSyncService : Service() {
     }
     override fun onCreate() {
         super.onCreate()
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannels(listOf(
+            NotificationChannel(CHANNEL, "车辆连接与自动授时", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(LOW_FUEL_CHANNEL, "低油量提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "当预估剩余油量低于 25% 时提醒及时加油"
+            },
+        ))
+        promoteForeground()
         runningForTransfer = true
         running = true
         state = AppState(this)
@@ -377,14 +400,6 @@ class TripSyncService : Service() {
             Log.w(LOG_TAG, "Unable to create gauge signal connection wake lock", error)
             null
         }
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannels(listOf(
-            NotificationChannel(CHANNEL, "车辆连接与自动授时", NotificationManager.IMPORTANCE_LOW),
-            NotificationChannel(LOW_FUEL_CHANNEL, "低油量提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "当预估剩余油量低于 25% 时提醒及时加油"
-            },
-        ))
-        startForeground(NOTIFICATION, notification("等待仪表上电"))
         try { BackgroundBleWake.register(this) } catch (_: RuntimeException) { }
         try { ServiceWatchdogReceiver.schedule(this) } catch (_: RuntimeException) { }
         otaAwaitingVerification = state.firmwareUpdateStage == "verifying"
@@ -406,10 +421,35 @@ class TripSyncService : Service() {
             bluetoothReceiverRegistered = false
         }
     }
+    private fun promoteForeground() {
+        startForeground(NOTIFICATION, notification(if (connected) "仪表已连接" else "等待仪表上电"))
+        AppCrashDiagnostics.step("service.foreground-confirmed")
+    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every delivered start must acknowledge its foreground request, even
+        // when this instance already exists or rejects the requested work.
+        promoteForeground()
         if (!state.automatic || !hasPermissions(this) || state.address.isEmpty()) {
-            stopSelf()
+            stopSelf(startId)
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_PAUSE_FOR_BOND) {
+            if (!otaSessionActive) {
+                bondPause.begin(SystemClock.elapsedRealtime())
+                handler.removeCallbacks(retry)
+                stopScan()
+                closeConnection()
+                handler.removeCallbacks(bondPauseExpired)
+                handler.postDelayed(bondPauseExpired, BondConnectionPause.DURATION_MS)
+                publish("等待系统 LE 配对完成")
+            }
+            return START_STICKY
+        }
+        if (intent?.action == ACTION_SYNC_NOW) {
+            bondPause.resume()
+            handler.removeCallbacks(bondPauseExpired)
+        } else if (bondPause.isPaused(SystemClock.elapsedRealtime())) {
+            return START_STICKY
         }
         state.prefs.edit().putLong("service_started_at", System.currentTimeMillis())
             .putString("service_start_reason", intent?.getStringExtra(EXTRA_START_REASON)
@@ -640,6 +680,7 @@ class TripSyncService : Service() {
         } catch (_: RuntimeException) { }
     }
     private fun startScan() {
+        if (bondPause.isPaused(SystemClock.elapsedRealtime())) return
         if (destroyed || scanning || gatt != null || !state.automatic) return
         handler.removeCallbacks(retry)
         handler.removeCallbacks(autoConnectFallback)
@@ -668,6 +709,7 @@ class TripSyncService : Service() {
      * to a filtered balanced scan and a direct connection.
      */
     private fun startAutoConnect() {
+        if (bondPause.isPaused(SystemClock.elapsedRealtime())) return
         if (destroyed || scanning || gatt != null || !state.automatic) return
         handler.removeCallbacks(retry)
         handler.removeCallbacks(autoConnectFallback)
@@ -695,6 +737,7 @@ class TripSyncService : Service() {
         startScan()
     }
     private fun connectFromGaugeSignal() {
+        if (bondPause.isPaused(SystemClock.elapsedRealtime())) return
         if (destroyed || gatt != null || !state.automatic) return
         stopScan()
         if (!hasPermissions(this)) { publish("已发现仪表，但附近设备权限已关闭"); return }

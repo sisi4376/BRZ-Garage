@@ -75,6 +75,7 @@ class MainActivity : Activity() {
     private lateinit var clockText: TextView
     private lateinit var countText: TextView
     private var homeVehicleHero: Vehicle3DView? = null
+    private val bindingCompletion = BindingCompletion()
     private val handler = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var trips = emptyList<TripRecord>()
@@ -4889,6 +4890,7 @@ class MainActivity : Activity() {
         } else toast("需要附近设备权限才能发现仪表")
     }
     private fun bindGauge(addressHint: String? = null) {
+        bindingCompletion.begin()
         AppCrashDiagnostics.step("binding.begin")
         val bluetooth = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
         if (bluetooth?.isEnabled != true) { toast("请先开启手机蓝牙，并让仪表保持上电"); return }
@@ -4957,6 +4959,10 @@ class MainActivity : Activity() {
         }
     }
     private fun saveBinding(address: String) {
+        if (!bindingCompletion.claim()) {
+            AppCrashDiagnostics.step("binding.duplicate-result")
+            return
+        }
         AppCrashDiagnostics.step("binding.save.begin")
         AppCrashDiagnostics.step("binding.previous")
         val previous = state.address
@@ -4982,8 +4988,8 @@ class MainActivity : Activity() {
             stopPresence()
             AppCrashDiagnostics.step("binding.cancel-watchdog")
             ServiceWatchdogReceiver.cancel(this)
-            AppCrashDiagnostics.step("binding.stop-service")
-            stopService(Intent(this, TripSyncService::class.java))
+            AppCrashDiagnostics.step("binding.pause-connection")
+            TripSyncService.pauseForBond(this)
         }
         AppCrashDiagnostics.step("binding.create-bond")
         val bond = GaugeBondManager.ensureBond(this, address)
