@@ -34,7 +34,7 @@ class DataTransferTest(unittest.TestCase):
         names = ['TransferSchema', 'TransferMerge', 'TransferArchive', 'TransferMigrations', 'TransferStore',
                  'TripDatabase', 'TripRecord', 'FuelDatabase', 'FuelRecord', 'ExpenseDatabase', 'ExpenseRecord', 'MaintenanceSchedule',
                  'CustomTripDatabase', 'CustomTripInterval', 'RefuelIntervalDatabase', 'RefuelInterval',
-                 'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState',
+                 'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState', 'CurrentDriving', 'GaugeBluetoothAddress',
                  'MileageEstimator', 'RangeEstimator', 'VehicleDisplayName', 'LicensePlateGenerator']
         with tempfile.TemporaryDirectory(prefix='brz-transfer-') as temp:
             harness = Path(temp) / 'RefuelServiceHarness.kt'
@@ -45,6 +45,7 @@ class DataTransferTest(unittest.TestCase):
                 *map(str, (ROOT / 'tests/transfer_host_stubs').glob('*.kt')),
                 str(ROOT / 'tests/data_transfer_host_test.kt'),
                 str(ROOT / 'tests/custom_trip_host_test.kt'),
+                str(ROOT / 'tests/current_driving_host_test.kt'),
                 str(harness), str(ROOT / 'tests/refuel_service_host_test.kt'),
                 str(ROOT / 'tests/refuel_history_host_test.kt')], capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

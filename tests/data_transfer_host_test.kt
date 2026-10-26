@@ -439,5 +439,6 @@ fun main(args: Array<String>) {
     refuelHistoryChecks(File(args[0]))
     refuelServiceChecks(File(args[0]))
     customTripChecks(File(args[0]))
+    currentDrivingChecks(File(args[0]))
     println("$passed transfer scenarios passed")
 }

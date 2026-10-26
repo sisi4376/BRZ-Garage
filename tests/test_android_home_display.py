@@ -69,7 +69,7 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         database = (ROOT / "android_app/app/src/main/java/com/brz/gauge/trips/TripDatabase.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("{ showTripDetails(it) }", activity)
+        self.assertIn("{ showTripDetails(it, current = it.tripId == 0L, returnTab = 1) }", activity)
         for label in ("平均时速", "最高速度", "最高转速", "最大加速", "最大减速"):
             self.assertIn(label, activity)
         self.assertIn("view.setOnClickListener { onOpenDetails(trip) }", adapter)
@@ -197,7 +197,7 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         for state in ("已同步", "已修订", "测试数据", "时间未知", "待核实"):
             self.assertIn(state, adapter)
         self.assertIn("tripDetailMetric", activity)
-        self.assertIn('homeDetailBackPill(body, if (current)', activity)
+        self.assertIn('homeDetailBackPill(body, if (returnTab == 0)', activity)
         self.assertIn('if (current) "本次行程 · 实时快照" else "行程概览"', activity)
 
     def test_vehicle_settings_page_owns_name_model_and_refuel_threshold(self):

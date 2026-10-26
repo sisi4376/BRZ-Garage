@@ -24,7 +24,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertIn('card(body, "驾驶总览")', main)
         self.assertIn('card(body, "驾驶日历")', main)
         self.assertIn("DrivingCalendarView(this)", main)
-        self.assertIn("data class DrivingDayActivity", calendar)
+        self.assertIn("data class DrivingDayActivity", (ANDROID / "CurrentDriving.kt").read_text(encoding="utf-8"))
         self.assertIn("repeat(weeks)", calendar)
         self.assertIn("setOnDaySelected", calendar)
         self.assertIn("today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))", calendar)
@@ -45,7 +45,7 @@ class CalendarBookkeepingAndMultiPhoneTests(unittest.TestCase):
         self.assertIn("refreshRevisionToggle", main)
         self.assertIn('label("历史驾驶记录"', main)
         self.assertIn("list.addHeaderView(body, null, false)", main)
-        self.assertIn("historyEmptyText.visibility = if (trips.isEmpty())", main)
+        self.assertIn("historyEmptyText.visibility = if (rows.isEmpty())", main)
 
     def test_bookkeeping_has_swipe_sections_and_visual_statistics(self):
         main = (ANDROID / "MainActivity.kt").read_text(encoding="utf-8")

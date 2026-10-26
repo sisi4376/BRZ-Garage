@@ -7,6 +7,7 @@ import { relationalStore } from '@kit.ArkData';
 import { Snapshot, Row, Vehicle, DeviceState, emptySnapshot, cloneSnapshot, rowKey } from '../core/Models';
 import { validate, merge, GAUGE, archiveGauge, MAX_DATA, toJson } from '../core/Transfer';
 import { mergeGaugeTrip } from '../core/Protocol';
+import { currentDrivingRecord, archivedCurrentDriving, vehicleFingerprint } from '../core/CurrentDriving';
 import { decodeArchive, encodeArchive, utf8Encode } from '../core/Archive';
 import { HarmonyArchiveRuntime, readFile, writeFile, listBackupFiles } from './ArchiveRuntime';
 
@@ -15,6 +16,7 @@ class LocalMeta {
   refuelWindows: Record<string, RefuelWindow> = {};
   refuelPending: Record<string, RefuelMutation | null> = {};
   customRequests: Record<string, CustomRequest> = {};
+  archivedVehicles: Record<string, string> = {};
   binding: string = '';
   archiveGauge: string = '';
   consent: boolean = false;
@@ -92,6 +94,7 @@ export class Repository {
     this.meta.refuelWindows = this.meta.refuelWindows || {};
     this.meta.refuelPending = this.meta.refuelPending || {};
     this.meta.customRequests = this.meta.customRequests || {};
+    this.meta.archivedVehicles = this.meta.archivedVehicles || {};
     this.meta.vehicle = this.meta.vehicle ?? null;
     this.meta.vehicleAt = this.meta.vehicleAt ?? 0;
     this.meta.lastGaugeFuel = this.meta.lastGaugeFuel ?? null;
@@ -117,6 +120,18 @@ export class Repository {
   cacheRefuelLive(value: RefuelMeta): Promise<void> { return this.serial(async () => { const meta = this.copyMeta(); meta.refuelLive = value;meta.refuelAt=Date.now();await this.saveMeta(meta); }); }
   vehicle(): Vehicle | null { if(!this.meta.vehicle)return null; const value=JSON.parse(JSON.stringify(this.meta.vehicle)) as Vehicle; value.fuelPercent=value.fuelPercent ?? this.meta.lastGaugeFuel ?? null; return value; }
   vehicleAt(): number { return this.meta.vehicleAt || 0; }
+  currentTripSnapshotArchived(): boolean {
+    const gauge = this.meta.binding || this.state.gauge;
+    const fingerprint = vehicleFingerprint(this.meta.vehicle);
+    return !!fingerprint && this.meta.archivedVehicles[gauge] === fingerprint;
+  }
+  private markArchivedVehicle(meta: LocalMeta, gauge: string, rows: Row[]): void {
+    if (gauge !== (meta.binding || this.state.gauge)) return;
+    const current = currentDrivingRecord(gauge, meta.vehicle);
+    if (current && rows.some((row: Row) => archivedCurrentDriving(row, current))) {
+      meta.archivedVehicles[gauge] = vehicleFingerprint(meta.vehicle);
+    }
+  }
   pendingDisplay(): boolean | null { return this.meta.pendingDisplay ?? null; }
   pendingProfile(): number | null { return this.meta.pendingProfile ?? null; }
   pendingMileage(): number | null { return this.meta.pendingMileage ?? null; }
@@ -158,9 +173,9 @@ export class Repository {
     Object.keys(values).forEach((key:string)=>device[key]=values[key]);
     s.devices[gauge]=device;
   });}
-  cacheVehicle(vehicle: Vehicle): Promise<void> { return this.serial(async () => { const meta = this.copyMeta(); meta.vehicle = vehicle; if(vehicle.fuelPercent!==null){meta.lastGaugeFuel=vehicle.fuelPercent;meta.lastGaugeFuelAt=Date.now();meta.lastGaugeFuelSequence=vehicle.fuelSequence??null;} meta.vehicleAt = Date.now(); await this.saveMeta(meta); }); }
+  cacheVehicle(vehicle: Vehicle): Promise<void> { return this.serial(async () => { const meta = this.copyMeta(); meta.vehicle = vehicle; this.markArchivedVehicle(meta, meta.binding || this.state.gauge, this.state.tables.trips); if(vehicle.fuelPercent!==null){meta.lastGaugeFuel=vehicle.fuelPercent;meta.lastGaugeFuelAt=Date.now();meta.lastGaugeFuelSequence=vehicle.fuelSequence??null;} meta.vehicleAt = Date.now(); await this.saveMeta(meta); }); }
   edit(action: (snapshot: Snapshot) => void): Promise<void> {
-    return this.serial(async () => { const snapshot = this.snapshot(); action(snapshot); snapshot.createdAt = Date.now(); await this.save(snapshot, this.copyMeta()); });
+    return this.serial(async () => { const snapshot = this.snapshot(), meta = this.copyMeta(); this.markArchivedVehicle(meta, meta.binding || snapshot.gauge, snapshot.tables.trips); action(snapshot); snapshot.createdAt = Date.now(); await this.save(snapshot, meta); });
   }
   unbind(): Promise<void> { return this.serial(async () => { const meta = this.copyMeta(); meta.binding = ''; meta.pendingDisplay=null;meta.pendingProfile=null;meta.pendingMileage=null; meta.automatic = false; meta.vehicle = null; meta.lastGaugeFuel=null;meta.lastGaugeFuelAt=0;meta.lastGaugeFuelSequence=null; meta.vehicleAt = 0; meta.refuelLive = null;meta.refuelAt=0; await this.save(this.snapshot(), meta); }); }
   refuelRows(gauge: string): Row[] { return this.snapshot().tables.refuel.filter((r: Row) => r.device_id === gauge); }
@@ -293,6 +308,7 @@ export class Repository {
       });
       snapshot.createdAt = Date.now();
       const meta = this.copyMeta(); meta.cursors[gauge] = cursor; meta.lastSync = Date.now();
+      this.markArchivedVehicle(meta, gauge, rows);
       await this.save(snapshot, meta);
     });
   }

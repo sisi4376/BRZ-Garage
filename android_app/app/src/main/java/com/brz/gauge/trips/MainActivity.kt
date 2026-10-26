@@ -100,6 +100,7 @@ class MainActivity : Activity() {
     private var fallbackStop: (() -> Unit)? = null
     private var historyLoading = false
     private var historyRevisionMode = false
+    private var historyRefresh: ((List<TripRecord>) -> Unit)? = null
     private var appInitialized = false
     private var showingFirstRunNotice = false
     private var showingLegalNotice = false
@@ -150,7 +151,7 @@ class MainActivity : Activity() {
         }
     }
     private val refresh = object : Runnable {
-        override fun run() { refreshHome(); handler.postDelayed(this, 5000) }
+        override fun run() { refreshHome(); updateHistory(); handler.postDelayed(this, 5000) }
     }
     private val appUpdatePoll = object : Runnable {
         override fun run() {
@@ -199,7 +200,7 @@ class MainActivity : Activity() {
         refuelDatabase = RefuelIntervalDatabase(this)
         customTripDatabase = CustomTripDatabase(this)
         tripAdapter = TripAdapter(this, { reviseTripTime(it) }, { confirmDeleteTrip(it) },
-            { showTripDetails(it) })
+            { showTripDetails(it, current = it.tripId == 0L, returnTab = 1) })
         showingGaugeSettings = savedInstanceState?.getBoolean("gauge_settings_page") ?: false
         showingVehicleSettings = savedInstanceState?.getBoolean("vehicle_settings_page") ?: false
         showingFeedback = savedInstanceState?.getBoolean("feedback_page") ?: false
@@ -438,6 +439,7 @@ class MainActivity : Activity() {
         showingRefuelDetail = false
         showingCustomTripDetail = false
         tab = index
+        historyRefresh = null
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.VISIBLE
@@ -881,6 +883,7 @@ class MainActivity : Activity() {
             else if (updated && showingLegalNotice) Unit
             else if (updated && tab == 3) showTab(3)
             else refreshHome()
+            updateHistory()
         } catch (error: RuntimeException) {
             Log.e("BRZ-MainActivity", "Post-sync UI refresh failed", error)
         } catch (error: OutOfMemoryError) {
@@ -1053,37 +1056,37 @@ class MainActivity : Activity() {
         add(body, header)
         countText = label("", 12f, muted); add(body, countText, 7)
 
-        val vehicleTrips = trips.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
-        val totalDistance = vehicleTrips.sumOf { it.distanceM }
-        val totalDuration = vehicleTrips.sumOf { it.durationS }
-        val totalFuel = vehicleTrips.sumOf { it.fuelMl }
-        val totalAverageFuel = totalDistance.takeIf { it > 0L }?.let {
-            totalFuel.toDouble() / it * 100.0
-        }
-        val activeDays = vehicleTrips.filter { it.hasValidTime }.map {
-            Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
-        }.distinct().size
+        val initialRows = drivingHistory(trips, state.dataDeviceId, state.vehicle(), state.currentTripSnapshotArchived())
+        val vehicleTrips = initialRows.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
         val totalCard = card(body, "驾驶总览")
-        addMetricPair(totalCard,
-            bookkeepingMetric("累计里程", fmt("%.1f km", totalDistance / 1000.0), bookkeepingFuel),
-            bookkeepingMetric("驾驶日", "$activeDays 天", ink))
-        addMetricPair(totalCard,
-            bookkeepingMetric("行程记录", "${vehicleTrips.size} 次", ink),
-            bookkeepingMetric("驾驶时长", durationDetailed(totalDuration), ink))
-        addMetricPair(totalCard,
-            bookkeepingMetric("平均每次行程", if (vehicleTrips.isEmpty()) "—" else
-                fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), bookkeepingFuel),
-            bookkeepingMetric("总平均油耗", totalAverageFuel?.let {
-                fmt("%.1f L/100km", it)
-            } ?: "—", bookkeepingFuel, "累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}"), 10)
+        fun renderTotals(vehicleTrips: List<TripRecord>) {
+            if (totalCard.childCount > 1) totalCard.removeViews(1, totalCard.childCount - 1)
+            val totalDistance = vehicleTrips.sumOf { it.distanceM }
+            val totalDuration = vehicleTrips.sumOf { it.durationS }
+            val totalFuel = vehicleTrips.sumOf { it.fuelMl }
+            val totalAverageFuel = totalDistance.takeIf { it > 0L }?.let {
+                totalFuel.toDouble() / it * 100.0
+            }
+            val activeDays = vehicleTrips.filter { it.hasValidTime }.map {
+                Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
+            }.distinct().size
+            addMetricPair(totalCard,
+                bookkeepingMetric("累计里程", fmt("%.1f km", totalDistance / 1000.0), bookkeepingFuel),
+                bookkeepingMetric("驾驶日", "$activeDays 天", ink))
+            addMetricPair(totalCard,
+                bookkeepingMetric("行程记录", "${vehicleTrips.size} 次", ink),
+                bookkeepingMetric("驾驶时长", durationDetailed(totalDuration), ink))
+            addMetricPair(totalCard,
+                bookkeepingMetric("平均每次行程", if (vehicleTrips.isEmpty()) "—" else
+                    fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), bookkeepingFuel),
+                bookkeepingMetric("总平均油耗", totalAverageFuel?.let {
+                    fmt("%.1f L/100km", it)
+                } ?: "—", bookkeepingFuel, "累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}"), 10)
 
-        val dayActivities = vehicleTrips.filter { it.hasValidTime }.groupBy {
-            Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
-        }.map { (day, records) -> DrivingDayActivity(
-            day, records.size, records.sumOf { it.distanceM }, records.sumOf { it.durationS },
-            records.sumOf { it.fuelMl })
         }
-        val years = dayActivities.map { it.date.year }.distinct().sorted()
+        renderTotals(vehicleTrips)
+        var dayActivities = drivingDays(vehicleTrips)
+        var years = dayActivities.map { it.date.year }.distinct().sorted()
         if (years.isNotEmpty() && calendarYear !in years) calendarYear = years.last()
         val calendarCard = card(body, "驾驶日历")
         val yearControls = LinearLayout(this).apply {
@@ -1098,12 +1101,16 @@ class MainActivity : Activity() {
                 else soften(bookkeepingFuel), 14)
             setOnClickListener { target?.let { calendarYear = it; showTab(1) } }
         }
-        yearControls.addView(yearButton("‹", years.lastOrNull { it < calendarYear }),
-            LinearLayout.LayoutParams(dp(48), dp(40)))
-        yearControls.addView(label("${calendarYear} 年", 16f, ink, true).apply { gravity = Gravity.CENTER },
-            LinearLayout.LayoutParams(0, -2, 1f))
-        yearControls.addView(yearButton("›", years.firstOrNull { it > calendarYear }),
-            LinearLayout.LayoutParams(dp(48), dp(40)))
+        fun renderYears() {
+            yearControls.removeAllViews()
+            yearControls.addView(yearButton("‹", years.lastOrNull { it < calendarYear }),
+                LinearLayout.LayoutParams(dp(48), dp(40)))
+            yearControls.addView(label("${calendarYear} 年", 16f, ink, true).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(0, -2, 1f))
+            yearControls.addView(yearButton("›", years.firstOrNull { it > calendarYear }),
+                LinearLayout.LayoutParams(dp(48), dp(40)))
+        }
+        renderYears()
         add(calendarCard, yearControls, 7)
         val selectedDay = label("点击日期方格查看当天统计", 12f, muted).apply {
             background = rounded(Color.rgb(247, 248, 251), 13)
@@ -1138,7 +1145,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
         add(calendarCard, calendarLegend, 8)
         add(calendarCard, selectedDay, 6)
-        add(calendarCard, label("仅使用具有可靠开始时间的行程；时间未知的旧记录仍计入上方总览。", 11f, muted), 6)
+        add(calendarCard, label("包含当前驾驶，随仪表快照更新；按开始日期统计，时间未知的行程仅计入总览。", 11f, muted), 6)
 
         add(body, label("历史驾驶记录", 19f, ink, true), 22)
         add(body, label("点击记录卡查看里程、油耗与驾驶表现", 11f, muted), 4)
@@ -1150,18 +1157,45 @@ class MainActivity : Activity() {
         add(body, historyEmptyText, 4)
         list.addHeaderView(body, null, false)
         list.adapter = tripAdapter
+        var previousRows: List<TripRecord>? = null
+        var previousDevice = state.dataDeviceId
+        historyRefresh = { rows ->
+            if (previousRows != rows || previousDevice != state.dataDeviceId) {
+                previousRows = rows
+                previousDevice = state.dataDeviceId
+                val vehicleRows = rows.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
+                renderTotals(vehicleRows)
+                dayActivities = drivingDays(vehicleRows)
+                years = dayActivities.map { it.date.year }.distinct().sorted()
+                if (years.isNotEmpty() && calendarYear !in years) calendarYear = years.last()
+                renderYears()
+                calendar.submit(calendarYear, dayActivities)
+            }
+        }
         updateHistory()
     }
     private fun updateHistory() {
-        // Retain all devices' old records; never delete on a new association.
-        tripAdapter.submit(trips)
+        if (!appInitialized || tab != 1 || showingTripDetail || showingLegalNotice) return
+        // Adopt archive evidence already on this phone before the user can
+        // revise/delete that row, including after upgrading from an older app.
+        val vehicle = state.vehicle()
+        currentDrivingRecord(state.dataDeviceId, vehicle)?.let { current ->
+            trips.firstOrNull { archivedCurrentDriving(it, current) }?.let(state::markCurrentTripArchived)
+        }
+        // Display live data only; it never enters the archived trip database.
+        val rows = drivingHistory(trips, state.dataDeviceId, vehicle, state.currentTripSnapshotArchived())
+        tripAdapter.submit(rows, state.connected)
         tripAdapter.setRevisionMode(historyRevisionMode)
-        if (tab == 1 && ::countText.isInitialized) {
+        historyRefresh?.invoke(rows)
+        if (::countText.isInitialized) {
             if (::historyEmptyText.isInitialized) {
-                historyEmptyText.visibility = if (trips.isEmpty()) View.VISIBLE else View.GONE
+                historyEmptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             }
             val valid = trips.count { it.hasValidTime && !it.timeInconsistent }
-            countText.text = "${trips.size} 次行程 · $valid 次时间完整 · 记录仅保存在本机" +
+            countText.text = "${trips.size} 次已归档 · $valid 次时间完整" +
+                (if (rows.any { it.tripId == 0L }) {
+                    if (state.connected) " · 1 次当前驾驶" else " · 1 次未归档缓存"
+                } else "") + " · 记录仅保存在本机" +
                 if (state.prefs.getBoolean("overflow_${state.address}", false)) "\n仪表曾发生队列溢出，部分旧行程可能缺失" else ""
         }
     }
@@ -1184,26 +1218,26 @@ class MainActivity : Activity() {
         ), current = true)
     }
 
-    private fun showTripDetails(trip: TripRecord, current: Boolean = false) {
+    private fun showTripDetails(trip: TripRecord, current: Boolean = false, returnTab: Int = if (current) 0 else 1) {
         rememberCurrentScroll()
         showingGaugeSettings = false
         showingVehicleSettings = false
         showingTripDetail = true
         showingRefuelDetail = false
         showingCustomTripDetail = false
-        tripDetailReturnTab = if (current) 0 else 1
+        tripDetailReturnTab = returnTab
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
 
-        val subtitle = if (current) "正在进行 · 数据来自仪表实时快照" else if (trip.hasValidTime) {
+        val subtitle = if (current) { if (state.connected) "正在进行 · 数据来自仪表实时快照" else "未归档缓存 · 等待连接后更新" } else if (trip.hasValidTime) {
             val start = Instant.ofEpochSecond(trip.startEpochS).atZone(ZoneId.systemDefault())
             start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " · #${trip.displayId}"
         } else "时间未知 · #${trip.displayId}"
         val body = page("行程详情", subtitle)
-        homeDetailBackPill(body, if (current) "返回首页" else "返回驾驶足迹",
+        homeDetailBackPill(body, if (returnTab == 0) "返回首页" else "返回驾驶足迹",
             bookkeepingFuel) {
-            showTab(if (current) 0 else 1)
+            showTab(returnTab)
         }
         settingsSubpageHero(
             body,

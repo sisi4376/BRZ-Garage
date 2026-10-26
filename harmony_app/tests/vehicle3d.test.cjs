@@ -11,10 +11,17 @@ test('3D interceptor serves bundled modules and denies remote URLs, traversal an
  const ok=view.intercept('https://brz.local/vehicle-3d/real-models.js?v=4.1.3'),missing=view.intercept('https://brz.local/vehicle-3d/missing.js');await new Promise(r=>setImmediate(r));
  assert.equal(ok.code,200);assert.equal(ok.mime,'text/javascript');assert.equal(ok.ready,true);assert.ok(ok.data.byteLength>1000);assert.equal(missing.code,404);assert.equal(missing.ready,true);
 });
-test('bundled licensed 3D renderer and firmware are identical to current Android resources',()=>{
+test('bundled licensed 3D renderer matches Android and firmware matches its declared version',()=>{
  const main=process.env.BRZ_ANDROID_REFERENCE_ROOT||'C:/Users/18739/Documents/ChatGPT/BRZ_OBD';
  const names=['app.html','real-models.js','vehicle-camera.mjs','vendor/three.module.js','vendor/GLTFLoader.js','vendor/BufferGeometryUtils.js','vendor/THREE-LICENSE.txt',...['zd8','zc6'].flatMap(m=>['vehicle.glb','source.json','original/license.txt'].map(n=>'models/'+m+'/'+n))];
  const hash=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
  for(const name of names)assert.equal(hash(raw+'/vehicle-3d/'+name),hash(main+'/preview/vehicle-3d/'+name),name);
- for(const name of ['latest.json','obd_brz_gauge.bin'])assert.equal(hash(raw+'/firmware/'+name),hash(main+'/android_app/app/src/main/assets/firmware/'+name),name);
+ const manifest=JSON.parse(fs.readFileSync(raw+'/firmware/latest.json','utf8'));
+ const android=main+'/android_app/app/src/main/assets/firmware';
+ const current=JSON.parse(fs.readFileSync(android+'/latest.json','utf8'));
+ const reference=manifest.firmware.version===current.firmware.version?android:android+'/history/'+manifest.firmware.version;
+ assert.deepEqual(manifest,JSON.parse(fs.readFileSync(reference+'/latest.json','utf8')));
+ const info=manifest.files.firmware,bytes=fs.readFileSync(raw+'/firmware/'+info.path);
+ assert.equal(bytes.length,info.size);assert.equal(hash(raw+'/firmware/'+info.path),info.sha256);
+ assert.equal(hash(raw+'/firmware/'+info.path),hash(reference+'/'+info.path));
 });

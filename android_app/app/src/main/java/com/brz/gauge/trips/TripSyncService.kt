@@ -1000,6 +1000,7 @@ class TripSyncService : Service() {
                 }
                 completeOperation()
                 cursor = record.tripId
+                state.markCurrentTripArchived(record)
                 publish("已保存行程 #$cursor", true)
                 continueAfterGattIdle {
                     if (cursor < (meta?.newestId ?: cursor)) requestNext() else {
@@ -1018,6 +1019,9 @@ class TripSyncService : Service() {
                 completeOperation()
                 notificationVehicle = vehicle
                 state.saveVehicle(bytes)
+                // Refresh the live calendar/list immediately without treating
+                // every snapshot as a historical database change.
+                try { sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)) } catch (_: RuntimeException) { }
                 updateLowFuelNotification(vehicle)
                 val previouslyActive = previousVehicle?.let {
                     it.currentDurationS > 0L || it.currentDistanceM > 0L || it.currentFuelMl > 0L

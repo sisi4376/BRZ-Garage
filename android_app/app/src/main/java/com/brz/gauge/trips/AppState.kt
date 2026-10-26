@@ -243,6 +243,21 @@ class AppState(context: Context) {
         prefs.getString("vehicle_$dataDeviceId", null)?.let { VehicleState.parse(Base64.decode(it, Base64.NO_WRAP)) }
     } catch (_: RuntimeException) { null }
     val vehicleAt: Long get() = prefs.getLong("vehicle_at_$dataDeviceId", 0)
+    fun markCurrentTripArchived(record: TripRecord) {
+        if (record.deviceId != dataDeviceId) return
+        if (currentTripSnapshotArchived()) return
+        val current = currentDrivingRecord(dataDeviceId, vehicle()) ?: return
+        if (archivedCurrentDriving(record, current)) {
+            // Preserve the raw snapshot identity even if the historical row is
+            // later edited, split or deleted. A new snapshot no longer matches.
+            prefs.edit().putString("archived_vehicle_snapshot_$dataDeviceId",
+                prefs.getString("vehicle_$dataDeviceId", null)).apply()
+        }
+    }
+    fun currentTripSnapshotArchived(): Boolean {
+        val snapshot = prefs.getString("vehicle_$dataDeviceId", null) ?: return false
+        return snapshot == prefs.getString("archived_vehicle_snapshot_$dataDeviceId", null)
+    }
     fun lastGaugeFuelPercent(deviceId: String = dataDeviceId): Double? =
         deviceId.takeIf { it.isNotBlank() }
             ?.let { prefs.getString(lastFuelKey(it), null)?.toDoubleOrNull() }

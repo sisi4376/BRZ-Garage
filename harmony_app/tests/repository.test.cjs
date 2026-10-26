@@ -36,6 +36,22 @@ test('legacy local metadata without later cache fields exports and backs up succ
  assert.equal((await A.decodeArchive(new Uint8Array(fs.readFileSync(repo.backupPath())),runtime)).gauge,gauge);
 });
 function trip(id=1){return {device_id:gauge,trip_id:id,start_epoch_s:1780000000,end_epoch_s:1780000060,duration_s:60,distance_m:1000,fuel_ml:100,avg_l100_x100:1000,flags:1,time_revised:0,data_revised:0,max_speed_kmh:null,max_rpm:null,max_accel_x100:null,max_decel_x100:null,poll_requested:0,poll_received:0};}
+test('current-trip archive marker commits atomically, survives deletion/restart and allows a new trip',async()=>{
+ const h=harness('current-driving'),repo=new h.Repository();await repo.open(h.context);await repo.agree();await repo.bind(gauge);
+ const v={epoch:1780000060,uptime:600,currentStart:1780000000,currentDistance:1000,currentDuration:60,currentFuel:100,
+  totalDistance:10000,totalDuration:600,totalFuel:1000,fuelPercent:50,rpm:800,speed:0,average:10};
+ await repo.cacheVehicle(v);assert.equal(repo.currentTripSnapshotArchived(),false);
+ h.inject();await assert.rejects(repo.commitTrips(gauge,[trip()],1));h.reset();
+ assert.equal(repo.currentTripSnapshotArchived(),false);assert.equal(repo.snapshot().tables.trips.length,0);
+ await repo.commitTrips(gauge,[trip()],1);assert.equal(repo.currentTripSnapshotArchived(),true);
+ await repo.edit(s=>{s.tables.trips=[];s.tables.deleted_trips=[{device_id:gauge,trip_id:1,deleted_at_s:1780000070}];});
+ const reopened=new h.Repository();await reopened.open(h.context);
+ assert.equal(reopened.currentTripSnapshotArchived(),true);assert.equal(reopened.snapshot().tables.trips.length,0);
+ await reopened.cacheVehicle({...v,currentStart:1780001000,epoch:1780001060});
+ assert.equal(reopened.currentTripSnapshotArchived(),false);
+ assert.equal(reopened.snapshot().tables.trips.length,0);
+ assert.equal(JSON.stringify(reopened.snapshot()).includes('archivedVehicles'),false);
+});
 const normalize=x=>JSON.parse(JSON.stringify(x));
 test('production repository persists trips and cursor atomically, rolls back injected write failure',async()=>{
  const h=harness('atomic'),repo=new h.Repository();await repo.open(h.context);await repo.agree();await repo.bind(gauge);

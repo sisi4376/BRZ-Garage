@@ -1,3 +1,4 @@
+import { drivingHistory, validTripTime } from '../core/CurrentDriving';
 import { partnerWake } from '../platform/PartnerWake';
 import { Vehicle3D } from '../components/Vehicle3D';
 import { mutateRefuel } from '../core/IntervalSync';
@@ -95,6 +96,7 @@ struct Index {
   @State private editorError: string = '';
   @State private selectedServices: string[] = [];
   @State private currentDetail: boolean = false;
+  @State private liveConnected: boolean = false;
   private pageScroller: Scroller = new Scroller();
   private calendarScroller: Scroller = new Scroller();
   private parentRoutes: string[] = [];
@@ -118,6 +120,7 @@ struct Index {
     this.automaticEnabled = repository.automatic(); this.refinedHome = repository.refinedHome(); this.groupedSettings=repository.groupedSettings();
     this.consent = repository.consent(); this.hasBackup = repository.backupPath().length > 0;
     this.lastSync = repository.lastSync() ? new Date(repository.lastSync()).toLocaleString() : '尚未同步';
+    this.liveConnected = bluetooth.isConnected();
     const vehicle = repository.vehicle();
     if (vehicle) { this.vehicleText = '本次 ' + (vehicle.currentDistance / 1000).toFixed(1) + ' km · ' + Math.round(vehicle.currentDuration / 60) + ' 分钟 · ' + (vehicle.currentFuel / 1000).toFixed(2) + ' L\n油量 ' + (vehicle.fuelPercent === null ? '未知' : vehicle.fuelPercent.toFixed(1) + '%') + ' · 转速 ' + (vehicle.rpm ?? '未知') + ' · 车速 ' + (vehicle.speed ?? '未知'); this.sampleTime = timeText(repository.vehicleAt()/1000); }
     const cached=this.snapshot.devices[this.gauge()];
@@ -126,11 +129,11 @@ struct Index {
       if(cached.gauge_settings_data){try{this.gaugeSettings=parseSettings(new util.Base64Helper().decodeSync(String(cached.gauge_settings_data)));}catch(_) {}}
       if(cached.firmware_version)this.gaugeText='固件 v'+cached.firmware_version+'\n'+(cached.firmware_board||'')+' · 上次读取 '+timeText(Number(cached.firmware_at)/1000);
     }
-    this.filterLists(); const years=this.historyYears();if(years.length&&!years.includes(this.calendarYear))this.calendarYear=years[years.length-1];this.calendarWeeks = calendar(this.rows('trips'), this.calendarYear);
+    this.filterLists(); const years=this.historyYears();if(years.length&&!years.includes(this.calendarYear))this.calendarYear=years[years.length-1];this.calendarWeeks = calendar(this.drivingRows(), this.calendarYear);
     if (this.incoming) this.updatePreview();
   }
   private filterLists(): void {
-    this.visibleTrips = vehicleRows(this.snapshot, 'trips', this.gauge())
+    this.visibleTrips = this.drivingRows()
       .filter((r: Row) => !this.search || this.tripDate(r).includes(this.search) || String(r.trip_id).includes(this.search) || String(r.device_id).includes(this.search))
       .slice(0, this.tripLimit);
     const table = this.recordTables[this.recordKind];
@@ -151,7 +154,7 @@ struct Index {
     if (this.recordKind === 1) return '金额 ' + row.amount + ' · ' + String(row.note || '');
     return this.metric(row);
   }
-  private details(row: Row, table: string): void { this.selected = row; this.selectedTable = table; this.currentDetail = false; this.navigate('trip'); }
+  private details(row: Row, table: string): void { this.selected = row; this.selectedTable = table; this.currentDetail = table === 'trips' && Number(row.trip_id) === 0; this.navigate('trip'); }
   private makeId(): string { return Array.from(cryptoFramework.createRandom().generateRandomSync(16).data).map((b: number) => b.toString(16).padStart(2, '0')).join(''); }
   private edit(table: string, row: Row | null): void {
     this.selected = row; this.selectedTable = table; this.editFields = fields(table, row); this.editKind = table; this.timeOnly=false; this.editorError = '';
@@ -297,6 +300,7 @@ struct Index {
 
   private gauge(): string { return this.bound || this.snapshot.gauge; }
   private rows(table: string): Row[] { return vehicleRows(this.snapshot, table, this.gauge()); }
+  private drivingRows(): Row[] { return drivingHistory(this.rows('trips'), this.gauge(), repository.vehicle(), repository.currentTripSnapshotArchived()); }
   private expenses(category: number): Row[] { return this.rows('expenses').filter((r: Row) => r.category === category); }
   private name(): string { return String(pref(this.snapshot, 'vehicle_display_name', '我的BRZ STI')); }
   private model(): string { return Number(pref(this.snapshot, 'selected_vehicle_profile', 4)) === 1 ? 'ZC6' : 'ZD8'; }
@@ -329,10 +333,10 @@ struct Index {
   private openLink(url: string): void { this.run(async()=>this.context().startAbility({action:'ohos.want.action.viewData',uri:url})); }
   private automaticToggle(value: boolean): void { this.run(async()=>{if(value)need(!!this.bound&&this.consent,'请先绑定仪表');await repository.setAutomatic(value);this.refresh();}); }
   private cash(value: number): string { return '¥'+value.toFixed(2); }
-  private historyYears():number[]{return Array.from(new Set(this.rows('trips').filter((r:Row)=>(Number(r.flags)&1)!==0).map((r:Row)=>new Date(Number(r.start_epoch_s)*1000).getFullYear()))).sort((a:number,b:number)=>a-b);}
+  private historyYears():number[]{return Array.from(new Set(this.drivingRows().filter((r:Row)=>validTripTime(r)).map((r:Row)=>new Date(Number(r.start_epoch_s)*1000).getFullYear()))).sort((a:number,b:number)=>a-b);}
   private previousYear():number{return this.historyYears().filter((y:number)=>y<this.calendarYear).pop()??this.calendarYear;}
   private nextYear():number{return this.historyYears().find((y:number)=>y>this.calendarYear)??this.calendarYear;}
-  private setYear(value: number): void { this.calendarYear=value;this.calendarWeeks=calendar(this.rows('trips'),value);this.calendarDetail='点击日期方格查看当天统计';setTimeout(():void=>{this.calendarScroller.scrollEdge(Edge.End);},50); }
+  private setYear(value: number): void { this.calendarYear=value;this.calendarWeeks=calendar(this.drivingRows(),value);this.calendarDetail='点击日期方格查看当天统计';setTimeout(():void=>{this.calendarScroller.scrollEdge(Edge.End);},50); }
   private costRows(): MonthCost[] { return monthCosts(this.snapshot,this.gauge(),true); }
   private currentMonthCost(): MonthCost { return this.costRows().find((m:MonthCost)=>m.label===today().substring(0,7)) || {label:today().substring(0,7),fuel:0,maintenance:0,daily:0,total:0}; }
   private annualCost(key: string): number { return this.costRows().filter((m:MonthCost)=>m.label.startsWith(today().substring(0,4))).reduce((n:number,m:MonthCost)=>n+(key==='fuel'?m.fuel:key==='maintenance'?m.maintenance:key==='daily'?m.daily:m.total),0); }
@@ -445,38 +449,38 @@ struct Index {
     Column({space:12}){this.sectionTitle('仪表状态');Text(this.autoText||this.status).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK).width('100%');Text(this.lastSync).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%');this.action(this.bound?'立即连接 / 同步':'绑定我的仪表',INK,()=>{if(this.bound)this.sync();else this.navigate('binding',3);})}.width('100%').padding(20).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
   }
   private inconsistentTime(r:Row):boolean{return (Number(r.flags)&1)!==0 && (Number(r.end_epoch_s)<Number(r.start_epoch_s)||Number(r.duration_s)>Number(r.end_epoch_s)-Number(r.start_epoch_s)+59);}
-  private tripStatus(r:Row):string{return Number(r.trip_id)<0?'手动拆分':this.inconsistentTime(r)?'待核实':r.data_revised===1?'测试数据':r.time_revised===1?'已修订':(Number(r.flags)&1)?'已同步':'时间未知';}
+  private tripStatus(r:Row):string{return Number(r.trip_id)===0?(this.liveConnected?'进行中':'未归档 · 缓存'):Number(r.trip_id)<0?'手动拆分':this.inconsistentTime(r)?'待核实':r.data_revised===1?'测试数据':r.time_revised===1?'已修订':(Number(r.flags)&1)?'已同步':'时间未知';}
   private tripStatusColor(r:Row):string{return this.tripStatus(r)==='已修订'?COLORS[1]:['待核实','测试数据','时间未知'].includes(this.tripStatus(r))?'#B56F23':COLORS[0];}
-  private tripTimeLabel(r:Row):string{if(!(Number(r.flags)&1))return '升级前记录或本次行程未完成手机授时';const d=new Date(Number(r.start_epoch_s)*1000),start=timeText(Number(r.start_epoch_s)),end=timeText(Number(r.end_epoch_s));return start.substring(0,10).replace(/-/g,'.')+' 星期'+['日','一','二','三','四','五','六'][d.getDay()]+' · '+start.substring(11)+' → '+(start.substring(0,10)===end.substring(0,10)?end.substring(11):end.substring(5));}
+  private tripTimeLabel(r:Row):string{if(Number(r.trip_id)===0)return validTripTime(r)?timeText(Number(r.start_epoch_s))+' 开始 · '+(this.liveConnected?'随仪表更新':'等待连接后更新'):'开始时间未知 · 连接授时后更新';if(!(Number(r.flags)&1))return '升级前记录或本次行程未完成手机授时';const d=new Date(Number(r.start_epoch_s)*1000),start=timeText(Number(r.start_epoch_s)),end=timeText(Number(r.end_epoch_s));return start.substring(0,10).replace(/-/g,'.')+' 星期'+['日','一','二','三','四','五','六'][d.getDay()]+' · '+start.substring(11)+' → '+(start.substring(0,10)===end.substring(0,10)?end.substring(11):end.substring(5));}
   @Builder private tripStripMetric(title:string,value:string,color:string,size:number){Column({space:3}){Text(title).fontFamily('GarageSans').fontSize(10).fontWeight(FontWeight.Medium).fontColor(MUTED);Text(value).fontFamily('GarageSans').fontSize(size).minFontSize(12).maxFontSize(size).heightAdaptivePolicy(TextHeightAdaptivePolicy.MIN_FONT_SIZE_FIRST).maxLines(1).fontWeight(FontWeight.Medium).fontColor(readable(color))}.width('100%').alignItems(HorizontalAlign.Start)}
   @Builder private history() {
     Row(){Column(){this.title('驾驶足迹','按每日里程回看驾驶节奏 · 数据仅保存在本机')}.layoutWeight(1);Text(this.revisionMode?'完成修订':'修订记录').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(this.revisionMode?'#FFFFFF':COLORS[1]).padding(12).backgroundColor(this.revisionMode?COLORS[1]:soften(COLORS[1])).borderRadius(14).onClick(()=>this.revisionMode=!this.revisionMode)}.width('100%')
-    Text(this.rows('trips').length+' 次行程 · '+this.rows('trips').filter((r:Row)=>(Number(r.flags)&1)!==0&&!this.inconsistentTime(r)).length+' 次时间完整 · 记录仅保存在本机').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%').margin({top:7})
-    Column(){this.sectionTitle('驾驶总览');this.metricPair('累计里程',(summary(this.rows('trips')).distance/1000).toFixed(1)+' km','驾驶日',summary(this.rows('trips')).days+' 天');this.metricPair('行程记录',this.rows('trips').length+' 次','驾驶时长',preciseDuration(summary(this.rows('trips')).duration),INK);this.metricPair('平均每次行程',this.rows('trips').length?(summary(this.rows('trips')).distance/1000/this.rows('trips').length).toFixed(1)+' km':'—','总平均油耗',this.average([summary(this.rows('trips')).distance,summary(this.rows('trips')).duration,summary(this.rows('trips')).fuel]),COLORS[0],'','累计消耗 '+(summary(this.rows('trips')).fuel/1000).toFixed(2)+' L',COLORS[0])}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+    Text(this.rows('trips').length+' 次已归档 · '+this.rows('trips').filter((r:Row)=>(Number(r.flags)&1)!==0&&!this.inconsistentTime(r)).length+' 次时间完整'+(this.drivingRows().some((r:Row)=>Number(r.trip_id)===0)?(this.liveConnected?' · 1 次当前驾驶':' · 1 次未归档缓存'):'')+' · 记录仅保存在本机').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%').margin({top:7})
+    Column(){this.sectionTitle('驾驶总览');this.metricPair('累计里程',(summary(this.drivingRows()).distance/1000).toFixed(1)+' km','驾驶日',summary(this.drivingRows()).days+' 天');this.metricPair('行程记录',this.drivingRows().length+' 次','驾驶时长',preciseDuration(summary(this.drivingRows()).duration),INK);this.metricPair('平均每次行程',this.drivingRows().length?(summary(this.drivingRows()).distance/1000/this.drivingRows().length).toFixed(1)+' km':'—','总平均油耗',this.average([summary(this.drivingRows()).distance,summary(this.drivingRows()).duration,summary(this.drivingRows()).fuel]),COLORS[0],'','累计消耗 '+(summary(this.drivingRows()).fuel/1000).toFixed(2)+' L',COLORS[0])}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){
       this.sectionTitle('驾驶日历')
       Row(){Text('‹').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(22).fontColor(this.previousYear()===this.calendarYear?'#616B79':readable(COLORS[0])).textAlign(TextAlign.Center).width(48).height(40).backgroundColor(this.previousYear()===this.calendarYear?'#F4F6F9':soften(COLORS[0])).borderRadius(14).enabled(this.previousYear()!==this.calendarYear).onClick(()=>this.setYear(this.previousYear()));Text(this.calendarYear+' 年').layoutWeight(1).textAlign(TextAlign.Center).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(16).fontWeight(FontWeight.Medium);Text('›').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(22).fontColor(this.nextYear()===this.calendarYear?'#616B79':readable(COLORS[0])).textAlign(TextAlign.Center).width(48).height(40).backgroundColor(this.nextYear()===this.calendarYear?'#F4F6F9':soften(COLORS[0])).borderRadius(14).enabled(this.nextYear()!==this.calendarYear).onClick(()=>this.setYear(this.nextYear()))}.width('100%').margin({top:7})
       Scroll(this.calendarScroller){CalendarHeatmap({weeks:this.calendarWeeks,onSelect:(detail:string)=>{this.calendarDetail=detail;}})}.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).margin({top:9}).onAppear(()=>{setTimeout(():void=>{this.calendarScroller.scrollEdge(Edge.End);},100);})
       Row({space:5}){Text('0km').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(11).fontColor(MUTED);ForEach(['#E8ECF1','#D5EEF6','#8AD2E5','#45A6C9','#196894'],(c:string)=>{Rect().width(13).height(13).radius(3).fill(c)});Text('100km+').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(11).fontColor(readable(COLORS[0]))}.width('100%').justifyContent(FlexAlign.End)
       Text(this.calendarDetail).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%').padding(12).backgroundColor('#F7F8FB').borderRadius(13).margin({top:6})
-      this.note('仅使用具有可靠开始时间的行程；时间未知的旧记录仍计入上方总览。')
+      this.note('包含当前驾驶，随仪表快照更新；按开始日期统计，时间未知的行程仅计入总览。')
     }.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Text('历史驾驶记录').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%').margin({top:22});this.note('点击记录卡查看里程、油耗与驾驶表现')
     ForEach(this.visibleTrips,(r:Row,index:number)=>{
       Column(){
-        if(index===0||this.tripMonth(r)!==this.tripMonth(this.visibleTrips[index-1])){Text((this.tripMonth(r)==='时间未知'?'时间未知':this.tripMonth(r).replace('-','年')+'月')+' · '+this.rows('trips').filter((t:Row)=>this.tripMonth(t)===this.tripMonth(r)).length+' 次行程').fontFamily('GarageSans').fontSize(13).fontWeight(FontWeight.Medium).fontColor(readable(COLORS[0])).width('100%').padding({left:11,right:11,top:8,bottom:8}).backgroundColor('#EEF1F5').margin({bottom:12})}
+        if(index===0||this.tripMonth(r)!==this.tripMonth(this.visibleTrips[index-1])){Text((this.tripMonth(r)==='时间未知'?'时间未知':this.tripMonth(r).replace('-','年')+'月')+' · '+this.drivingRows().filter((t:Row)=>this.tripMonth(t)===this.tripMonth(r)).length+' 次行程').fontFamily('GarageSans').fontSize(13).fontWeight(FontWeight.Medium).fontColor(readable(COLORS[0])).width('100%').padding({left:11,right:11,top:8,bottom:8}).backgroundColor('#EEF1F5').margin({bottom:12})}
         Row({space:12}){
           Column(){Text((Number(r.flags)&1)?Number(timeText(Number(r.start_epoch_s)).substring(5,7))+'月':'时间').fontFamily('GarageSans').fontSize(10).fontColor(readable(COLORS[0]));Text((Number(r.flags)&1)?String(Number(timeText(Number(r.start_epoch_s)).substring(8,10))):'?').fontFamily('GarageSans').fontSize(21).fontColor(readable(COLORS[0])).fontWeight(FontWeight.Medium)}.width(52).height(58).justifyContent(FlexAlign.Center).padding(5).backgroundColor('#E9F4F8').borderRadius(14)
-          Column({space:5}){Row(){Text('行程 #'+displayTripId(Number(r.trip_id))).fontFamily('GarageSans').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1).maxLines(1).textOverflow({overflow:TextOverflow.Ellipsis});Text(this.tripStatus(r)).fontFamily('GarageSans').fontSize(10).fontWeight(FontWeight.Medium).fontColor(readable(this.tripStatusColor(r))).padding({left:9,right:9,top:4,bottom:4}).constraintSize({minHeight:26}).backgroundColor(soften(this.tripStatusColor(r))).borderRadius(12)}.width('100%');Text(this.tripTimeLabel(r)).fontFamily('GarageSans').fontSize(12).fontColor(MUTED).maxLines(2).width('100%')}.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          Column({space:5}){Row(){Text(Number(r.trip_id)===0?'本次驾驶':'行程 #'+displayTripId(Number(r.trip_id))).fontFamily('GarageSans').fontSize(15).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1).maxLines(1).textOverflow({overflow:TextOverflow.Ellipsis});Text(this.tripStatus(r)).fontFamily('GarageSans').fontSize(10).fontWeight(FontWeight.Medium).fontColor(readable(this.tripStatusColor(r))).padding({left:9,right:9,top:4,bottom:4}).constraintSize({minHeight:26}).backgroundColor(soften(this.tripStatusColor(r))).borderRadius(12)}.width('100%');Text(this.tripTimeLabel(r)).fontFamily('GarageSans').fontSize(12).fontColor(MUTED).maxLines(2).width('100%')}.layoutWeight(1).alignItems(HorizontalAlign.Start)
           Text('›').fontFamily('GarageSans').fontSize(24).fontColor('#687486').width(24).textAlign(TextAlign.End)
         }.width('100%')
         Row({space:8}){Column(){this.tripStripMetric('行程里程',(Number(r.distance_m)/1000).toFixed(1)+' km',COLORS[0],17)}.layoutWeight(1);Column(){this.tripStripMetric('驾驶时长',hhmm(Number(r.duration_s)),INK,16)}.layoutWeight(1);Column(){this.tripStripMetric('平均油耗',(Number(r.avg_l100_x100)/100).toFixed(1)+' L/100km',INK,16)}.layoutWeight(1)}.width('100%').padding({left:12,right:12,top:10,bottom:10}).backgroundColor('#F7F8FB').borderRadius(15).margin({top:12})
         Text('消耗燃油 '+(Number(r.fuel_ml)/1000).toFixed(2)+' L'+(Number(r.duration_s)>0?' · 平均 '+(Number(r.distance_m)/Number(r.duration_s)*3.6).toFixed(1)+' km/h':'')).fontFamily('GarageSans').fontSize(11).fontColor(MUTED).width('100%').margin({top:10})
-        if(this.revisionMode){Row({space:8}){Blank();Text('修改时间').fontFamily('GarageSans').fontSize(12).fontWeight(FontWeight.Medium).fontColor(readable(COLORS[0])).height(40).constraintSize({minWidth:92}).textAlign(TextAlign.Center).padding({left:14,right:14}).backgroundColor('#E9F4F8').borderRadius(13).onClick(()=>{this.edit('trips',r);this.timeOnly=true;});Text('删除').fontFamily('GarageSans').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#B3261E').height(40).constraintSize({minWidth:72}).textAlign(TextAlign.Center).padding({left:14,right:14}).backgroundColor('#FCEBF0').borderRadius(13).onClick(()=>{this.selected=r;this.selectedTable='trips';this.confirmDelete();})}.width('100%').margin({top:12})}
+        if(this.revisionMode&&Number(r.trip_id)!==0){Row({space:8}){Blank();Text('修改时间').fontFamily('GarageSans').fontSize(12).fontWeight(FontWeight.Medium).fontColor(readable(COLORS[0])).height(40).constraintSize({minWidth:92}).textAlign(TextAlign.Center).padding({left:14,right:14}).backgroundColor('#E9F4F8').borderRadius(13).onClick(()=>{this.edit('trips',r);this.timeOnly=true;});Text('删除').fontFamily('GarageSans').fontSize(12).fontWeight(FontWeight.Medium).fontColor('#B3261E').height(40).constraintSize({minWidth:72}).textAlign(TextAlign.Center).padding({left:14,right:14}).backgroundColor('#FCEBF0').borderRadius(13).onClick(()=>{this.selected=r;this.selectedTable='trips';this.confirmDelete();})}.width('100%').margin({top:12})}
       }.padding(14).width('100%').backgroundColor('#FFFFFF').borderRadius(18).shadow({radius:2,color:'#12000000',offsetY:1}).margin({bottom:10}).onClick(()=>this.details(r,'trips'))
-    },(r:Row)=>String(r.device_id)+'|'+r.trip_id)
+    },(r:Row)=>JSON.stringify(r)+'|'+this.liveConnected)
     if(!this.visibleTrips.length){Text('还没有同步行程\n仪表连接后会自动保存到手机').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(15).fontColor(MUTED).textAlign(TextAlign.Center).padding(34).width('100%').backgroundColor('#FFFFFF').borderRadius(18).shadow({radius:2,color:'#12000000',offsetY:1})}
-    if(this.visibleTrips.length<this.rows('trips').length){this.action('加载更多',COLORS[0],()=>{this.tripLimit+=100;this.filterLists();})}
+    if(this.visibleTrips.length<this.drivingRows().length){this.action('加载更多',COLORS[0],()=>{this.tripLimit+=100;this.filterLists();})}
   }
 
   @Builder private accounting() {
@@ -615,7 +619,7 @@ struct Index {
 
   private detailedTime(seconds:number):string {const d=new Date(seconds*1000);return timeText(seconds).substring(0,10)+'\n'+[d.getHours(),d.getMinutes(),d.getSeconds()].map((v:number)=>String(v).padStart(2,'0')).join(':');}
   @Builder private tripDetail(){
-    this.back(this.currentDetail?'返回首页':'返回驾驶足迹',COLORS[0]);this.title('行程详情',this.selected?(this.currentDetail?'正在进行 · 数据来自仪表实时快照':timeText(Number(this.selected.start_epoch_s)))+' · #'+displayTripId(Number(this.selected.trip_id)):'')
+    this.back(this.currentDetail&&this.tab===0?'返回首页':'返回驾驶足迹',COLORS[0]);this.title('行程详情',this.selected?(this.currentDetail?(this.liveConnected?'正在进行 · 数据来自仪表实时快照':'未归档缓存 · 等待连接后更新'):timeText(Number(this.selected.start_epoch_s)))+(this.currentDetail?'':' · #'+displayTripId(Number(this.selected.trip_id))):'')
     if(this.selected){
       this.hero('trip',this.currentDetail?'本次行程':'行程 #'+displayTripId(Number(this.selected.trip_id)),(Number(this.selected.flags)&1)?timeText(Number(this.selected.start_epoch_s)):'时间信息尚不完整',(Number(this.selected.distance_m)/1000).toFixed(1)+' km · '+preciseDuration(Number(this.selected.duration_s)),COLORS[0])
       if(!this.currentDetail){Row({space:8}){Column(){this.action('修订测试数据',COLORS[1],()=>this.edit('trips',this.selected))}.layoutWeight(1);if(Number(this.selected.trip_id)>0){Column(){this.action('手动拆分这条行程',COLORS[0],()=>this.edit('split',this.selected))}.layoutWeight(1)}}.width('100%').margin({top:8})}
