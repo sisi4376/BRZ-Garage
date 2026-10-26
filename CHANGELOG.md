@@ -8,6 +8,12 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-26 — Android 4.3.15: companion Bluetooth address compatibility
+
+- Normalize companion-device MAC strings before binding checks and Bluetooth operations. Read existing saved bindings in the same uppercase form so an in-place update restores address validation without creating a new association.
+- Fix the path where companion presence is enabled but the App reports no bound gauge and disables BLE wake registration because the stored address contains lowercase letters.
+- Include address validity, system pairing and both wake statuses in the local feedback template, without including the device address. The old-address regression fails before the fix and passes afterward; 50 related checks pass. Confirmation of the repeated pairing-dialog symptom on the affected Samsung phone remains pending. Embedded firmware stays at 4.0.7.
+
 ### 2026-10-25 — Android 4.3.14: gauge-binding service lifecycle fix
 
 - Handle one gauge selection once when companion callbacks and the activity result both report it. Pause BLE work during system pairing instead of stopping and immediately restarting the foreground service; resume on the pairing result or after a bounded wait.
@@ -869,6 +875,12 @@ Root-caused a board reboot seen during testing: the blocking wait for an ELM327 
 ---
 
 ## 中文
+
+### 2026-10-26 — Android 4.3.15：伴生设备蓝牙地址兼容修复
+
+- 在绑定检查和蓝牙操作前统一伴生设备 MAC 地址格式；读取旧绑定时同样规范化，覆盖升级即可恢复地址识别，无需重新创建伴生关联。
+- 修正小写地址导致“系统伴生关联有效”，但 App 误判未绑定仪表并停用 BLE 唤醒注册的路径。
+- 本地反馈模板补充地址有效性、系统配对及两类唤醒状态，不包含设备地址。旧绑定回归测试修复前失败、修复后通过，50 项相关检查通过；三星实机是否仍出现重复配对弹窗待反馈。内置固件仍为 4.0.7。
 
 ### 2026-10-25 — Android 4.3.14：仪表绑定服务时序修复
 

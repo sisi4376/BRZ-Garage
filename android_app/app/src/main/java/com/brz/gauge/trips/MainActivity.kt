@@ -4108,6 +4108,10 @@ class MainActivity : Activity() {
             "手机：$phoneName",
             "车型：${state.selectedVehicleModel.title}",
             "仪表绑定：${if (state.address.isBlank()) "未绑定" else "已绑定（蓝牙地址未包含）"}",
+            "绑定地址格式：${if (BluetoothAdapter.checkBluetoothAddress(state.address)) "有效" else "无效或未绑定"}",
+            "仪表系统配对：${GaugeBondManager.status(this, state.address)}",
+            "系统伴生唤醒：${state.prefs.getString("presence", "尚未设置")}",
+            "系统 BLE 唤醒：${state.prefs.getString("wake_scan_status", "尚未设置")}",
             "仪表连接：${if (state.connected) "已连接" else "未连接"}",
             "同步服务：${if (TripSyncService.running) "运行中" else "未运行"}",
             "自动连接：${if (state.automatic) "已开启" else "已关闭"}",
@@ -4903,7 +4907,8 @@ class MainActivity : Activity() {
         val scanFilter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(TripBleProtocol.INFO_SERVICE))
             .apply {
-                addressHint?.takeIf(BluetoothAdapter::checkBluetoothAddress)
+                addressHint?.let(GaugeBluetoothAddress::normalize)
+                    ?.takeIf(BluetoothAdapter::checkBluetoothAddress)
                     ?.let(::setDeviceAddress)
             }
             .build()
@@ -4958,7 +4963,10 @@ class MainActivity : Activity() {
             is BluetoothDevice -> saveBinding(selected.address)
         }
     }
-    private fun saveBinding(address: String) {
+    private fun saveBinding(rawAddress: String) {
+        // CDM MacAddress.toString() can use lowercase; Bluetooth APIs require
+        // uppercase. Normalize before either storing OR checking this result.
+        val address = GaugeBluetoothAddress.normalize(rawAddress)
         if (!bindingCompletion.claim()) {
             AppCrashDiagnostics.step("binding.duplicate-result")
             return

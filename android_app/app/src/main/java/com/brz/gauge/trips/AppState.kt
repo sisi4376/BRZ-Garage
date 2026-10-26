@@ -84,8 +84,10 @@ class AppState(context: Context) {
     private fun deviceKey(prefix: String, deviceId: String = dataDeviceId): String =
         "${prefix}_${deviceId.trim().uppercase()}"
     var address: String
-        get() = prefs.getString("address", "") ?: ""
-        set(value) { prefs.edit().putString("address", value).apply() }
+        // Also normalize older saved bindings on read, so an in-place update
+        // restores the existing companion association without rebinding.
+        get() = GaugeBluetoothAddress.normalize(prefs.getString("address", "") ?: "")
+        set(value) { prefs.edit().putString("address", GaugeBluetoothAddress.normalize(value)).apply() }
     /** Vehicle selected for offline data; this never establishes a Bluetooth binding. */
     val dataDeviceId: String
         get() {

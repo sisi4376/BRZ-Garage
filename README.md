@@ -4,11 +4,11 @@
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.0.7-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.3.14-3DDC84)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.3.15-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.3.14 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.14) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.3.15 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
@@ -19,7 +19,7 @@
 
 ## Beta 公测版说明
 
-当前 **Beta 公测**版本为 Android App **4.3.14**，内置仪表固件 **4.0.7**。
+当前 **Beta 公测**版本为 Android App **4.3.15**，内置仪表固件 **4.0.7**。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
@@ -258,7 +258,7 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.3.14 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.14) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
+前往 [v4.3.15 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；

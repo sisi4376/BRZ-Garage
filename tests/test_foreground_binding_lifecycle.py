@@ -33,7 +33,7 @@ class ForegroundBindingLifecycleTest(unittest.TestCase):
             '        state.prefs.edit().putLong("service_started_at"', 1)[0]
         start = start.replace('override fun', 'fun', 1) + ' events += "work"; return START_STICKY\n}'
         promote = method(service, 'private fun promoteForeground()')
-        save = method(activity, 'private fun saveBinding(address: String)')
+        save = method(activity, 'private fun saveBinding(')
         gate = save.split('        AppCrashDiagnostics.step("binding.save.begin")', 1)[0]
         gate = gate.replace('private fun', 'fun', 1) + ' bindings++\n}'
         fixture = HARNESS.replace('PRODUCTION_START', start).replace('PRODUCTION_PROMOTE', promote).replace('PRODUCTION_GATE', gate)
@@ -55,7 +55,7 @@ class ForegroundBindingLifecycleTest(unittest.TestCase):
             scratch = Path(temp)
             (scratch / 'Entry.kt').write_text(fixture, encoding='utf8')
             run([java, '-cp', cp, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
-                 '-classpath', cp, '-d', scratch / 'classes', JAVA / 'GaugeBindingLifecycle.kt', scratch / 'Entry.kt'])
+                 '-classpath', cp, '-d', scratch / 'classes', JAVA / 'GaugeBindingLifecycle.kt', JAVA / 'GaugeBluetoothAddress.kt', scratch / 'Entry.kt'])
             output = run([java, '-cp', str(scratch / 'classes') + os.pathsep + cp, 'com.brz.gauge.trips.EntryKt'])
             self.assertIn('PASS foreground reuse, reject, pause, background wake, manual resume, timeout, OTA, duplicate binding', output)
 

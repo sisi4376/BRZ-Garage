@@ -4,9 +4,9 @@
 
 ## 当前版本概览
 
-当前 GitHub Beta 发布版：**App 4.3.14**（versionCode 155），内置 GNSS 仪表固件 **4.0.7**，并保留 **4.0.6** 历史回滚包。覆盖安装后进入“设置 → 应用 → 仪表固件更新”，扫描并手动更新。无需导入独立固件文件。
+当前 GitHub Beta 发布版：**App 4.3.15**（versionCode 156），内置 GNSS 仪表固件 **4.0.7**，并保留 **4.0.6** 历史回滚包。覆盖安装后进入“设置 → 应用 → 仪表固件更新”，扫描并手动更新。无需导入独立固件文件。
 
-[下载安装包](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.14/BRZ-Garage-v4.3.14-debug.apk) · [查看本次更新](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.14)。
+[下载安装包](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.3.15/BRZ-Garage-v4.3.15-debug.apk) · [查看本次更新](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15)。
 
 上一轮本地安装包：**App 4.3.5**（versionCode 145），内置 **4.0.4** 油耗 / 行程统计启动修复固件；已由上方 4.3.6 发布版替代。
 
