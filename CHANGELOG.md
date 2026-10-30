@@ -8,6 +8,12 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-31 — Firmware 4.0.8: OBDBLE factory provisioning
+
+- Seed and persist `OBDBLE` only when the NVS settings blob is absent. Preserve existing empty (`OBDII`), explicitly named and MAC-bound configurations byte for byte across normal upgrades.
+- Keep the BLE client's legacy empty-name fallback and the gauge advertising name unchanged. Configuration read errors do not trigger factory provisioning. Clearing NVS counts as fresh provisioning.
+- Retain firmware 4.0.7 GNSS and collection behavior. Android 4.3.15 and its embedded image are unchanged.
+
 ### 2026-10-26 — Android 4.3.15: companion Bluetooth address compatibility
 
 - Normalize companion-device MAC strings before binding checks and Bluetooth operations. Read existing saved bindings in the same uppercase form so an in-place update restores address validation without creating a new association.

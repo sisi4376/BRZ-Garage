@@ -44,7 +44,7 @@ static nvs_user_cfg_t s_cfg =   {
                         .theme_cfg.theme = 0,// UI theme index (0=DEFAULT, registry in ui_theme.c)
                         .theme_cfg.user_theme_domiant_color = COLOR_DOMIANT_PINK,// legacy, unused (kept for struct layout)
                         .theme_cfg.user_theme_secondary_color = COLOR_SECONDARY_PINK,// legacy, unused
-                        .ble_device_name = "", // empty = use default "OBDII"
+                        .ble_device_name = "", // legacy empty = OBDII; new NVS is seeded below
                         .vehicle_profile_idx = VEHICLE_PROFILE_DEFAULT_INDEX,
                         .temp_display_map = {0, 1, 2}, // CLT, IAT, OIL
                         .info_display_map = {0, 2, 3, 4, 1}, // CLT, OIL, LOAD, TPS, IAT
@@ -469,6 +469,28 @@ static void fuel_prepare_pending_at_boot(void)
     }
 }
 
+/* Only an absent settings blob represents factory provisioning. In particular,
+ * an existing empty name is the legacy OBDII default and must survive OTA. */
+static esp_err_t load_user_cfg(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS_CFG, NVS_READONLY, &h);
+    bool missing = (err == ESP_ERR_NVS_NOT_FOUND);
+    if (err == ESP_OK) {
+        size_t stored_len = 0;
+        err = nvs_get_blob(h, KEY_CFG, NULL, &stored_len);
+        nvs_close(h);
+        missing = (err == ESP_ERR_NVS_NOT_FOUND);
+        if (err != ESP_OK && !missing) return err;
+    } else if (!missing) {
+        return err;
+    }
+    err = load_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+    if (err != ESP_OK || !missing) return err;
+    memcpy(s_cfg.ble_device_name, "OBDBLE", sizeof("OBDBLE"));
+    return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+}
+
 esp_err_t nvs_storage_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -479,7 +501,8 @@ esp_err_t nvs_storage_init(void)
     }
     ESP_ERROR_CHECK(err);
 
-    load_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+    err = load_user_cfg();
+    if (err != ESP_OK) return err;
     // Mileage/trip stats are no longer persisted (see s_stat declaration); stay {0} and start fresh each boot.
     {   // Chart alarm thresholds: load if present in NVS; otherwise keep static defaults (don't overwrite to 0).
         nvs_handle_t h; size_t sz = sizeof(s_chart_alarm);

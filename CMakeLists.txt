@@ -4,7 +4,7 @@
 # CMakeLists in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.5)
 if(NOT DEFINED PROJECT_VER)
-    set(PROJECT_VER "4.0.7")
+    set(PROJECT_VER "4.0.8")
 endif()
 if(EXISTS "${CMAKE_SOURCE_DIR}/components")
 	set(EXTRA_COMPONENT_DIRS components)

@@ -1,5 +1,13 @@
 # Firmware Package
 
+## 固件 4.0.8：首次初始化默认 OBD 名称
+
+[下载 4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)。在 4.0.7 基础上，仅调整设备没有保存配置时的默认 OBD 目标名称为 `OBDBLE`，并立即保存至 NVS。已有配置（包括旧版空名称代表的 `OBDII`）、自定义名称及绑定 MAC 全部保留，不按版本号迁移名称。仪表自身广播名称不变。
+
+首次烧录以空配置为判断依据；擦除 NVS/整片 Flash 后再次启动也会视作首次初始化。普通升级保留 NVS，不会切换已有仪表的目标名称。不要为切换默认名称而清除已有车辆记录；已有设备仍可从仪表蓝牙扫描页重新选择适配器。
+
+此发布不修改 App 4.3.15 内置的 4.0.7 固件。独立应用镜像不能作为整片镜像写到地址0；源码构建采用 ESP-IDF 5.5.3 与 `firmware/sdkconfig.release`，按下方源码烧录说明操作。保留4.0.7的GNSS及其他采集功能。
+
 ## App 4.3.11 内置 GNSS 固件 4.0.7
 
 [v4.3.11 完整下载页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11) 包含 Android APK（内置 4.0.7）、Windows r4 一键烧录包、独立应用镜像及校验文件。主页下载入口指向该完整版本。
