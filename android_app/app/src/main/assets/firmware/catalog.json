@@ -9,6 +9,12 @@
       "rollback": false
     },
     {
+      "id": "4.0.7",
+      "label": "4.0.7（OBD默认名称调整前版本）",
+      "manifest": "firmware/history/4.0.7/latest.json",
+      "rollback": true
+    },
+    {
       "id": "4.0.6",
       "label": "4.0.6（GNSS 更新前版本）",
       "manifest": "firmware/history/4.0.6/latest.json",

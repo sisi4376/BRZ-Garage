@@ -10,7 +10,7 @@
 
 [下载 v4.3.15 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
-固件 [4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)：空 NVS 首次初始化时默认查找 `OBDBLE`；保留 NVS 的升级继续使用原名称和绑定地址，旧版空名称仍按 `OBDII` 查找。App 最新发布仍为 4.3.15，其内置固件不变。说明见[固件文档](firmware/README.md)。
+固件 [4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)：空 NVS 首次初始化时默认查找 `OBDBLE`；保留 NVS 的升级继续使用原名称和绑定地址，旧版空名称仍按 `OBDII` 查找。App 4.3.15（构建157）已内置4.0.8，可从App内升级仪表。说明见[固件文档](firmware/README.md)。
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >

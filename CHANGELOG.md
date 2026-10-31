@@ -8,6 +8,10 @@ comment cleanups are left to the git history.
 
 ## English
 
+### 2026-10-31 — Android 4.3.15 build 157: embedded firmware 4.0.8
+
+- Repackage the existing 4.3.15 release with the verified 4.0.8 image; preserve the signing certificate and App behavior. Add 4.0.7 to the rollback catalog. Existing 4.3.15 installations need a manual download because the public version name is unchanged.
+
 ### 2026-10-31 — Firmware 4.0.8: OBDBLE factory provisioning
 
 - Seed and persist `OBDBLE` only when the NVS settings blob is absent. Preserve existing empty (`OBDII`), explicitly named and MAC-bound configurations byte for byte across normal upgrades.
