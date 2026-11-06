@@ -258,7 +258,7 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.3.15 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
+前往 [v4.6.2 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.2) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；
