@@ -18,15 +18,21 @@
   "firmware": {
     "project": "obd_brz_gauge",
     "version": "4.1.2",
-    "build_tag": "embedded-4.1.2",
-    "idf": "v5.5.3"
+    "build_tag": "main-102-fb3183d387b2",
+    "idf": "v5.5.3",
+    "source_commit": "fb3183d387b28d7d132b5d6a2377105bedd8367f"
   },
   "files": {
     "firmware": {
       "path": "obd_brz_gauge.bin",
       "size": 2125952,
-      "sha256": "2d9ab9b6220977aa5ec5a06ba98a950ad6d19d9bc4cde5c41ccdd44c07f8a832",
+      "sha256": "735deb18f7a0f3a9a70419f06e83dff3bad34a9e76cea2ae29b8abff69ed23a6",
       "ota_only": true
     }
+  },
+  "factory_obd_target": {
+    "new_settings": "OBDBLE",
+    "legacy_empty_name": "OBDII",
+    "preserve_existing_settings": true
   }
 }

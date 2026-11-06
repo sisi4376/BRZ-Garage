@@ -1,0 +1,33 @@
+{
+  "source_commit": "fb3183d387b28d7d132b5d6a2377105bedd8367f",
+  "source_branch": "main",
+  "release_tag": "v4.6.2",
+  "firmware_version": "4.1.2",
+  "firmware_sha256": "735deb18f7a0f3a9a70419f06e83dff3bad34a9e76cea2ae29b8abff69ed23a6",
+  "android_version": "4.6.2",
+  "android_version_code": 167,
+  "apk_sha256": "f2b1eb533b94561e904d6feb5e42e38b7da2f9df1d1fa3ed29549ec44d2ce8d0",
+  "apk_size": 36630606,
+  "signer_certificate_sha256": "08bab8a9c07f8e5b0efcfb39f6c9ee56bea08021c7e5b231be7efff0aaa43f50",
+  "flasher_version": "4.1.2-r4",
+  "flasher_sha256": "75cfedd170ddb4c6de1ce865af9b9beea63f51b196e9a484c655eb84bfc2e1fa",
+  "verified": [
+    "100 relevant Python/host checks passed after correcting obsolete maintenance-option assertion",
+    "128 Harmony runtime tests passed",
+    "Android-Harmony-Android nine-table roundtrip and 57-file review baseline",
+    "ESP-IDF 5.5.3 build with GNSS enabled",
+    "Android debug build and original v2 signing certificate",
+    "APK/OTA/Harmony/flasher application bytes identical",
+    "All five flasher images sizes and SHA-256 match package manifest",
+    "4.0.6 and 4.0.7 rollback images retained"
+  ],
+  "not_verified": [
+    "phone installation",
+    "physical flashing",
+    "road test",
+    "6AT vehicle validation",
+    "G-board GNSS hardware",
+    "background notification delivery"
+  ],
+  "data_compatibility": "NVS/BLE layouts retained; transfer v6 reads v1-v5; no historical gap reconstruction"
+}
