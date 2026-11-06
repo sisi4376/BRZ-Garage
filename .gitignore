@@ -79,6 +79,8 @@ flash-before.bin
 /sdkconfig.old
 
 # IDE and operating-system metadata
+# Local assistant project memory
+/AGENTS.md
 /.vscode/
 /.idea/
 /.qwen/
