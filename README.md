@@ -10,8 +10,6 @@
 
 [下载 v4.6.2 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.2) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
-固件 [4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)：空 NVS 首次初始化时默认查找 `OBDBLE`；保留 NVS 的升级继续使用原名称和绑定地址，旧版空名称仍按 `OBDII` 查找。App 4.3.15（构建157）已内置4.0.8，可从App内升级仪表。说明见[固件文档](firmware/README.md)。
-
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
 > <img src="https://github.com/user-attachments/assets/5ba8124c-7014-402e-accd-fcd56f582a25" alt="GitHub 右上角 Star 按钮示意" width="120"> ➡️ <img width="136" alt="image" src="https://github.com/user-attachments/assets/9cc68dd4-2d80-4158-8eb6-1483d6cda77c" />
@@ -36,7 +34,7 @@
 >
 > ❗ Android App 目前主要在 HarmonyOS 6 上测试，其他 Android 系统可能存在厂商兼容性差异；暂不支持 iOS；
 >
-> ❌ 本项目不能远程访问或控制车辆；GNSS 仅用于授时，不提供轨迹或导航；
+> ❌ 本项目不能远程访问或控制车辆；GNSS 仅用于授时，不提供轨迹或导航；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G（推荐）；
 >
 > ❌ 当前不建议外接锂电，也未采用保险盒常电供电方案，以避免额外的电气与蓄电池风险；
 >
@@ -128,7 +126,7 @@ flowchart LR
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
 | 车辆 | Subaru BRZ ZC6 6MT / 6AT、ZD8 6AT | 🧪 已接入，等待实车验证 |
-| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（GNSS 接线与兼容性见 [固件说明](firmware/README.md)），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
+| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
 | 其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
@@ -186,7 +184,7 @@ flowchart LR
 
 开始前请准备：
 
-- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐）、1.75-B 或 1.75；
+- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐，预留定位功能）、1.75-B 或 1.75（如需为未来扩展预留硬件，请选择 1.75-G）；
 - 一条确认支持数据传输的 USB 线；
 - BLE ELM327 兼容适配器；
 - Android 8.0+ 手机；
