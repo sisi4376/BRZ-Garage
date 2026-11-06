@@ -34,11 +34,14 @@ class DailyExpenseBreakdownView(context: Context) : View(context) {
     }
     private var values = emptyList<DailyExpenseSlice>()
 
-    fun submit(items: List<DailyExpenseSlice>) {
+    private var caption = "年度日常"
+
+    fun submit(items: List<DailyExpenseSlice>, title: String = "年度日常") {
+        caption = title
         values = items
         val total = items.sumOf { it.amount }
-        contentDescription = if (total <= 0.0) "本年度暂无日常花费" else buildString {
-            append("本年度日常花费分类图，合计 %.2f 元".format(total))
+        contentDescription = if (total <= 0.0) "$caption 暂无记录" else buildString {
+            append("$caption 分类图，合计 %.2f 元".format(total))
             items.filter { it.amount > 0.0 }.forEach { append("，${it.title} %.2f 元".format(it.amount)) }
         }
         invalidate()
@@ -76,6 +79,6 @@ class DailyExpenseBreakdownView(context: Context) : View(context) {
             else -> "¥%.0f".format(total)
         }
         canvas.drawText(totalText, centerX, centerY + dp(2f), totalPaint)
-        canvas.drawText(if (total > 0.0) "年度日常" else "暂无支出", centerX, centerY + dp(21f), captionPaint)
+        canvas.drawText(if (total > 0.0) caption else "暂无记录", centerX, centerY + dp(21f), captionPaint)
     }
 }

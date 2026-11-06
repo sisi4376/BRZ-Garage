@@ -101,7 +101,8 @@ int main(void)
     sample = cruising(); sample.rpm_valid = false;
     assert(!fuel_estimator_step(&state, &sample, 200).integrate);
     sample = cruising(); sample.speed_valid = false;
-    assert(!fuel_estimator_step(&state, &sample, 200).integrate);
+    result = fuel_estimator_step(&state, &sample, 200);
+    assert(result.integrate && result.fuel_ul > 0 && !result.valid && !result.distance_valid);
     sample = cruising(); sample.rpm = 0;
     result = fuel_estimator_step(&state, &sample, 200);
     assert(result.valid && !result.integrate && result.source == FUEL_SOURCE_ENGINE_OFF);
@@ -143,5 +144,62 @@ int main(void)
         assert(result.instant_x100 == UINT16_MAX);
     }
     puts("PASS: extreme fuel values saturate without wrap or hang");
+    sample = cruising(); sample.disable_cut_est = true;
+    sample.fuel_status = 4; sample.load_pct = 0; sample.tps_pct = 0; sample.maf_x100 = 500;
+    for (int n = 0; n < 10; ++n) { result = fuel_estimator_step(&state, &sample, 200); assert(result.source == FUEL_SOURCE_MAF && result.fuel_ul > 0 && result.distance_mm > 0); }
+    sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = 0;
+    result = fuel_estimator_step(&state, &sample, 200); assert(result.source == FUEL_SOURCE_ECU && result.rate_ml_h == 0);
+    sample.fuel_rate_ml_h = 6000;
+    result = fuel_estimator_step(&state, &sample, 200); assert(result.instant_x100 == 1000);
+    sample.speed_kmh = 0; result = fuel_estimator_step(&state, &sample, 200);
+    assert(result.instant_is_lph && result.fuel_ul > 0 && result.distance_mm == 0);
+    puts("PASS: AT MAF accumulation, ECU zero/positive and idle fuel");
+
+    /* Mileage is independent of missing fuel inputs and RPM. Invalid speed
+       and long scheduling gaps must still never be extrapolated. */
+    state = (fuel_estimator_t){0}; sample = cruising();
+    distance = 0; fuel = 0;
+    for (int i = 0; i < 18000; ++i) {
+        sample.maf_valid = (i % 300) >= 15; // 3 seconds missing per minute
+        result = fuel_estimator_step(&state, &sample, 200);
+        assert(result.distance_valid);
+        if (!sample.maf_valid) assert(!result.valid && !result.integrate && result.fuel_ul == 0);
+        distance += result.distance_mm; fuel += result.fuel_ul;
+    }
+    assert(distance == 60000000 && fuel == 4590400);
+    sample.rpm_valid = false;
+    result = fuel_estimator_step(&state, &sample, 200);
+    assert(result.distance_valid && result.distance_mm > 0 && !result.integrate);
+    sample.rpm_valid = true; sample.rpm = 0;
+    result = fuel_estimator_step(&state, &sample, 200);
+    assert(result.distance_valid && result.distance_mm > 0 && !result.integrate);
+    sample.speed_valid = false;
+    result = fuel_estimator_step(&state, &sample, 200);
+    assert(!result.distance_valid && result.distance_mm == 0);
+    sample = cruising();
+    result = fuel_estimator_step(&state, &sample, 2001);
+    assert(!result.distance_valid && result.distance_mm == 0 && !result.integrate);
+    puts("PASS: independent distance across fuel/RPM gaps, stale speed and long gaps");
+
+    for (int speed = 0; speed <= 3; ++speed) {
+        state = (fuel_estimator_t){0}; sample = cruising();
+        sample.speed_kmh = speed;
+        sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = 6000;
+        distance = 0; fuel = 0;
+        for (int i = 0; i < 3000; ++i) {
+            result = fuel_estimator_step(&state, &sample, 200);
+            assert(result.valid && result.instant_is_lph == (speed < 3));
+            assert(result.instant_x100 == (speed < 3 ? 600 : 20000));
+            distance += result.distance_mm;
+            fuel += result.fuel_ul;
+        }
+        assert(distance == (uint64_t)speed * 600000ULL * 5ULL / 18ULL);
+        assert(fuel == 1000000); // 6 L/h for 10 min, including 0/1/2 km/h
+        sample.fuel_rate_valid = false; sample.maf_valid = false;
+        result = fuel_estimator_step(&state, &sample, 200);
+        assert(!result.valid && result.instant_is_lph == (speed < 3));
+        assert(result.distance_valid);
+    }
+    puts("PASS: crawl distance and unchanged L/h to L/100km boundary");
     return 0;
 }

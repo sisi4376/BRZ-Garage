@@ -3,12 +3,12 @@
 **为 Subaru BRZ 打造的圆形 OBD 仪表与本地用车管家**
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
-[![Firmware](https://img.shields.io/badge/Firmware-4.0.8-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.3.15-3DDC84)](CHANGELOG.md)
+[![Firmware](https://img.shields.io/badge/Firmware-4.1.2-00C853)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.6.2-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.3.15 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.15) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.6.2 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.2) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 固件 [4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)：空 NVS 首次初始化时默认查找 `OBDBLE`；保留 NVS 的升级继续使用原名称和绑定地址，旧版空名称仍按 `OBDII` 查找。App 4.3.15（构建157）已内置4.0.8，可从App内升级仪表。说明见[固件文档](firmware/README.md)。
 
@@ -19,16 +19,20 @@
 >
 > 你的支持能让更多 BRZ 车友发现这个项目，也是作者持续更新的动力。
 
+## 源码与发布约定
+
+`main` 是正式发布最新版的完整源码入口（包含已发布 Beta）。所有修复先汇总、验证并推送到 `main`，再从对应提交构建并发布；临时分支不能代替主分支更新。每次 Release 正文必须完整列出从上一已发布版本到本次的全部更新，并说明附件版本、升级方式与验证范围。持续规则见 [项目概要与发布约定](AGENTS.md)。
+
 ## Beta 公测版说明
 
-当前 **Beta 公测**版本为 Android App **4.3.15**，内置仪表固件 **4.0.7**。
+当前完整 **Beta 公测**版本为 Android App **4.6.2（167）** 与仪表固件 **4.1.2**，含 Windows r4 一键烧录包。鸿蒙源码为 **0.6.0**，此次同步内置固件资源，不提供新 HAP。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
 >
 > 使用前请特别注意：
 >
-> ❌ 当前仅支持 **6MT 手动挡**，暂不支持自动挡；
+> ❌ 现提供 **6MT / 6AT** 车型配置；6AT 为基础数据测试支持，不显示挡位，仍需实车验证；
 >
 > ❌ 目前仅对 **ZD8** 完成实车验证，ZC6 尚需更多实车测试；
 >
@@ -127,11 +131,11 @@ flowchart LR
 | 项目 | 当前要求 | 支持状态 |
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
-| 车辆 | Subaru BRZ ZC6 6MT | 🧪 已接入，等待更多实车验证 |
+| 车辆 | Subaru BRZ ZC6 6MT / 6AT、ZD8 6AT | 🧪 已接入，等待实车验证 |
 | 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（GNSS 接线与兼容性见 [固件说明](firmware/README.md)），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
-| 自动挡、其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
+| 其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
 
 如果你的硬件或车型不在表中，请不要直接烧录。源码中保留的历史板型和其他车辆配置，不代表当前版本已经开放或验证。
 

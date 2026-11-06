@@ -608,7 +608,7 @@ static void default_on_parsed_speed(uint8_t kmh) {
     if (v > 255) v = 255;
     if (p && p->can_broadcast_mode && obd_data_get_rpm() < 800)
         v = 0;
-    if (v <= 2) v = 0;
+    // Preserve reported crawl speeds for display and distance integration.
     obd_data_set_speed((uint8_t)v);
     perf_emit(PERF_SPEED, 0, start, perf_now() - start);
 }

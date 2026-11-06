@@ -55,6 +55,9 @@
 /tmp_ai_inspect/
 /backups/
 /logs/
+/OBD-Recordings/
+/BRZ-OBD-Studio.exe
+/BRZ-OBD-Studio-v*.exe
 /tmp/
 /.tmp-brz-*
 /nvs_*.bin

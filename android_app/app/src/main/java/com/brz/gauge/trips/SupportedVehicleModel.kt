@@ -35,7 +35,13 @@ enum class SupportedVehicleModel(
             0.888194f, 0.666154f, // bottom-right
             0.763878f, 0.676709f, // bottom-left
         ),
-    );
+    ),
+    ZD8_AT(17, "Subaru BRZ ZD8 6AT", "SUBARU  /  ZD8 · 6AT", "第二代 Subaru BRZ ZD8 三维车辆模型", ZD8.frontPlateQuad),
+    ZC6_AT(16, "Subaru BRZ ZC6 6AT", "SUBARU  /  ZC6 · 6AT", "第一代 Subaru BRZ ZC6 三维车辆模型", ZC6.frontPlateQuad);
+
+    val isAutomatic: Boolean get() = profileIndex == 16 || profileIndex == 17
+    val bodyName: String get() = if (profileIndex == 1 || profileIndex == 16) "ZC6" else "ZD8"
+    val transmission: String get() = if (isAutomatic) "6AT" else "6MT"
 
     companion object {
         const val DEFAULT_PROFILE_INDEX = 4

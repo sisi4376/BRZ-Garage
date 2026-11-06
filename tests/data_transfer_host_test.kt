@@ -187,7 +187,7 @@ fun main(args: Array<String>) {
     val v1Data = JSONObject().put("tables", JSONObject().also { tables ->
         initial.tables.forEach { (name, rows) ->
             tables.put(name, org.json.JSONArray().also { array -> rows.forEach { row ->
-                array.put(TransferArchive.jsonObject(if (name == "expenses") row - "maintenance_type" else row))
+                array.put(TransferArchive.jsonObject(if (name == "expenses") row - ledgerDefaults.keys - "maintenance_type" else row))
             } })
         }
     }).put("preferences", JSONObject().also { prefs ->
@@ -436,6 +436,230 @@ fun main(args: Array<String>) {
     check(tireState(listOf(leapTire)).dueDate == java.time.LocalDate.parse("2032-02-29"))
     check(MaintenanceServiceKind.TIRE_ROTATION.intervalKm == 10000 && MaintenanceServiceKind.TIRE_ROTATION.intervalMonths == null)
     passed("tire starts at zero without a date; latest replacement resets 50000 km / 8 year reminders, whichever comes first")
+    val ledgerContext = Context(File(root, "refined-ledger"))
+    val ledgerDb = ExpenseDatabase(ledgerContext)
+    val insurance = ExpenseRecord(deviceId = GAUGE, dateEpochDay = 21000, category = ExpenseCategory.DAILY,
+        amount = 2500.0, title = "保险", ledgerKind = "insurance", dueEpochDay = 21365,
+        startEpochDay = 21000, party = "保险公司", itemName = "商业险", note = "原备注")
+    val insuranceId = ledgerDb.save(insurance)
+    val storedInsurance = ledgerDb.all(GAUGE).single()
+    check(storedInsurance.id == insuranceId && storedInsurance.copy(id=0) == insurance)
+    ledgerDb.save(storedInsurance.copy(amount=2600.0,note="精简版编辑备注"))
+    val editedInsurance = ledgerDb.all(GAUGE).single()
+    check(editedInsurance.dueEpochDay == 21365L && editedInsurance.startEpochDay == 21000L)
+    check(editedInsurance.itemName == "商业险" && editedInsurance.party == "保险公司")
+    ledgerDb.save(insurance.copy(title="保险赔付", ledgerKind="income", income=true, amount=900.0))
+    val ledgerStore = TransferStore(ledgerContext)
+    val ledgerSnapshot = ledgerStore.snapshot()
+    val ledgerRestored = Context(File(root,"refined-restored"))
+    val restoredStore = TransferStore(ledgerRestored)
+    restoredStore.import(decode(archive(ledgerSnapshot)), true)
+    restoredStore.import(decode(archive(ledgerSnapshot)), true)
+    check(normalized(restoredStore.snapshot()) == normalized(ledgerSnapshot))
+    ExpenseDatabase(ledgerRestored).use { db ->
+        val rows = db.all(GAUGE)
+        check(rows.size == 2 && rows.filter { it.income }.sumOf { it.amount } == 900.0)
+        check(rows.filter { !it.income }.sumOf { it.amount } == 2600.0)
+    }
+    check(insurance.section == "insurance" && insurance.isFixed)
+    check(insurance.copy(title="维修",ledgerKind="").isMaintenance)
+    check(insurance.copy(title="车辆配件",ledgerKind="").section == "asset")
+    check(insurance.copy(title="证件手续",ledgerKind="").section == "paperwork")
+    passed("refined ledger fields survive basic edits, archive/import and repeated merge; income remains separate")
+
+    // v3 archives contain neither refined fields nor separate income metadata.
+    val v3Data = JSONObject().put("tables", JSONObject().also { tables ->
+        ledgerSnapshot.tables.forEach { (name,rows) -> tables.put(name,org.json.JSONArray().also { array ->
+            rows.forEach { row -> array.put(TransferArchive.jsonObject(if(name=="expenses") row-ledgerDefaults.keys else row)) }
+        }) }
+    }).put("preferences",JSONObject()).put("devices",JSONObject()).toString().toByteArray()
+    val v3Archive = rewrite(archive(ledgerSnapshot)) { name,content -> if(name=="data.json") v3Data else
+        JSONObject(content.toString(Charsets.UTF_8)).put("version",3).put("bytes",v3Data.size)
+            .put("sha256",TransferArchive.digest(v3Data)).toString().toByteArray() }
+    check(decode(v3Archive).tables.getValue("expenses").all { it["income"] == 0L && it["due_epoch_day"] == null })
+    passed("v3 archives upgrade to complete v4 defaults without changing original amounts or identities")
+
+    val deadline = java.time.LocalDate.ofEpochDay(21365)
+    for(offset in listOf(30L,7L,3L,0L)) {
+        val day=deadline.minusDays(offset)
+        val reminders=ledgerReminders(listOf(storedInsurance),day)
+        check(reminders.single().offset(day) in reminderOffsets)
+        check(reminders.single().deliveryKey(day).endsWith("|$offset"))
+    }
+    for(offset in listOf(31L,29L,10L,6L,2L,-1L)) {
+        val day=deadline.minusDays(offset)
+        check(ledgerReminders(listOf(storedInsurance),day).none { it.offset(day) in reminderOffsets })
+    }
+    val renewed=storedInsurance.copy(id=insuranceId+10,dateEpochDay=21355,startEpochDay=21366,dueEpochDay=21730)
+    val day7=deadline.minusDays(7)
+    check(ledgerReminders(listOf(storedInsurance,renewed),day7).none { it.offset(day7) in reminderOffsets })
+    val separate=storedInsurance.copy(id=insuranceId+11,itemName="交强险")
+    check(ledgerReminders(listOf(storedInsurance,renewed,separate),day7).single { it.offset(day7) in reminderOffsets }.title.contains("交强险"))
+    val service = ExpenseRecord(id=1,deviceId=GAUGE,dateEpochDay=21000,category=ExpenseCategory.MAINTENANCE,
+        amount=300.0,title="更换发动机油",maintenanceType=MaintenanceRecordType.A)
+    val serviceDue=java.time.LocalDate.ofEpochDay(21000).plusMonths(6)
+    val serviceDay=serviceDue.minusDays(7)
+    check(ledgerReminders(listOf(service),serviceDay).single().offset(serviceDay)==7L)
+    val repair=service.copy(id=2,dateEpochDay=serviceDay.minusDays(1).toEpochDay(),title="维修",ledgerKind="repair",itemName="机油渗漏处理",maintenanceType=MaintenanceRecordType.REPAIR)
+    check(ledgerReminders(listOf(service,repair),serviceDay).single().offset(serviceDay)==7L)
+    val serviced=service.copy(id=3,dateEpochDay=serviceDay.minusDays(1).toEpochDay())
+    check(ledgerReminders(listOf(service,serviced),serviceDay).none { it.offset(serviceDay) in reminderOffsets })
+    ledgerDb.close()
+    passed("30/7/3/0 notifications use latest cycles, early renewal cancels old reminders, separate policies and non-service repairs stay independent")
+    deadlineTrackingChecks()
+    vehicleRegistrationChecks(File(args[0]))
+
+    val assetContext=Context(File(root,"asset-lifecycle"))
+    val assetDb=ExpenseDatabase(assetContext)
+    val rootId=assetDb.save(ExpenseRecord(deviceId=GAUGE,dateEpochDay=22000,category=ExpenseCategory.DAILY,amount=500.0,
+        title="配件用品",ledgerKind="asset",itemName="备用轮毂"))
+    val heldAsset=assetDb.all(GAUGE).single()
+    check(heldAsset.isAsset && heldAsset.transferId.length==32)
+    val rootSnapshot=TransferStore(assetContext).snapshot()
+    val sale=ExpenseRecord(deviceId=GAUGE,dateEpochDay=22001,category=ExpenseCategory.DAILY,amount=350.0,
+        title="配件出售",ledgerKind="asset_sale",income=true,itemName="备用轮毂",assetRef=heldAsset.transferId)
+    rejects { assetDb.save(sale.copy(dateEpochDay=21999)) }
+    val saleId=assetDb.save(sale)
+    rejects { assetDb.save(sale) }
+    check(!assetDb.delete(GAUGE,rootId))
+    rejects { assetDb.save(heldAsset.copy(dateEpochDay=22002)) }
+    rejects { assetDb.save(heldAsset.copy(amount=520.0,note="历史不可覆盖")) }
+    val originalSale=assetDb.all(GAUGE).single { it.isAssetExit }
+    rejects { assetDb.save(originalSale.copy(amount=360.0)) }
+    val soldRows=assetDb.all(GAUGE)
+    check(soldRows.count { it.isAssetExit }==1 && soldRows.filter { it.income }.sumOf { it.amount }==350.0)
+    check(soldRows.filter { it.isAsset }.all { a -> soldRows.any { it.isAssetExit && it.assetRef==a.transferId } })
+    val soldSnapshot=TransferStore(assetContext).snapshot()
+    val assetTarget=Context(File(root,"asset-lifecycle-target")); val targetStore=TransferStore(assetTarget)
+    targetStore.import(decode(archive(soldSnapshot)),true)
+    targetStore.import(decode(archive(soldSnapshot)),true)
+    check(normalized(targetStore.snapshot())==normalized(soldSnapshot))
+    ExpenseDatabase(assetTarget).use { db ->
+        val rows=db.all(GAUGE); val a=rows.single { it.isAsset }
+        check(rows.single { it.isAssetExit }.assetRef==a.transferId)
+    }
+    fun cancelAsset(event: ExpenseRecord) = assetDb.save(ExpenseRecord(deviceId=event.deviceId,dateEpochDay=22003,
+        category=ExpenseCategory.DAILY,amount=0.0,title="资产记录撤销",ledgerKind="asset_cancel",assetRef=event.transferId,itemName=event.itemName))
+    // Legacy cancellation logs remain readable until explicitly deleted.
+    cancelAsset(originalSale)
+    check(assetDb.all(GAUGE).size==3 && effectiveAssetLedger(assetDb.all(GAUGE)).none { it.income })
+    rejects { cancelAsset(originalSale) }
+    val retirement=assetDb.save(sale.copy(ledgerKind="asset_retire",title="资产移除",income=false,amount=0.0))
+    val retired=assetDb.all(GAUGE).single { it.id==retirement }
+    rejects { cancelAsset(heldAsset) }
+    cancelAsset(retired)
+    cancelAsset(heldAsset)
+    val permanent=assetDb.all(GAUGE)
+    check(permanent.size==6 && permanent.count { it.isAssetCancellation }==3)
+    check(permanent.any { it.id==rootId } && permanent.any { it.id==saleId } && permanent.any { it.id==retirement })
+    check(effectiveAssetLedger(permanent).isEmpty())
+    check(summarizeExpenseMonth(java.time.YearMonth.from(java.time.LocalDate.ofEpochDay(22000)),0.0,permanent,true).total==0.0)
+    check(!assetDb.delete(GAUGE,rootId))
+    val auditSnapshot=TransferStore(assetContext).snapshot()
+    val auditTarget=Context(File(root,"asset-audit-target")); val auditStore=TransferStore(auditTarget)
+    auditStore.import(decode(archive(auditSnapshot)),true)
+    auditStore.import(decode(archive(auditSnapshot)),true)
+    check(normalized(auditStore.snapshot())==normalized(auditSnapshot))
+    ExpenseDatabase(auditTarget).use { check(it.all(GAUGE).size==6 && effectiveAssetLedger(it.all(GAUGE)).isEmpty()) }
+    check(assetDb.delete(GAUGE,retirement))
+    check(assetDb.all(GAUGE).none { it.id==retirement || (it.isAssetCancellation && it.assetRef==retired.transferId) })
+    check(assetDb.delete(GAUGE,saleId))
+    check(assetDb.all(GAUGE).none { it.id==saleId || (it.isAssetCancellation && it.assetRef==originalSale.transferId) })
+    check(assetDb.delete(GAUGE,rootId) && assetDb.all(GAUGE).isEmpty())
+    auditStore.import(decode(archive(TransferStore(assetContext).snapshot())),true)
+    check(auditStore.snapshot().tables.getValue("expenses").isEmpty())
+    auditStore.import(decode(archive(auditSnapshot)),false)
+    check(auditStore.snapshot().tables.getValue("expenses").isEmpty())
+    ExpenseDatabase(assetTarget).use { db ->
+        val before=db.all(GAUGE); val exit=before.single { it.isAssetExit }
+        check(db.delete(GAUGE,exit.id))
+        val after=db.all(GAUGE)
+        check(after.size==1 && after.single().isAsset && after.none { it.income })
+        check(after.single().transferId==heldAsset.transferId)
+    }
+
+    val v4Data=JSONObject().put("tables",JSONObject().also { tables ->
+        rootSnapshot.tables.forEach { (name,rows) -> tables.put(name,org.json.JSONArray().also { array ->
+            rows.forEach { row -> array.put(TransferArchive.jsonObject(if(name=="expenses") row-"asset_ref" else row)) }
+        }) }
+    }).put("preferences",JSONObject()).put("devices",JSONObject()).toString().toByteArray()
+    val v4Archive=rewrite(archive(rootSnapshot)) { name,content -> if(name=="data.json") v4Data else
+        JSONObject(content.toString(Charsets.UTF_8)).put("version",4).put("bytes",v4Data.size)
+            .put("sha256",TransferArchive.digest(v4Data)).toString().toByteArray() }
+    val upgraded=decode(v4Archive).tables.getValue("expenses").single()
+    check(upgraded["asset_ref"]=="" && upgraded["transfer_id"]==heldAsset.transferId && upgraded["amount"]==500.0)
+    val duplicates=soldSnapshot.tables.toMutableMap()
+    duplicates["expenses"]=soldSnapshot.tables.getValue("expenses") + soldSnapshot.tables.getValue("expenses").single { it["ledger_kind"]=="asset_sale" }.toMutableMap().also { it["transfer_id"]="f".repeat(32) }
+    rejects { TransferSchema.validate(soldSnapshot.copy(tables=duplicates)) }
+    assetDb.close()
+    passed("asset registration/sale/removal/undo preserve stable links and one income; repeated exits and duplicate import conflicts rejected; v4 archives upgrade")
+
+    val reportMonth=java.time.YearMonth.of(2030,1)
+    val reportDay=reportMonth.atDay(1).toEpochDay()
+    val reportAsset=ExpenseRecord(deviceId=GAUGE,dateEpochDay=reportDay,category=ExpenseCategory.DAILY,amount=500.0,title="配件用品",ledgerKind="asset")
+    val reportRows=listOf(reportAsset,
+        reportAsset.copy(amount=200.0,title="保险",ledgerKind="insurance"),
+        reportAsset.copy(amount=20.0,title="停车",ledgerKind="daily"),
+        reportAsset.copy(amount=300.0,title="配件出售",ledgerKind="asset_sale",income=true),
+        reportAsset.copy(amount=0.0,title="资产移除",ledgerKind="asset_retire"),
+        reportAsset.copy(dateEpochDay=reportMonth.minusYears(1).atDay(1).toEpochDay(),amount=9000.0))
+    val refinedReport=summarizeExpenseMonth(reportMonth,100.0,reportRows,true)
+    check(refinedReport.maintenance==200.0 && refinedReport.assets==500.0 && refinedReport.daily==20.0)
+    check(refinedReport.total==820.0 && refinedReport.income==300.0 && refinedReport.netExpense==520.0)
+    val basicReport=summarizeExpenseMonth(reportMonth,100.0,reportRows,false)
+    check(basicReport.assets==0.0 && basicReport.daily==720.0 && basicReport.total==refinedReport.total && basicReport.netExpense==520.0)
+    val incomeOnly=summarizeExpenseMonth(reportMonth,0.0,listOf(reportAsset.copy(amount=1000.0,income=true,ledgerKind="income")),true)
+    check(incomeOnly.total==0.0 && incomeOnly.netExpense== -1000.0)
+    passed("statistics separate fixed and asset spending, include sale income once, preserve basic totals, ignore other years and allow negative net expense")
+
+    check((0..3).map { accountingSectionAfterSwitch(it,false) }==listOf(0,1,3,4))
+    check((0..4).map { accountingSectionAfterSwitch(it,true) }==listOf(0,1,2,2,3))
+    for(section in 0..3) check(accountingSectionAfterSwitch(accountingSectionAfterSwitch(section,false),true)==section)
+    check(accountingSectionAfterSwitch(1,true,"insurance")==2)
+    check(accountingSectionAfterSwitch(1,true,"inspection")==2)
+    check(accountingSectionAfterSwitch(1,true,"paperwork")==2)
+    check(accountingSectionAfterSwitch(1,true,"maintenance")==1)
+    val interopContext=Context(File(root,"bookkeeping-mode-interop"))
+    val interopDay=java.time.LocalDate.of(2026,6,1).toEpochDay()
+    val interopDb=ExpenseDatabase(interopContext)
+    val sampleInsurance=ExpenseRecord(deviceId=GAUGE,dateEpochDay=interopDay,category=ExpenseCategory.DAILY,amount=2500.0,
+        title="保险",ledgerKind="insurance",itemName="交强险",party="保险公司",startEpochDay=interopDay,dueEpochDay=interopDay+364)
+    val insuranceKey=interopDb.save(sampleInsurance)
+    listOf(sampleInsurance.copy(title="证件手续",ledgerKind="paperwork",amount=40.0),
+        sampleInsurance.copy(title="年审",ledgerKind="",amount=150.0),
+        sampleInsurance.copy(title="车辆配件",ledgerKind="",amount=500.0),
+        sampleInsurance.copy(title="停车",ledgerKind="daily",amount=20.0),
+        sampleInsurance.copy(title="他人付款",ledgerKind="income",income=true,amount=5000.0),
+        sampleInsurance.copy(title="更换发动机油",ledgerKind="",category=ExpenseCategory.MAINTENANCE,amount=300.0,odometerKm=20000.0)
+    ).forEach { interopDb.save(it) }
+    val interopRows=interopDb.all(GAUGE)
+    check(interopRows.size==7 && interopRows.single { it.title=="年审" }.section=="inspection")
+    check(DailyExpenseKind.fromTitle("年审")==DailyExpenseKind.INSPECTION)
+    val interopSnapshot=TransferStore(interopContext).snapshot()
+    repeat(20) { pass ->
+        interopContext.getSharedPreferences("vehicle_companion",0).edit().putBoolean("refined_accounting_ui",pass%2==0).commit()
+        val rows=interopDb.all(GAUGE)
+        val month=java.time.YearMonth.of(2026,6)
+        val basic=summarizeExpenseMonth(month,200.0,rows,false)
+        val refined=summarizeExpenseMonth(month,200.0,rows,true)
+        check(basic.total==refined.total && basic.income==refined.income && basic.netExpense==refined.netExpense)
+        check(basic.total==3710.0 && basic.income==5000.0 && basic.netExpense== -1290.0)
+        check(normalized(TransferStore(interopContext).snapshot())==normalized(interopSnapshot))
+    }
+    val oldInsurance=interopDb.all(GAUGE).single { it.id==insuranceKey }
+    interopDb.save(oldInsurance.copy(amount=2600.0,note="精简版编辑备注"))
+    val updatedInsurance=interopDb.all(GAUGE).single { it.id==insuranceKey }
+    check(updatedInsurance.transferId==oldInsurance.transferId && updatedInsurance.itemName=="交强险")
+    check(updatedInsurance.startEpochDay==interopDay && updatedInsurance.dueEpochDay==interopDay+364 && updatedInsurance.party=="保险公司")
+    val interopTarget=Context(File(root,"bookkeeping-mode-restored"))
+    val interopStore=TransferStore(interopTarget)
+    val interopPackage=decode(archive(TransferStore(interopContext).snapshot()))
+    interopStore.import(interopPackage,true);interopStore.import(interopPackage,true)
+    ExpenseDatabase(interopTarget).use { db -> check(db.all(GAUGE).size==7 && db.all(GAUGE).single { it.title=="保险" }.amount==2600.0) }
+    check(normalized(interopStore.snapshot())==normalized(TransferStore(interopContext).snapshot()))
+    interopDb.close()
+    passed("semantic mode routes roundtrip; 20 basic/refined toggles preserve IDs, rich fields, counts and totals; backup restores without duplication")
+
     refuelHistoryChecks(File(args[0]))
     refuelServiceChecks(File(args[0]))
     customTripChecks(File(args[0]))

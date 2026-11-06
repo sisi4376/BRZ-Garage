@@ -164,6 +164,7 @@ test('fresh-phone ZIP migration restores visible home, calibrated mileage and bo
  source.tables.trips=[trip()];source.tables.deleted_trips=[];
  source.tables.expenses=[{transfer_id:'11111111111111111111111111111111',device_id:gauge,date_epoch_day:20500,category:1,amount:300,title:'机油',note:'换手机保留',odometer_km:41000,maintenance_type:1},
   {transfer_id:'22222222222222222222222222222222',device_id:'local',date_epoch_day:20500,category:2,amount:25,title:'停车',note:'绑定前费用',odometer_km:null,maintenance_type:null}];
+ source.tables.expenses=source.tables.expenses.map(row=>({...T.LEDGER_DEFAULTS,...row}));
  const h=harness('fresh-migration'),repo=new h.Repository();await repo.open(h.context);
  await repo.importData(await A.decodeArchive(await A.encodeArchive(source,runtime),runtime),false);
  const reopened=new h.Repository();await reopened.open(h.context);
@@ -323,4 +324,13 @@ test('offline queued archive deletion is not mistaken for a confirmed gauge muta
  const t={has:()=>true,readable:()=>true,write:async(id,b)=>writes.push(b[1]),read:async(id)=>id===11?metaBytes(w):rowBytes(w.rows[0])};
  await I.mutateRefuel(gauge,t,restarted,3,1);
  assert.equal(restarted.refuelRows(gauge)[0].distance_m,2000);assert.equal(restarted.pendingRefuel(gauge),null);assert.ok(writes.every(c=>c===1));
+});
+
+test('unbound registration adopts first gauge once, persists after restart and never overwrites other profile',async()=>{
+ const h=harness('registration-adopt'),repo=new h.Repository();await repo.open(h.context);
+ const value=JSON.stringify({registeredDay:18000,regularPrivateCar:true,inspectionDueDay:21365,estimated:true});
+ await repo.edit(s=>s.preferences.vehicle_registration_local={type:'string',value});await repo.bind(gauge);
+ assert.equal(repo.snapshot().preferences['vehicle_registration_'+gauge].value,value);assert.equal(repo.snapshot().preferences.vehicle_registration_local,undefined);
+ const reopened=new h.Repository();await reopened.open(h.context);assert.equal(reopened.snapshot().preferences['vehicle_registration_'+gauge].value,value);
+ await reopened.bind('AA:BB:CC:DD:EE:02');assert.equal(reopened.snapshot().preferences['vehicle_registration_AA:BB:CC:DD:EE:02'],undefined);
 });

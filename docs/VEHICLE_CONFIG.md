@@ -26,7 +26,9 @@ Only vehicles declared in vehicle_custom_config.h use custom CAN rules or oil te
 
 ## 当前 ZC6 / ZD8 产品配置
 
-ZC6 按上游 **ZN/C6 PID** 路径实现，仅面向原厂手动挡配置；两款车型均采用串行 OBD 请求，不启用 `ATMA` 或挂载 CAN 广播规则。ZD8 仍为默认车型。
+2026-11-06 车速和里程修正：按用户要求取消 OBD 车速 1～2 km/h 归零，并将里程与耗油量独立累计。有效车速不再受 MAF、燃油流量或 RPM 缺失影响；低于 3 km/h 显示 L/h 的规则保持不变。发布版保护对车速回调采用删除归零语句后的预期值，对油耗模块继续保护原断油判定函数，新的累计行为由可执行测试验证；历史指纹清单保持不变。详见 `FUEL_CALCULATION.md`。
+
+ZC6 按上游 **ZN/C6 PID** 路径实现，手动挡保留原厂齿比；4.1.0 新增 ZC6/ZD8 6AT 基础数据配置，禁用挡位查询、推算和显示；两款车型均采用串行 OBD 请求，不启用 `ATMA` 或挂载 CAN 广播规则。ZD8 仍为默认车型。
 
 | 项目 | ZC6 | ZD8 |
 |---|---|---|
@@ -243,3 +245,20 @@ int16_t oil_formula_parse_resp(const oil_formula_t *f,
 当前 `vehicle_custom_config.h` 已包含所有车型的覆盖配置数据表。`elm327_ble_client.c` 中的旧 switch/case 代码仍在运行，后续将逐步迁移到通用解析器。新旧代码通过 `vehicle_profile_get_override()` 桥接。
 
 The `vehicle_custom_config.h` already contains override data for all vehicles. The legacy switch/case in `elm327_ble_client.c` is still active and will be migrated to the generic parsers incrementally. The bridge is `vehicle_profile_get_override()`.
+
+## 4.1.0 自动挡配置
+
+追加编号 16=ZC6 6AT、17=ZD8 6AT；1/4 仍为原手动挡，不重用冻结车型编号。NVS、BLE 写入校验和设置回读均支持四项。ZC6 AT 复用 Mode 21 油温与过期策略；ZD8 AT 复用标准 015C。AT 的 gear_count=0、A4 关闭，无变速箱 DID，数字挡位与 GEAR 标签隐藏，转速表仍保留。ESP-NOW v6 新增 0x10 自动挡标志；主从表均需升级 4.1.0。保留 MT 参数不表示 AT 的齿比标定；这些参数不用于 AT 挡位或车速计算，车速直接来自 PID 0D。
+
+油耗仍优先 015E，回退 MAF/AFR；自动挡关闭按 ZD8 MT 日志校准的滑行断油估算。ECU 提供的有效零流量仍被接受，MAF 模式滑行阶段可能偏高，不能视为实车油耗标定完成。基础 PID、FA20 油温、多种适配器、P/R/N/D、起步/巡航/滑行、怠速累计仍需实车验收；本版不提供 P/R/N/D、实际挡位、ATF 温度。
+
+手机端版本 Android 4.6.0(165)、Harmony 0.6.0(600)，均内置 4.1.0。先升级主从仪表，再选择 6AT；旧固件会拒绝新编号，不能仅升级手机。车型外观按 ZC6/ZD8 复用，保养选择与提醒按变速箱过滤，新增自动变速箱油记录且不设未经确认的周期；历史记录不重写。
+
+### 2026-11-06 构建与验证
+
+- ESP-IDF AMOLED 固件 4.1.0 构建通过，应用镜像 2,115,408 字节，3 MB OTA 槽剩余 33%。
+- Android 4.6.0 / Harmony 0.6.0 构建通过；两端安装包内固件版本和 SHA-256 与交付 OTA 镜像一致。Android 原调试证书验证通过，Harmony 沿用已授权设备的原私有调试证书并验证通过。
+- ZC6 专项 5 项、油耗 5 项、挡位 6 项、手动挡旧版本方法保护 1 项通过。新增执行用例覆盖 AT 停车/行驶/直接挡位污染屏蔽、切回 MT、MAF 累计、ECU 零/正流量和怠速油耗。
+- Harmony 128 项宿主测试及 Android→Harmony→Android 数据往返通过。六处 Android 源码差异已对照 Harmony 的车型协议、展示、3D 外观键、保养过滤、版本和嵌入固件检查，更新 57 文件审阅基线；不将该记录视为手机画面验收。
+- 未执行实车采集、手机真机界面验收、BLE/ESP-NOW 无线实测或刷写；没有发布到远端。
+- 交付目录 `.publish/automatic-4.6.0`：APK、私有调试签名 HAP、仅用于 App OTA 的固件及各自 SHA-256。使用 App 内固件升级入口升级主从表，再在车辆设置选择对应 6AT。旧版 2.6.0 回滚包仍保留，但回滚后不支持 6AT。

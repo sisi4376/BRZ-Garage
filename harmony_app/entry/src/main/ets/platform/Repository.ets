@@ -1,3 +1,5 @@
+import { adoptLocalRegistration } from '../core/Registration';
+import { LEDGER_DEFAULTS } from '../core/Transfer';
 import { RefuelWindow, RefuelMutation, reconcileRefuel, deleteArchived } from '../core/RefuelHistory';
 import { CustomRequest, CustomReceipt, newCustomRequest, sameCustomRequest, archiveCustom, applyCustomReceipt } from '../core/CustomTrip';
 import { pref, putPref, need } from '../core/Garage';
@@ -25,6 +27,7 @@ class LocalMeta {
   backup: string = '';
   automatic: boolean = false;
   refinedHome: boolean = true;
+  refinedAccounting: boolean = false;
   groupedSettings: boolean = true;
   pendingDisplay: boolean | null = null;
   pendingProfile: number | null = null;
@@ -104,7 +107,9 @@ export class Repository {
     this.meta.refuelAt = this.meta.refuelAt ?? 0;
     state.gauge = this.meta.binding || this.meta.archiveGauge || ''; state.gauge = archiveGauge(state);
     this.meta.archiveGauge = state.gauge;
+    if(adoptLocalRegistration(state,state.gauge)){const key='vehicle_registration_'+state.gauge;await db.executeSql('INSERT OR REPLACE INTO archive_preferences(name,payload) VALUES(?,?)',[key,JSON.stringify(state.preferences[key])]);await db.executeSql('DELETE FROM archive_preferences WHERE name=?',['vehicle_registration_local']);}
     this.hydrateMeta(this.meta, state.devices[state.gauge]);
+    state.tables.expenses.forEach((row: Row) => { Object.keys(LEDGER_DEFAULTS).forEach((key: string) => { if(row[key] === undefined) row[key] = LEDGER_DEFAULTS[key]; }); });
     validate(state); this.state = state;
     db.commit(); this.database = db;
     } catch (error) { db.rollBack(); throw error as Error; }
@@ -142,6 +147,8 @@ export class Repository {
   }); }
   groupedSettings(): boolean { return this.meta.groupedSettings !== false; }
   setGroupedSettings(value: boolean): Promise<void> { return this.edit((s:Snapshot)=>{s.preferences.grouped_settings_ui={type:'boolean',value};}); }
+  refinedAccounting(): boolean { return this.meta.refinedAccounting === true; }
+  setRefinedAccounting(value: boolean): Promise<void> { return this.serial(async () => { const meta=this.copyMeta(); meta.refinedAccounting=value; await this.saveMeta(meta); }); }
   refinedHome(): boolean { return this.meta.refinedHome !== false; }
   setRefinedHome(value: boolean): Promise<void> { return this.edit((s:Snapshot)=>{s.preferences.refined_home_ui={type:'boolean',value};}); }
   automatic(): boolean { return this.meta.automatic === true; }
@@ -238,6 +245,7 @@ export class Repository {
   cursor(gauge: string): number { return this.meta.cursors[gauge] || 0; }
   private async save(snapshot: Snapshot, meta: LocalMeta): Promise<void> {
     if (!this.database) throw new Error('数据库未就绪');
+    adoptLocalRegistration(snapshot,meta.binding||snapshot.gauge);
     validate(snapshot);
     // Keep portable preferences and the active UI in the same transaction.
     meta.refinedHome=snapshot.preferences.refined_home_ui ? snapshot.preferences.refined_home_ui.value !== false : meta.refinedHome;

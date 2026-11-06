@@ -27,6 +27,7 @@ test('Android production ZIP -> Harmony -> Android fixture',async()=>{
  const b=fs.readFileSync(root+'/android.zip'),s=await A.decodeArchive(b,runtime);
  assert.equal(Object.keys(s.tables).length,9);assert.equal(s.tables.expenses[0].maintenance_type,3);
  assert.equal(s.preferences.vehicle_display_name.value,'BRZ 测试');
+ assert.equal(JSON.parse(s.preferences['vehicle_registration_'+gauge].value).inspectionDueDay,21365);
  assert.equal(s.preferences.refined_home_ui.value,false);
  assert.equal(s.preferences['appearance.ZD8_finish'].value,'satin');
  assert.equal(s.devices[gauge].vehicle_total_distance,456789);
@@ -72,6 +73,7 @@ test('v3 import normalizes legacy optional cache values without dropping raw pac
  const data=JSON.parse(T.toJson(base)),device=data.devices[gauge];
  device.vehicle_fuel_percent='87.5';device.vehicle_average=-1;device.last_fuel_percent='unavailable';
  device.vehicle_rpm='4200';device.time_verified='1';
+ data.tables.expenses.forEach(row=>Object.keys(T.LEDGER_DEFAULTS).forEach(key=>delete row[key]));
  const result=T.fromJson(JSON.stringify(data),base.gauge,base.createdAt,3).devices[gauge];
  assert.equal(result.vehicle_fuel_percent,87.5);assert.equal(result.vehicle_average,null);
  assert.equal(result.last_fuel_percent,null);assert.equal(result.vehicle_rpm,4200);
@@ -80,6 +82,7 @@ test('v3 import normalizes legacy optional cache values without dropping raw pac
 test('v3 import identifies an invalid required cache field',async()=>{
  const base=await A.decodeArchive(new Uint8Array(fs.readFileSync(root+'/android.zip')),runtime);
  const data=JSON.parse(T.toJson(base));data.devices[gauge].vehicle_total_distance='broken';
+ data.tables.expenses.forEach(row=>Object.keys(T.LEDGER_DEFAULTS).forEach(key=>delete row[key]));
  assert.throws(()=>T.fromJson(JSON.stringify(data),base.gauge,base.createdAt,3),/vehicle_total_distance/);
 });
 test('split family and tombstone merge atomically',()=>{
@@ -133,4 +136,31 @@ test('clock range and cursor bounds',()=>{assert.throws(()=>P.timePacket(100));a
 
 test('lost ACK is retried only for a previously committed cursor',async()=>{
  const f=transport({localCursor:1,lastAck:0});await S.synchronize(gauge,f.t,f.sink,()=>{});assert.deepEqual(f.events,['clock','commit','ack']);
+});
+
+test('refined fields survive legacy editor and archive without treating income as spending',async()=>{
+ const E=require(root+'/core/Editor'),G=require(root+'/core/Garage'),P=require(root+'/core/AndroidPresentation');
+ const s=snap(),row={...T.LEDGER_DEFAULTS,transfer_id:'f'.repeat(32),device_id:gauge,date_epoch_day:21000,category:2,amount:400,title:'保险赔付',note:'原备注',odometer_km:null,maintenance_type:null,
+  income:1,ledger_kind:'income',due_epoch_day:21365,start_epoch_day:21000,party:'测试公司',item_name:'商业险'};
+ s.tables.expenses=[row];const values=E.fields('expenses',row);values.find(f=>f.key==='note').value='精简编辑';
+ E.applyEdit(s,'expenses',row,values,'e'.repeat(32),gauge);
+ const edited=s.tables.expenses[0];for(const key of Object.keys(T.LEDGER_DEFAULTS))assert.equal(edited[key],row[key]);
+ assert.equal(edited.note,'精简编辑');assert.equal(edited.transfer_id,row.transfer_id);
+ assert.equal(G.monthlyCosts(s).reduce((sum,x)=>sum+x.value,0),0);
+ assert.equal(P.monthCosts(s,gauge).reduce((sum,x)=>sum+x.total,0),0);
+ const roundtrip=await A.decodeArchive(await A.encodeArchive(s,runtime),runtime);
+ assert.deepEqual(roundtrip.tables.expenses,s.tables.expenses);
+});
+
+test('explicit asset undo deletes the selected event and legacy cancel marker while preserving purchase',()=>{
+ const G=require(root+'/core/Garage');
+ const s=snap();
+ const purchase={...T.LEDGER_DEFAULTS,transfer_id:'1'.repeat(32),device_id:gauge,date_epoch_day:21000,category:2,amount:500,title:'配件用品',note:'',odometer_km:null,maintenance_type:null,ledger_kind:'asset'};
+ const sale={...purchase,transfer_id:'2'.repeat(32),date_epoch_day:21001,title:'配件出售',ledger_kind:'asset_sale',income:1,amount:300,asset_ref:purchase.transfer_id};
+ const marker={...purchase,transfer_id:'3'.repeat(32),date_epoch_day:21002,title:'撤销',ledger_kind:'asset_cancel',amount:0,asset_ref:sale.transfer_id};
+ s.tables.expenses=[purchase,sale,marker];T.validate(s);
+ assert.throws(()=>G.removeRow(s,'expenses',purchase));
+ G.removeRow(s,'expenses',sale);
+ assert.deepEqual(s.tables.expenses,[purchase]);assert.equal(s.tables.expenses_deleted.length,2);
+ G.removeRow(s,'expenses',purchase);assert.equal(s.tables.expenses.length,0);
 });

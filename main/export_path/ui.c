@@ -573,8 +573,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
                      * constant-time while the active OBD loop switches profile
                      * and resets only its profile-dependent caches. */
                     uint8_t profile = evt.data.u8;
-                    if (profile == VEHICLE_PROFILE_ZC6_INDEX ||
-                        profile == VEHICLE_PROFILE_ZD8_INDEX) {
+                    if (vehicle_profile_is_selectable(profile)) {
                         vehicle_profile_set_active(profile);
                         ESP_LOGI(TAG, "Phone vehicle profile applied: %u (%s)",
                                  profile, vehicle_profile_get_active()->name);
@@ -759,6 +758,13 @@ static void my_timerMain_impl(lv_timer_t * timer)
         usRpm = ui_motion_filter_step(&rpmDisplayFilter, rawRpm, 55U, 4U);
         ucSpeed = ui_motion_filter_step(&speedDisplayFilter, rawSpeed, 90U, 1U);
     }
+    bool hide_gear = is_slave ? espnow_link_slave_is_automatic() :
+        vehicle_profile_is_automatic(vehicle_profile_get_active());
+    if (ui_GearPageArcLabelGearNumText) {
+        if (hide_gear) { lv_obj_add_flag(ui_GearPageArcLabelGearNumText, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(ui_GearPageGearUnit, LV_OBJ_FLAG_HIDDEN); }
+        else { lv_obj_clear_flag(ui_GearPageArcLabelGearNumText, LV_OBJ_FLAG_HIDDEN); lv_obj_clear_flag(ui_GearPageGearUnit, LV_OBJ_FLAG_HIDDEN); }
+    }
+    if (hide_gear) { eGear = GEAR_NEUTRAL; s_gear_unknown = true; }
     /*Gear page: refresh only while this page is actually shown, no idle background updates*/
     if (scr == ui_ScreenPageGear) {
         static const char *pGearNum[] = {"N","1","2","3","4","5","6","7","8"};

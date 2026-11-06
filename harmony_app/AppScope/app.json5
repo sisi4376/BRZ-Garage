@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.brz.gauge.garage",
     "vendor": "BRZ Garage",
-    "versionCode": 401,
-    "versionName": "0.4.1",
+    "versionCode": 600,
+    "versionName": "0.6.0",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }

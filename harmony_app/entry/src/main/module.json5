@@ -65,6 +65,12 @@
         "icon": "$media:app_icon",
         "type": "partnerAgent",
         "exported": true
+      },
+      {
+        "name": "LedgerWorkAbility",
+        "srcEntry": "./ets/entryability/LedgerWorkAbility.ets",
+        "type": "workScheduler",
+        "exported": false
       }
     ]
   }

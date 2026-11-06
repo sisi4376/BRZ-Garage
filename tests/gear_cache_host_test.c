@@ -5,7 +5,7 @@
 #include "freertos/FreeRTOS.h"
 
 TickType_t test_now;
-static const vehicle_profile_t profile = {
+static vehicle_profile_t profile = {
     .name = "ZD8", .final_drive_ratio = 4.1f, .tire_rolling_radius_m = 0.315f,
     .gear_count = 6, .gear_ratios = {0, 3.626f, 2.189f, 1.541f, 1.213f, 1, 0.767f},
     .gear_tolerance = 0.15f,
@@ -127,5 +127,18 @@ int main(void)
     obd_data_set_fuel_status(4); obd_data_reset_fuel_inputs();
     obd_data_get_fuel_sample(&fuel); assert(fuel.fuel_status == 0 && !fuel.maf_valid);
     puts("PASS: fuel freshness, invalidation, engine signals and reconnect");
+    for (int at = 0; at < 2; ++at) {
+        profile.name = at ? "ZD8 6AT" : "ZC6 6AT"; profile.gear_count = 0;
+        for (int speed = 0; speed <= 100; speed += 10) {
+            for (int n = 0; n < 4; ++n) { test_now += 100; obd_data_set_speed(speed); obd_data_set_rpm(2500); }
+            obd_data_set_gear_source(4, OBD_GEAR_SOURCE_PID_A4); expect(127);
+            obd_data_get_fuel_sample(&fuel);
+            assert(fuel.disable_cut_est && fuel.rpm_valid && fuel.speed_valid);
+        }
+    }
+    profile.name = "ZD8"; profile.gear_count = 6; reset();
+    for (int n = 0; n < 3; ++n) pair(3, 60, 100, false);
+    expect(3);
+    puts("PASS: AT stopped/moving/direct gear suppression, fuel independence and MT restoration");
     return 0;
 }

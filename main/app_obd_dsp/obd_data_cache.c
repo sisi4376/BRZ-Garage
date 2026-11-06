@@ -132,6 +132,10 @@ void obd_data_set_speed(uint8_t kmh)
 // pair: repeated RPM packets must not turn one old speed into two confirmations.
 static void update_inferred_gear_locked(TickType_t now_tick)
 {
+    if (vehicle_profile_is_automatic(vehicle_profile_get_active())) {
+        s_inferred_gear = 127; s_inferred_gear_seen = false;
+        s_infer_candidate_count = 0; return;
+    }
     if (s_inferred_gear_seen &&
         (TickType_t)(now_tick - s_inferred_gear_last_tick) > pdMS_TO_TICKS(GEAR_INFER_STALE_MS)) {
         s_inferred_gear = 127;
@@ -484,6 +488,7 @@ void obd_data_reset_gear(void)
 
 int8_t obd_data_get_gear(void)
 {
+    if (vehicle_profile_is_automatic(vehicle_profile_get_active())) return 127;
     TickType_t now = xTaskGetTickCount();
     int8_t val;
     portENTER_CRITICAL(&s_mux);
@@ -632,6 +637,7 @@ void obd_data_get_fuel_sample(fuel_sample_t *out)
     portENTER_CRITICAL(&s_mux);
     *out = (fuel_sample_t) {
         .rpm = s_rpm_smooth, .speed_kmh = s_speed_smooth,
+        .disable_cut_est = vehicle_profile_is_automatic(vehicle_profile_get_active()),
         .maf_x100 = s_maf_x100, .fuel_rate_ml_h = s_fuel_rate_ml_h,
         .rpm_valid = fuel_input_fresh_locked(FI_RPM, now, 3000),
         .speed_valid = fuel_input_fresh_locked(FI_SPEED, now, 3000),
@@ -664,7 +670,7 @@ void obd_data_get_snapshot(obd_data_snapshot_t *out)
     out->brake_temp_x10 = s_brake_temp_x10;
     bool inferred_fresh = s_inferred_gear != 127 && s_inferred_gear_seen &&
         (TickType_t)(now - s_inferred_gear_last_tick) <= pdMS_TO_TICKS(GEAR_INFER_STALE_MS);
-    out->gear = direct_gear_is_fresh_locked(now) ? s_gear : (inferred_fresh ? s_inferred_gear : 127);
+    out->gear = vehicle_profile_is_automatic(vehicle_profile_get_active()) ? 127 : direct_gear_is_fresh_locked(now) ? s_gear : (inferred_fresh ? s_inferred_gear : 127);
     out->afr_x100 = s_afr_x100;
     out->maf_x100 = s_maf_x100;
     out->fuel_rate_ml_h = s_fuel_rate_ml_h;
@@ -774,7 +780,7 @@ static void mileage_statistics_task(void* arg)
                          elapsed_ms > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed_ms;
         fuel_sample_t sample;
         obd_data_get_fuel_sample(&sample);
-        if (sample.speed_valid && sample.rpm_valid && sample.rpm > 0 && dt_ms <= 2000)
+        if (sample.speed_valid && dt_ms <= 2000)
             nvs_stat_update_speed(sample.speed_kmh, dt_ms);
         nvs_fuel_update(&sample, dt_ms);
 

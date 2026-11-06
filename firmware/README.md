@@ -1,5 +1,9 @@
 # Firmware Package
 
+## 当前完整发布：4.1.2（Android 4.6.2）
+
+[下载完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.2)。本版在 main 汇总已有 GNSS 授时、新设备 OBDBLE 默认名称、6AT 基础支持与独立里程累计。APK、独立 OTA 镜像及 Windows r4 烧录包使用同一份 4.1.2 固件。详情与验证边界见 [4.6.2 发布说明](../docs/RELEASE_4_6_2.md)。下方为历史版本记录。
+
 ## 固件 4.0.8：首次初始化默认 OBD 名称
 
 [下载 4.0.8 Beta](https://github.com/sisi4376/BRZ-Garage/releases/tag/firmware-v4.0.8)。在 4.0.7 基础上，仅调整设备没有保存配置时的默认 OBD 目标名称为 `OBDBLE`，并立即保存至 NVS。已有配置（包括旧版空名称代表的 `OBDII`）、自定义名称及绑定 MAC 全部保留，不按版本号迁移名称。仪表自身广播名称不变。
@@ -43,7 +47,7 @@ r4 已通过模拟短包恢复、重复短包、备份校验失败、设备切�
 
 ### Release 自动发布
 
-当前完整发布为 **App 4.3.11 / 固件 4.0.7**，见 [完整发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.3.11)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
+当前完整发布为 **App 4.6.2 / 固件 4.1.2**，见 [完整发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.2)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
 
 若草稿中已上传本地验证的烧录 ZIP，发布事件跳过重复构建，保留 APK 与 ZIP 使用同一固件。自动构建优先使用标签内的 `firmware/sdkconfig.release`；上传不覆盖已有同名附件。
 

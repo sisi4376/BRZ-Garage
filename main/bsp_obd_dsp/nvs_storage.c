@@ -1005,8 +1005,17 @@ void nvs_fuel_update(const fuel_sample_t *sample, uint32_t dt_ms)
     bool active_has_data = s_fuel.active_duration_ms ||
                            s_fuel.active_distance_mm ||
                            s_fuel.active_fuel_ul;
+    // Mileage must survive missing MAF/fuel-rate/RPM samples. Consume it before
+    // the fuel-only early return, using the same persistent totals as before.
+    if (estimate.distance_valid && estimate.distance_mm > 0) {
+        s_fuel.active_distance_mm += estimate.distance_mm;
+        s_fuel.lifetime_distance_mm += estimate.distance_mm;
+        s_fuel_dirty = true;
+        active_has_data = true;
+    }
     bool trip_finalized = trip_idle_detector_step(
-        &s_trip_idle_detector, engine_running, active_has_data, dt_ms,
+        &s_trip_idle_detector, engine_running || estimate.distance_mm > 0,
+        active_has_data, dt_ms,
         s_cfg.trip_merge_timeout_min);
     if (trip_finalized) {
         ESP_LOGI(TAG, "engine stopped for %u min; finalizing trip",
@@ -1024,11 +1033,7 @@ void nvs_fuel_update(const fuel_sample_t *sample, uint32_t dt_ms)
     }
 
     uint64_t fuel_ul = estimate.fuel_ul;
-    uint64_t distance_mm = estimate.distance_mm;
-
-    s_fuel.active_distance_mm += distance_mm;
     s_fuel.active_fuel_ul += fuel_ul;
-    s_fuel.lifetime_distance_mm += distance_mm;
     s_fuel.lifetime_fuel_ul += fuel_ul;
     s_fuel_dirty = true;
     xSemaphoreGive(s_mux);

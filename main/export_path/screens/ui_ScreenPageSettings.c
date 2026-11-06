@@ -15,15 +15,19 @@
 // 0=TEMP 1=INFO 2=CHART 3=NEEDLE 4=GEAR+RPM 5=SPEED 6=FUEL 7=TRIP HISTORY 8=TRIP OVERVIEW
 static const char *page_names = "TEMP\nINFO\nCHART\nNEEDLE\nGEAR + RPM\nSPEED\nFUEL\nTRIP HISTORY\nTRIP OVERVIEW";
 #define BOOT_PAGE_COUNT 9
-static const char *vehicle_names = "ZC6\nZD8";
+static const char *vehicle_names = "ZC6 6MT\nZD8 6MT\nZC6 6AT\nZD8 6AT";
 static const uint8_t s_vehicle_profile_indices[VEHICLE_PROFILE_SELECTABLE_COUNT] = {
     VEHICLE_PROFILE_ZC6_INDEX,
     VEHICLE_PROFILE_ZD8_INDEX,
+    VEHICLE_PROFILE_ZC6_AT_INDEX,
+    VEHICLE_PROFILE_ZD8_AT_INDEX,
 };
 
 static uint8_t vehicle_profile_to_roller(uint8_t profile)
 {
-    return profile == VEHICLE_PROFILE_ZC6_INDEX ? 0U : 1U;
+    for (uint8_t i = 0; i < VEHICLE_PROFILE_SELECTABLE_COUNT; ++i)
+        if (s_vehicle_profile_indices[i] == profile) return i;
+    return 1U;
 }
 
 // Local references for settings widgets

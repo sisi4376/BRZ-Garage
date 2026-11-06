@@ -12,6 +12,8 @@ extern "C" {
 
 // Optional v6 flags; packet layout stays unchanged.
 #define ESPNOW_FLAG_ZC6_PID 0x04u
+#define ESPNOW_FLAG_AUTOMATIC 0x10u
+bool espnow_link_slave_is_automatic(void);
 #define ESPNOW_FLAG_OBD_DATA_VALID 0x08u
 
 // Master: init WiFi + ESP-NOW and periodically broadcast the OBD data cache to slaves.

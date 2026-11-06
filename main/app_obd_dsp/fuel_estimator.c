@@ -85,21 +85,37 @@ fuel_estimate_t fuel_estimator_step(fuel_estimator_t *state,
 {
     fuel_estimate_t out = {0};
     if (!state) return out;
-    if (!sample || !dt_ms || dt_ms > 2000 || !sample->rpm_valid || !sample->speed_valid) {
+    if (!sample || !dt_ms || dt_ms > 2000) {
         state->dfco_active = false;
         state->dfco_candidate_ms = 0;
         return out;
     }
     out.instant_is_lph = sample->speed_kmh < 3;
+    // Distance depends on fresh speed and elapsed time, never fuel or RPM.
+    if (sample->speed_valid) {
+        uint64_t numerator = (uint64_t)sample->speed_kmh * dt_ms * 5ULL + state->distance_remainder;
+        out.distance_mm = numerator / 18ULL;
+        state->distance_remainder = (uint32_t)(numerator % 18ULL);
+        out.distance_valid = true;
+    }
+    if (!sample->rpm_valid) {
+        state->dfco_active = false;
+        state->dfco_candidate_ms = 0;
+        return out;
+    }
     if (sample->rpm == 0) {
         state->dfco_active = false;
         state->dfco_candidate_ms = 0;
-        out.valid = true;
+        out.valid = sample->speed_valid;
         out.source = FUEL_SOURCE_ENGINE_OFF;
-        return out; // no driving time, distance or stale MAF fuel after engine stop
+        return out; // no engine time or stale MAF fuel after engine stop
     }
 
     uint64_t rate;
+    if (!sample->speed_valid) {
+        state->dfco_active = false;
+        state->dfco_candidate_ms = 0;
+    }
     if (sample->fuel_rate_valid) {
         rate = sample->fuel_rate_ml_h; // ECU zero is valid; never override with a heuristic
         out.source = FUEL_SOURCE_ECU;
@@ -109,7 +125,7 @@ fuel_estimate_t fuel_estimator_step(fuel_estimator_t *state,
         /* PID 03 value 4 means high-load open loop OR deceleration fuel cut.
            Distinguish the two with closed throttle plus either zero calculated
            load or the low airflow/RPM relationship observed on this ZD8. */
-        if (dfco_update(state, sample, dt_ms)) {
+        if (sample->speed_valid && !sample->disable_cut_est && dfco_update(state, sample, dt_ms)) {
             rate = 0;
             out.source = FUEL_SOURCE_CUT_EST;
         } else {
@@ -121,17 +137,15 @@ fuel_estimate_t fuel_estimator_step(fuel_estimator_t *state,
             out.source = FUEL_SOURCE_MAF;
         }
     }
-    out.valid = true;
+    out.valid = sample->speed_valid; // instantaneous unit/value needs fresh speed
     out.integrate = true;
     out.rate_ml_h = (uint32_t)rate;
-    uint64_t instant = out.instant_is_lph ? rate / 10ULL : rate * 10ULL / sample->speed_kmh;
+    uint64_t instant = !sample->speed_valid ? 0 :
+                       out.instant_is_lph ? rate / 10ULL : rate * 10ULL / sample->speed_kmh;
     out.instant_x100 = (uint16_t)(instant > UINT16_MAX ? UINT16_MAX : instant);
     uint64_t fuel_numerator = rate * dt_ms + state->fuel_remainder;
     out.fuel_ul = fuel_numerator / 3600ULL;
     state->fuel_remainder = (uint32_t)(fuel_numerator % 3600ULL);
-    uint64_t distance_numerator = (uint64_t)sample->speed_kmh * dt_ms * 5ULL + state->distance_remainder;
-    out.distance_mm = distance_numerator / 18ULL;
-    state->distance_remainder = (uint32_t)(distance_numerator % 18ULL);
     out.duration_ms = dt_ms;
     return out;
 }

@@ -97,6 +97,35 @@ class AppState(context: Context) {
             val suffix = Regex("([0-9A-F]{2}(?::[0-9A-F]{2}){5})$")
             return prefs.all.keys.mapNotNull { suffix.find(it)?.value }.toSet().singleOrNull().orEmpty()
         }
+    /** Assign an unbound vehicle's registration once, on its first selected gauge. */
+    private fun adoptLocalRegistration() {
+        val device = dataDeviceId
+        if (device.isBlank()) return
+        val localKey = REGISTRATION_PREFIX + "local"
+        val local = compatibleString(localKey) ?: return
+        if (prefs.contains(REGISTRATION_PREFIX + device)) return
+        val edit = prefs.edit()
+        edit.putString(REGISTRATION_PREFIX + device, local)
+        edit.remove(localKey).apply()
+    }
+    internal fun vehicleRegistration(device: String = dataDeviceId.ifBlank { "local" }): VehicleRegistration? {
+        adoptLocalRegistration()
+        return VehicleRegistration.decode(compatibleString(REGISTRATION_PREFIX + device))
+    }
+    internal fun saveVehicleRegistration(value: VehicleRegistration?, device: String = dataDeviceId.ifBlank { "local" }) {
+        require(device == "local" || TransferSchema.gaugePattern.matches(device))
+        adoptLocalRegistration()
+        val edit = prefs.edit()
+        if (value == null) edit.remove(REGISTRATION_PREFIX + device)
+        else edit.putString(REGISTRATION_PREFIX + device, value.encode())
+        edit.apply()
+    }
+    internal fun vehicleRegistrations(): Map<String, VehicleRegistration> {
+        adoptLocalRegistration()
+        return prefs.all.keys.filter(::registrationPreference).mapNotNull { key ->
+            VehicleRegistration.decode(compatibleString(key))?.let { key.removePrefix(REGISTRATION_PREFIX) to it }
+        }.toMap()
+    }
     var automatic: Boolean
         get() = compatibleBoolean("automatic", true) && hasAcceptedCurrentUserNotice &&
             !DataTransferSession.busy && !DataTransferSession.recoveryRequired

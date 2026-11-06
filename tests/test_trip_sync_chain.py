@@ -68,8 +68,6 @@ static bool s_fuel_dirty, s_refuel_dirty;
 static trip_sync_store_t s_trip_sync_save_copy, persisted_sync;
 // Unrelated stores are inert: this test faults the trip-queue checkpoint only.
 static int s_refuel, s_refuel_save_copy;
-// Custom-trip persistence is covered with real functions in test_custom_trip_sync.
-// This fixture focuses on the independent retained history checkpoint.
 static esp_err_t custom_trip_flush_locked(void) { return ESP_OK; }
 #define NS_CFG "cfg"
 #define KEY_FUEL_TRIPS "fueltrips"
