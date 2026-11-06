@@ -121,12 +121,12 @@ class Vehicle3DView(context: Context) : FrameLayout(context) {
         sendState()
     }
 
-    private fun key(suffix: String) = "${model.name}_$suffix"
+    private fun key(suffix: String) = "${model.bodyName}_$suffix"
     private fun sendState() {
         val target = web ?: return
         if (!ready || !render3D) return
         val payload = JSONObject().apply {
-            put("model", model.name.lowercase(Locale.ROOT))
+            put("model", model.bodyName.lowercase(Locale.ROOT))
             put("color", prefs.getString(key("color"), "#155dcc"))
             put("finish", prefs.getString(key("finish"), "gloss"))
             put("plate", plateText); put("visible", plateVisible)
@@ -140,16 +140,16 @@ class Vehicle3DView(context: Context) : FrameLayout(context) {
     private fun showAppearance() {
         val names = arrayOf("拉力蓝", "珍珠白", "烈焰红", "石墨灰", "曜石黑", "冰银", "切换亮面 / 哑光", "模型来源与许可")
         val colors = arrayOf("#155dcc", "#e7e9e8", "#b91930", "#565d66", "#141a22", "#a4b1bf")
-        appearanceDialog = AlertDialog.Builder(context).setTitle("${model.name} 车身外观")
+        appearanceDialog = AlertDialog.Builder(context).setTitle("${model.bodyName} 车身外观")
             .setItems(names) { _, index ->
                 when {
                     index < colors.size -> prefs.edit().putString(key("color"), colors[index]).apply()
                     index == 6 -> prefs.edit().putString(key("finish"),
                         if (prefs.getString(key("finish"), "gloss") == "gloss") "satin" else "gloss").apply()
                     else -> {
-                        val id = if (model == SupportedVehicleModel.ZD8) "2e8aca0407ae44d2802bc34761054a69" else "321a9ece66bb4616872892c01d279542"
+                        val id = if (model.bodyName == "ZD8") "2e8aca0407ae44d2802bc34761054a69" else "321a9ece66bb4616872892c01d279542"
                         val credits = TextView(context).apply {
-                            text = "Subaru BRZ (${model.name})\nMona x Supercars / GT Cars: Hyperspeed\nhttps://sketchfab.com/Car2022\n\nhttps://sketchfab.com/3d-models/$id\n\nCC BY 4.0\nhttps://creativecommons.org/licenses/by/4.0/\n\n修改：清理辅助几何、合并 GLB、替换车漆、添加前后车牌。\nThree.js 0.160.1 · MIT；原始许可随 App 内置。"
+                            text = "Subaru BRZ (${model.bodyName})\nMona x Supercars / GT Cars: Hyperspeed\nhttps://sketchfab.com/Car2022\n\nhttps://sketchfab.com/3d-models/$id\n\nCC BY 4.0\nhttps://creativecommons.org/licenses/by/4.0/\n\n修改：清理辅助几何、合并 GLB、替换车漆、添加前后车牌。\nThree.js 0.160.1 · MIT；原始许可随 App 内置。"
                             textSize = 13f; setPadding(dp(20), dp(12), dp(20), dp(12))
                             autoLinkMask = android.text.util.Linkify.WEB_URLS
                             movementMethod = android.text.method.LinkMovementMethod.getInstance()

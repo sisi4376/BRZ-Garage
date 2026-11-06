@@ -23,17 +23,21 @@ class TripAdapter(
 ) : BaseAdapter() {
     private val trips = ArrayList<TripRecord>()
     private var revisionMode = false
+    private var liveConnected = false
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy.MM.dd EEEE", Locale.getDefault())
     private val timeFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
     private val dateTimeFormat = DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.getDefault())
 
-    fun submit(items: List<TripRecord>) {
+    fun submit(items: List<TripRecord>, connected: Boolean = false) {
+        if (trips == items && liveConnected == connected) return
+        liveConnected = connected
         trips.clear()
         trips.addAll(items)
         notifyDataSetChanged()
     }
 
     fun setRevisionMode(enabled: Boolean) {
+        if (revisionMode == enabled) return
         revisionMode = enabled
         notifyDataSetChanged()
     }
@@ -45,6 +49,7 @@ class TripAdapter(
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
         val view = convertView ?: LayoutInflater.from(context).inflate(R.layout.trip_row, parent, false)
         val trip = getItem(position)
+        val current = trip.tripId == 0L
         val monthDivider = view.findViewById<TextView>(R.id.tripMonthDivider)
         val title = view.findViewById<TextView>(R.id.tripTitle)
         val status = view.findViewById<TextView>(R.id.tripStatus)
@@ -96,7 +101,16 @@ class TripAdapter(
             title.text = "行程 #${trip.displayId}"
             time.text = "升级前记录或本次行程未完成手机授时"
         }
+        if (current) {
+            title.text = "本次驾驶"
+            time.text = if (trip.hasValidTime) {
+                val start = Instant.ofEpochSecond(trip.startEpochS).atZone(ZoneId.systemDefault())
+                "${dateFormat.format(start)} · ${timeFormat.format(start)} 开始 · " +
+                    if (liveConnected) "随仪表更新" else "等待连接后更新"
+            } else "开始时间未知 · 连接授时后更新"
+        }
         val statusStyle = when {
+            current -> Triple(if (liveConnected) "进行中" else "未归档 · 缓存", BLUE, SOFT_BLUE)
             trip.isLocalSplit -> Triple("手动拆分", BLUE, SOFT_BLUE)
             trip.timeInconsistent -> Triple("待核实", WARNING, SOFT_WARNING)
             trip.dataRevised -> Triple("测试数据", WARNING, SOFT_WARNING)
@@ -116,9 +130,9 @@ class TripAdapter(
                 append(String.format(Locale.getDefault(), "  ·  平均 %.1f km/h", it))
             }
         }
-        actions.visibility = if (revisionMode) View.VISIBLE else View.GONE
-        revise.setOnClickListener(if (revisionMode) View.OnClickListener { onReviseTime(trip) } else null)
-        delete.setOnClickListener(if (revisionMode) View.OnClickListener { onDelete(trip) } else null)
+        actions.visibility = if (revisionMode && !current) View.VISIBLE else View.GONE
+        revise.setOnClickListener(if (revisionMode && !current) View.OnClickListener { onReviseTime(trip) } else null)
+        delete.setOnClickListener(if (revisionMode && !current) View.OnClickListener { onDelete(trip) } else null)
         view.setOnClickListener { onOpenDetails(trip) }
         return view
     }

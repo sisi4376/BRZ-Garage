@@ -25,7 +25,7 @@ class FuelEstimatorTests(unittest.TestCase):
                             "main/app_obd_dsp/fuel_estimator.c", "tests/fuel_estimator_host_test.c",
                             "-o", executable], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
             result = subprocess.run([executable], check=True, capture_output=True, text=True)
-            self.assertEqual(result.stdout.count("PASS:"), 6)
+            self.assertEqual(result.stdout.count("PASS:"), 9)
 
     def test_delayed_phone_time_anchor(self):
         compiler = self._compiler()
@@ -127,7 +127,7 @@ class FuelEstimatorTests(unittest.TestCase):
         ble = (ROOT / "main/bsp_obd_dsp/racechrono_ble_diy.c").read_text(encoding="utf-8")
         self.assertIn("DEVICE_INFO_CHAR_VEHICLE_PROFILE_CONTROL 0x0009", ble)
         self.assertIn("APP_EVT_PHONE_VEHICLE_PROFILE", ble)
-        self.assertIn("value[2] == VEHICLE_PROFILE_ZC6_INDEX", ble)
+        self.assertIn("vehicle_profile_is_selectable(value[2])", ble)
         self.assertIn("DEVICE_INFO_CHAR_ODOMETER_CONFIG 0x000A", ble)
         odometer_write = ble.split("param->write.handle == s_handle_odometer_config", 2)[2]
         odometer_write = odometer_write.split("case ESP_GATTS_READ_EVT", 1)[0]
@@ -145,7 +145,7 @@ class FuelEstimatorTests(unittest.TestCase):
         self.assertIn("index = vehicle_profile_normalize_index(index)", profiles)
         self.assertIn("index == VEHICLE_PROFILE_ZC6_INDEX", profiles)
         self.assertIn("index == VEHICLE_PROFILE_ZD8_INDEX", profiles)
-        self.assertIn('static const char *vehicle_names = "ZC6\\nZD8"', settings)
+        self.assertIn('static const char *vehicle_names = "ZC6 6MT\\nZD8 6MT\\nZC6 6AT\\nZD8 6AT"', settings)
         self.assertNotIn("vehicle_profile_get_all(&vehicle_count)", settings)
 
     def test_android_connection_does_not_recycle_live_vehicle_artwork(self):

@@ -37,6 +37,7 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
+        LedgerReminderJob.refresh(context)
         val state = AppState(context)
         val reason = when (action) {
             Intent.ACTION_LOCKED_BOOT_COMPLETED -> "手机开机（待解锁）"

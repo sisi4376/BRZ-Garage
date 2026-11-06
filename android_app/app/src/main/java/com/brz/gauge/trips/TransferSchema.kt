@@ -1,5 +1,15 @@
 package com.brz.gauge.trips
 
+internal const val REGISTRATION_PREFIX = "vehicle_registration_"
+internal fun registrationPreference(key: String): Boolean = key.startsWith(REGISTRATION_PREFIX) &&
+    key.removePrefix(REGISTRATION_PREFIX).let { it == "local" || TransferSchema.gaugePattern.matches(it) }
+
+/** Stable archive fields, shared by both UI modes. */
+internal val ledgerDefaults: Map<String, Any?> = linkedMapOf(
+    "ledger_kind" to "", "income" to 0L, "due_epoch_day" to null,
+    "start_epoch_day" to null, "party" to "", "item_name" to "", "asset_ref" to "",
+)
+
 /** Portable v2 data contract. Local SQLite row numbers are deliberately excluded. */
 internal typealias TransferRow = Map<String, Any?>
 
@@ -49,7 +59,10 @@ internal object TransferSchema {
             "date_epoch_day" to TransferColumn('I', min = -36525, max = 47482),
             "category" to TransferColumn('I', min = 1, max = 2), "amount" to real,
             "title" to text, "note" to text, "odometer_km" to optionalReal,
-            "maintenance_type" to TransferColumn('I', true, min = 1, max = 4)), "id", "expenses_deleted"),
+            "maintenance_type" to TransferColumn('I', true, min = 1, max = 4),
+            "ledger_kind" to text, "income" to bit, "party" to text, "item_name" to text, "asset_ref" to text,
+            "due_epoch_day" to TransferColumn('I', true, min = -36525, max = 47482),
+            "start_epoch_day" to TransferColumn('I', true, min = -36525, max = 47482)), "id", "expenses_deleted"),
         TransferTable("refuel", "refuel", "refuel_intervals", listOf("device_id", "interval_id"),
             interval + fields("interval_id", "odometer_x10_km", "detected_added_ml", "flags") +
                 mapOf("device_id" to text, "data_revised" to bit)),
@@ -100,11 +113,32 @@ internal object TransferSchema {
         "firmware_flash_mb" to "int?", "firmware_ota_slots" to "int?", "firmware_at" to "long",
         "time_at" to "long", "time_verified" to "boolean",
     )
-    fun preferenceType(key: String): String? = globalPrefs[key] ?: devicePrefs.entries.firstOrNull {
+    fun preferenceType(key: String): String? = if (registrationPreference(key)) "string" else globalPrefs[key] ?: devicePrefs.entries.firstOrNull {
         key.startsWith(it.key + "_") && gaugePattern.matches(key.removePrefix(it.key + "_"))
     }?.value
 
     fun validate(snapshot: TransferSnapshot) {
+        val expenseRows=snapshot.tables["expenses"].orEmpty()
+        val cancellations=expenseRows.filter { it["ledger_kind"]=="asset_cancel" }
+        require(cancellations.all { (it["asset_ref"] as? String)?.matches(Regex("[0-9a-f]{32}"))==true && it["income"]==0L && it["amount"]==0.0 }) { "资产撤销事件无效" }
+        val indexed=expenseRows.associateBy { it["transfer_id"] }
+        cancellations.forEach { event ->
+            val target=indexed[event["asset_ref"]]
+            require(target != null && target["device_id"]==event["device_id"] &&
+                (target["ledger_kind"] in setOf("asset","asset_sale","asset_retire") || target["title"] in setOf("配件用品","车辆配件")) &&
+                target["ledger_kind"]!="asset_cancel") { "撤销的原资产事件缺失或类型不匹配" }
+        }
+        val cancelled=cancellations.map { it["asset_ref"] }.toSet()
+        val exits=expenseRows.filter { it["ledger_kind"] in setOf("asset_sale","asset_retire") && it["transfer_id"] !in cancelled }
+        exits.forEach { exit ->
+            val target=indexed[exit["asset_ref"]]
+            require(target != null && target["transfer_id"] !in cancelled && target["device_id"]==exit["device_id"] &&
+                (target["ledger_kind"]=="asset" || target["title"] in setOf("配件用品","车辆配件"))) { "资产处置的有效登记缺失，请处理事件冲突" }
+        }
+        val references=exits.map { it["asset_ref"] }
+        require(references.all { it is String && it.matches(Regex("[0-9a-f]{32}")) } && references.distinct().size==references.size) { "资产处置关联无效或存在重复处置，请先处理冲突" }
+        exits.forEach { require(it["income"] == if(it["ledger_kind"] == "asset_sale") 1L else 0L) { "资产处置收支类型无效" } }
+
         require(snapshot.createdAt in 1L..253402300799999L) { "导出时间无效" }
         require(snapshot.tables.keys == byName.keys) { "数据包的数据表不完整或版本不支持" }
         require(snapshot.gauge.isEmpty() || gaugePattern.matches(snapshot.gauge)) { "仪表标识无效" }

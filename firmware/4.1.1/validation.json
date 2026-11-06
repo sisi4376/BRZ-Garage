@@ -1,0 +1,12 @@
+{
+  "firmware_version": "4.1.1",
+  "firmware_sha256": "0f37759d8207bfbd7e7170fd6da0427e8bcb25e4a3c811f13912ee69152bb441",
+  "android_version": "4.6.1",
+  "android_version_code": 166,
+  "apk_sha256": "85a97f93d9921d706d0724043c4cf02ae18369220492b8bad3a7eb263b7a1ac3",
+  "related_tests_passed": 56,
+  "firmware_build": "passed",
+  "android_build": "passed",
+  "hardware_flashed": false,
+  "vehicle_validation": false
+}

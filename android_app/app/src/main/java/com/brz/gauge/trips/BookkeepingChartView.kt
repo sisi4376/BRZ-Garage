@@ -31,7 +31,7 @@ class BookkeepingChartView(context: Context) : View(context) {
     fun submit(items: List<MonthlyExpenseSummary>) {
         values = items
         contentDescription = buildString {
-            append("最近 ${items.size} 个月用车开销堆叠柱状图")
+            append("${items.firstOrNull()?.month?.year ?: ""} 年月度支出构成柱状图")
             items.forEach { append("，${it.month.year} 年 ${it.month.monthValue} 月 %.2f 元".format(it.total)) }
         }
         invalidate()
@@ -78,6 +78,7 @@ class BookkeepingChartView(context: Context) : View(context) {
                 item.fuel to Color.rgb(54, 143, 181),
                 item.maintenance to Color.rgb(218, 70, 111),
                 item.daily to Color.rgb(225, 145, 47),
+                item.assets to Color.rgb(86, 92, 169),
             ).forEach { (amount, color) ->
                 if (amount <= 0.0) return@forEach
                 val barHeight = (chartHeight * amount / max).toFloat()

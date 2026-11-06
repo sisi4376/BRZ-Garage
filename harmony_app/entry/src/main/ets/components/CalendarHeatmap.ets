@@ -2,10 +2,21 @@ import { CalendarWeek, CalendarCell } from '../core/AndroidPresentation';
 import { calendarHit } from '../core/Ui';
 @Component
 export struct CalendarHeatmap {
-  @Prop @Watch('draw') weeks: CalendarWeek[] = [];
+  @Prop @Watch('refreshWeeks') weeks: CalendarWeek[] = [];
   @State private selected: string = '';
   onSelect: (detail: string) => void = (_: string) => {};
   private canvas: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private refreshWeeks(): void {
+    if (this.selected) {
+      let found = false;
+      for (const week of this.weeks) {
+        const cell = week.cells.find((value: CalendarCell) => value.date === this.selected);
+        if (cell) { this.onSelect(cell.detail); found = true; break; }
+      }
+      if (!found) { this.selected = ''; this.onSelect('点击日期方格查看当天统计'); }
+    }
+    this.draw();
+  }
   private rounded(x: number, y: number, size: number, radius: number): void {
     const c=this.canvas;c.beginPath();c.moveTo(x+radius,y);c.lineTo(x+size-radius,y);c.arcTo(x+size,y,x+size,y+radius,radius);
     c.lineTo(x+size,y+size-radius);c.arcTo(x+size,y+size,x+size-radius,y+size,radius);c.lineTo(x+radius,y+size);

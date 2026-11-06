@@ -166,7 +166,7 @@ async def wait_for_advertising(provider, status_enum, timeout=10):
         await asyncio.sleep(0.1)
 
 
-async def serve(args):
+async def serve(args, elm_factory=StaticElm, on_event=None):
     bluetooth, gatt, DataWriter, RadioState = load_winrt()
     adapter = await asyncio.wait_for(bluetooth.BluetoothAdapter.get_default_async(), 15)
     if adapter is None:
@@ -231,6 +231,8 @@ async def serve(args):
                 if key not in clients:
                     del sessions[key]
             print(f"Subscribed gauges: {len(clients)}", flush=True)
+            if on_event:
+                on_event(dict(kind='clients', count=len(clients)))
         if not stopping:
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(update)
@@ -253,9 +255,15 @@ async def serve(args):
                 client = next((c for c in tx.subscribed_clients if c.session.device_id.id == key), None)
                 if client is None:
                     continue
-                elm = sessions.setdefault(key, StaticElm())
-                for command, reply in elm.feed(data):
+                if key not in sessions:
+                    sessions[key] = elm_factory()
+                elm = sessions[key]
+                for reply_index, (command, reply) in enumerate(elm.feed(data)):
                     count += 1
+                    if on_event:
+                        on_event(dict(kind='replay_reply', command=command, hex=reply.hex(), complete=True,
+                                      timeline=(elm.reply_telemetry[reply_index]
+                                                if hasattr(elm, 'reply_telemetry') else None), client=key))
                     if args.verbose or count <= 12:
                         print(f"{command!r} -> {reply.decode('ascii')!r}", flush=True)
                     # 20-byte fragments also work with the minimum ATT MTU (23).
@@ -289,8 +297,13 @@ async def serve(args):
         if status == status_enum.STARTED_WITHOUT_ALL_ADVERTISEMENT_DATA:
             print("Windows started advertising with reduced data; if the PC name is absent, close other BLE servers and retry.")
         print("READY: FFF0 / FFF1 write / FFF2 notify", flush=True)
+        if on_event:
+            on_event(dict(kind='ready'))
         print("Select this PC on the gauge BLE SCAN page; use the ZD8 or ZD8 OBD profile.")
-        print("RPM/speed/fuel/MAF/load/throttle = 0; temperatures = 25 C; voltage = 12.6 V.")
+        if elm_factory is StaticElm:
+            print("RPM/speed/fuel/MAF/load/throttle = 0; temperatures = 25 C; voltage = 12.6 V.")
+        else:
+            print("Recorded data replay; timeline starts on the first live-data request.")
         print("Ctrl+C to stop. Waiting for gauge requests...", flush=True)
         start = loop.time()
         while not args.duration or loop.time() - start < args.duration:

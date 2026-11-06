@@ -1,3 +1,4 @@
+import { effectiveAssetRows, assetEvent } from './Models';
 import { Cell, Row, Snapshot, Vehicle, cloneSnapshot, rowKey } from './Models';
 import { DELETIONS, preferenceType, validate } from './Transfer';
 
@@ -27,6 +28,16 @@ export function upsert(s: Snapshot, table: string, row: Row): void {
   validate(s);
 }
 export function removeRow(s: Snapshot, table: string, row: Row, now: number = Math.floor(Date.now() / 1000)): void {
+  if(table==='expenses'&&assetEvent(row)) {
+    need(row.ledger_kind!=='asset_cancel','请删除对应的原记录，旧撤销标记会一起清除');
+    const root=row.ledger_kind==='asset'||row.title==='配件用品'||row.title==='车辆配件';
+    need(!root||!s.tables.expenses.some((r: Row)=>r.asset_ref===row.transfer_id&&['asset_sale','asset_retire'].includes(String(r.ledger_kind))),'请先删除处置记录再删除登记');
+    const markers=s.tables.expenses.filter((r: Row)=>r.ledger_kind==='asset_cancel'&&r.asset_ref===row.transfer_id);
+    markers.forEach((marker: Row)=>{
+      s.tables.expenses=s.tables.expenses.filter((r: Row)=>r.transfer_id!==marker.transfer_id);
+      s.tables.expenses_deleted=s.tables.expenses_deleted.filter((r: Row)=>r.transfer_id!==marker.transfer_id).concat([{transfer_id:marker.transfer_id,deleted_at_s:now}]);
+    });
+  }
   need(!!DELETIONS[table], '此记录需通过仪表操作删除');
   const key = rowKey(table, row); need(s.tables[table].some((r: Row) => rowKey(table, r) === key), '记录已不存在');
   s.tables[table] = s.tables[table].filter((r: Row) => rowKey(table, r) !== key);
@@ -117,8 +128,8 @@ export function rangeKm(s: Snapshot, gauge: string, v: Vehicle | null): number |
 }
 export function monthlyCosts(s: Snapshot): Metric[] {
   const months = new Map<string, number>();
-  for (const table of ['fuel', 'expenses']) s.tables[table].forEach((r: Row) => {
-    if (table === 'fuel' && r.draft === 1) return;
+  for (const table of ['fuel', 'expenses']) (table==='expenses'?effectiveAssetRows(s.tables[table]):s.tables[table]).forEach((r: Row) => {
+    if (r.income === 1 || table === 'fuel' && r.draft === 1) return;
     const key = dayText(Number(r.date_epoch_day)).substring(0, 7);
     months.set(key, (months.get(key) || 0) + Number(table === 'fuel' ? r.cost : r.amount));
   });
@@ -153,7 +164,7 @@ export function plateText(text: string): string {
 }
 export function expenseBreakdown(s: Snapshot, category: number): Metric[] {
   const result = new Map<string, number>();
-  s.tables.expenses.filter((r: Row) => r.category === category).forEach((r: Row) => result.set(String(r.title), (result.get(String(r.title)) || 0) + Number(r.amount)));
+  effectiveAssetRows(s.tables.expenses).filter((r: Row) => r.category === category && r.income !== 1).forEach((r: Row) => result.set(String(r.title), (result.get(String(r.title)) || 0) + Number(r.amount)));
   return Array.from(result.keys()).map((k: string) => ({ label: k, value: result.get(k)!, detail: '元' })).sort((a: Metric, b: Metric) => b.value - a.value);
 }
 export function reconcileDeletedNode(s: Snapshot, gauge: string, id: number, discard: boolean, before: number, after: number): void {

@@ -20,6 +20,7 @@ typedef struct {
     int16_t load_pct;  // -1: absent/stale
     int16_t tps_pct;   // absolute throttle, NOT accelerator pedal; -1: absent/stale
     uint8_t fuel_status; // 0: absent/stale; 1=cold, 2=closed, 4=load/decel, 8/16=fault
+    bool disable_cut_est; // AT: unvalidated overrun heuristic is disabled
     bool rpm_valid;
     bool speed_valid;
     bool maf_valid;
@@ -35,7 +36,8 @@ typedef struct {
 
 typedef struct {
     bool valid;
-    bool integrate;
+    bool integrate; // fuel integration only; distance_valid is independent
+    bool distance_valid;
     bool instant_is_lph;
     fuel_source_t source;
     uint32_t rate_ml_h;

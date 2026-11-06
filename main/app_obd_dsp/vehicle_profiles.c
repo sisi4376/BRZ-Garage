@@ -374,6 +374,42 @@ static const vehicle_profile_t s_profiles[] = {
         .obd_29bit_functional = true,      // 29-bit functional broadcast address (18DB33F1, not 7DF)
         .obd_timeout = 0x19,               // default timeout; adjust if responses are slow
     },
+    {
+        .name = "ZC6 6AT",
+        .obd_standard_gear_pid = false,
+        .final_drive_ratio = 4.100f,
+        .tire_rolling_radius_m = 0.314f,   // 215/45R17
+        .gear_count = 0,
+        .gear_ratios = {0},
+        .gear_tolerance = 0.15f,
+        .oil_temp_strategy = {
+            .primary = OIL_TEMP_MODE_TOYOTA_21_01,
+            .secondary = OIL_TEMP_MODE_NONE,
+            .tertiary = OIL_TEMP_MODE_NONE,
+        },
+        .forced_protocol = 6,
+        .can_broadcast_mode = false,
+        .obd_timeout = 0x0A,
+        .poll_gap_ms = 1,
+    },
+    {
+        .name = "ZD8 6AT",
+        .final_drive_ratio = 4.100f,
+        .tire_rolling_radius_m = 0.315f,   // User car / OEM size: 215/40R18
+        .gear_count = 0,
+        .gear_ratios = {0},
+        .gear_tolerance = 0.15f,
+        .obd_standard_gear_pid = false,
+        .oil_temp_strategy = {
+            .primary = OIL_TEMP_MODE_PID_5C,        // ZD8 supports standard PID 5C
+            .secondary = OIL_TEMP_MODE_NONE,
+            .tertiary = OIL_TEMP_MODE_NONE,
+        },
+        .forced_protocol = 6,
+        .can_broadcast_mode = false,
+        .obd_timeout = 0x0A,
+        .poll_gap_ms = 1,
+    },
 };
 
 #define PROFILE_COUNT (sizeof(s_profiles) / sizeof(s_profiles[0]))
@@ -419,7 +455,8 @@ const vehicle_profile_t *vehicle_profile_get_active(void)
 bool vehicle_profile_is_selectable(uint8_t index)
 {
     return index == VEHICLE_PROFILE_ZC6_INDEX ||
-           index == VEHICLE_PROFILE_ZD8_INDEX;
+           index == VEHICLE_PROFILE_ZD8_INDEX ||
+           index == VEHICLE_PROFILE_ZC6_AT_INDEX || index == VEHICLE_PROFILE_ZD8_AT_INDEX;
 }
 
 uint8_t vehicle_profile_normalize_index(uint8_t index)
@@ -475,5 +512,6 @@ const vehicle_override_t *vehicle_profile_get_override(void)
 {
     const vehicle_profile_t *p = vehicle_profile_get_active();
     if (!p) return NULL;
-    return vehicle_find_override(p->name);
+    return vehicle_find_override(vehicle_profile_is_zc6_pid(p) ? "ZC6" :
+        vehicle_profile_is_automatic(p) ? "ZD8" : p->name);
 }

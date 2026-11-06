@@ -15,7 +15,9 @@ extern "C" {
 #define VEHICLE_PROFILE_ZC6_INDEX 1
 #define VEHICLE_PROFILE_ZD8_INDEX 4
 #define VEHICLE_PROFILE_DEFAULT_INDEX VEHICLE_PROFILE_ZD8_INDEX
-#define VEHICLE_PROFILE_SELECTABLE_COUNT 2
+#define VEHICLE_PROFILE_ZC6_AT_INDEX 16
+#define VEHICLE_PROFILE_ZD8_AT_INDEX 17
+#define VEHICLE_PROFILE_SELECTABLE_COUNT 4
 
 // Oil temp query mode priority
 typedef enum {
@@ -77,7 +79,12 @@ typedef struct {
 // Explicit opt-in keeps ZC6-specific behavior out of the released ZD8 path.
 static inline bool vehicle_profile_is_zc6_pid(const vehicle_profile_t *p)
 {
-    return p && p->name && strcmp(p->name, "ZC6") == 0;
+    return p && p->name && (strcmp(p->name, "ZC6") == 0 || strcmp(p->name, "ZC6 6AT") == 0);
+}
+
+static inline bool vehicle_profile_is_automatic(const vehicle_profile_t *p)
+{
+    return p && p->name && (strcmp(p->name, "ZC6 6AT") == 0 || strcmp(p->name, "ZD8 6AT") == 0);
 }
 
 // Get all predefined vehicle profiles

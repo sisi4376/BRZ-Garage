@@ -11,14 +11,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
-data class DrivingDayActivity(
-    val date: LocalDate,
-    val trips: Int,
-    val distanceM: Long,
-    val durationS: Long,
-    val fuelMl: Long,
-)
-
 class DrivingCalendarView(context: Context) : View(context) {
     companion object {
         val EMPTY_COLOR: Int = Color.rgb(232, 236, 241)
@@ -70,7 +62,8 @@ class DrivingCalendarView(context: Context) : View(context) {
         cells.clear()
         activity.filter { it.date.year == year && !it.date.isAfter(visibleEnd) }
             .forEach { cells[it.date] = it }
-        selected = null
+        selected = selected?.takeIf { it.year == year }
+        selected?.let { listener?.invoke(it, cells[it]) }
         requestLayout()
         invalidate()
     }

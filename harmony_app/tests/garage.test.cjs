@@ -77,7 +77,7 @@ test('custom reset archives prior interval and updates all baseline values toget
 test('maintenance calendar clamps leap-day and end-of-month like LocalDate.plusMonths',()=>{
  assert.equal(G.dayText(D.addMonths(G.parseDay('2024-08-31'),6)),'2025-02-28');
  assert.equal(G.dayText(D.addMonths(G.parseDay('2023-08-31'),6)),'2024-02-29');
- assert.equal(D.SERVICES.length,14);assert.ok(D.matches('机油机滤',D.SERVICES[0]));
+ assert.equal(D.SERVICES.length,15);assert.ok(D.matches('机油机滤',D.SERVICES[0]));
 });
 test('wire control packets enforce supported profiles, ranges, and CRC',()=>{
  for(const bytes of [Q.settingPacket(75),Q.settingPacket(4,true),Q.odometerPacket(true),Q.odometerPacket(false,1234500),Q.refuelPacket(4,10000),Q.customPacket([100,200,300])])
@@ -149,3 +149,14 @@ test('gauge snapshot remains authoritative over revised or incomplete phone hist
  assert.deepEqual(H.homeMetrics(s,gauge,v,'total'),[900000,50000,70000]);assert.deepEqual(H.homeMetrics(s,gauge,v,'current'),[1000,100,80]);
  assert.deepEqual(H.homeMetrics(s,gauge,v,'refuel',[2000,200,180]),[2000,200,180]);
 });
+
+ test('AT profiles keep CRC and separate maintenance without manual oil deadlines',()=>{
+  for(const profile of [16,17]) {
+   const packet=Q.settingPacket(profile,true);assert.equal(packet[2],profile);
+   assert.equal(new DataView(packet.buffer).getUint16(packet.length-2,true),P.crc16(packet,packet.length-2));
+   const s=M.emptySnapshot();G.putPref(s,'selected_vehicle_profile',profile);
+   const services=D.servicesFor(s);assert.ok(!services.some(x=>x.title==='手动变速箱油'));
+   const at=services.find(x=>x.title==='自动变速箱油');assert.equal(at.km,null);assert.equal(at.months,null);
+   assert.ok(!D.recommended(40000,true).includes('更换手动变速箱油'));
+  }
+ });

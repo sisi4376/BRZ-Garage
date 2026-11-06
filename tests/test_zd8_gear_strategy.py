@@ -106,7 +106,7 @@ class Zd8GearStrategyTest(unittest.TestCase):
                 "tests/gear_cache_host_test.c", "-o", executable,
             ], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
             result = subprocess.run([executable], env=env, check=True, capture_output=True, text=True)
-            self.assertEqual(result.stdout.count("PASS:"), 6)
+            self.assertEqual(result.stdout.count("PASS:"), 7)
 
 
 if __name__ == "__main__":

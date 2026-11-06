@@ -1368,8 +1368,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 param->write.offset == 0) {
                 const uint8_t *value = param->write.value;
                 uint16_t expected_crc = get_le16(value + 4);
-                bool supported = value[2] == VEHICLE_PROFILE_ZC6_INDEX ||
-                                 value[2] == VEHICLE_PROFILE_ZD8_INDEX;
+                bool supported = vehicle_profile_is_selectable(value[2]);
                 bool valid = value[0] == 1U && value[1] == 1U && supported &&
                              value[3] == VEHICLE_PROFILE_CONTROL_WIRE_SIZE &&
                              trip_crc16(value, 4) == expected_crc;

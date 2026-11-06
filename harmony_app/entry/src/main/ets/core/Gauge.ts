@@ -14,7 +14,7 @@ function checked(b: Uint8Array, n: number): DataView {
 }
 function finish(b: Uint8Array): Uint8Array { view(b).setUint16(b.length - 2, crc16(b, b.length - 2), true); return b; }
 export function settingPacket(value: number, profile: boolean = false): Uint8Array {
-  need(Number.isInteger(value) && (profile ? value === 1 || value === 4 : value >= 10 && value <= 100), '仪表设置值无效');
+  need(Number.isInteger(value) && (profile ? [1,4,16,17].includes(value) : value >= 10 && value <= 100), '仪表设置值无效');
   return finish(Uint8Array.of(1, 1, value, 6, 0, 0));
 }
 export function odometerPacket(enabled: boolean, metres: number | null = null): Uint8Array {

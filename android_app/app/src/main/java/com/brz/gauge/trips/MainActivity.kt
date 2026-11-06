@@ -81,7 +81,10 @@ class MainActivity : Activity() {
     private var fuelRecords = emptyList<FuelRecord>()
     private var fuelLoading = false
     private var fuelLoaded = false
-    private var expenseRecords = emptyList<ExpenseRecord>()
+    private var assetHistoryRecords=emptyList<ExpenseRecord>()
+    private var expenseRecords: List<ExpenseRecord>
+        get() = effectiveAssetLedger(assetHistoryRecords)
+        set(value) { assetHistoryRecords=value }
     private var expenseLoading = false
     private var expenseLoaded = false
     private var refuelIntervals = emptyList<RefuelInterval>()
@@ -99,6 +102,7 @@ class MainActivity : Activity() {
     private var fallbackStop: (() -> Unit)? = null
     private var historyLoading = false
     private var historyRevisionMode = false
+    private var historyRefresh: ((List<TripRecord>) -> Unit)? = null
     private var appInitialized = false
     private var showingFirstRunNotice = false
     private var showingLegalNotice = false
@@ -149,7 +153,7 @@ class MainActivity : Activity() {
         }
     }
     private val refresh = object : Runnable {
-        override fun run() { refreshHome(); handler.postDelayed(this, 5000) }
+        override fun run() { refreshHome(); updateHistory(); handler.postDelayed(this, 5000) }
     }
     private val appUpdatePoll = object : Runnable {
         override fun run() {
@@ -177,6 +181,13 @@ class MainActivity : Activity() {
         tab = savedInstanceState?.getInt("tab") ?: 0
         historyRevisionMode = savedInstanceState?.getBoolean("history_revision_mode") ?: false
         accountingSection = savedInstanceState?.getInt("accounting_section") ?: 0
+        accountingYear = savedInstanceState?.getInt("accounting_year",LocalDate.now().year) ?: LocalDate.now().year
+        accountingMonth = savedInstanceState?.getInt("accounting_month",LocalDate.now().monthValue) ?: LocalDate.now().monthValue
+        showingAccountingIncome = savedInstanceState?.getBoolean("accounting_income") ?: false
+        showingAccountingAssets = savedInstanceState?.getBoolean("accounting_assets") ?: false
+        fixedSection = savedInstanceState?.getString("accounting_fixed_section").orEmpty().takeIf { it in fixedKinds.keys }.orEmpty()
+        dailyIncome = savedInstanceState?.getBoolean("accounting_daily_income") ?: false
+        ledgerStatisticsReturn = savedInstanceState?.getInt("accounting_statistics_return") ?: 0
         calendarYear = savedInstanceState?.getInt("calendar_year") ?: LocalDate.now().year
         if (!state.hasAcceptedCurrentUserNotice) {
             userNoticePage(firstRun = true)
@@ -184,6 +195,11 @@ class MainActivity : Activity() {
         }
         initializeApp(savedInstanceState)
     }
+    private fun vehicleMaintenanceKinds(): List<MaintenanceServiceKind> = MaintenanceServiceKind.entries.filter {
+        if (state.selectedVehicleModel.isAutomatic) it != MaintenanceServiceKind.MANUAL_TRANSMISSION_OIL
+        else it != MaintenanceServiceKind.AUTOMATIC_TRANSMISSION_OIL
+    }
+
     private fun initializeApp(savedInstanceState: Bundle? = null) {
         if (appInitialized) return
         appInitialized = true
@@ -198,7 +214,7 @@ class MainActivity : Activity() {
         refuelDatabase = RefuelIntervalDatabase(this)
         customTripDatabase = CustomTripDatabase(this)
         tripAdapter = TripAdapter(this, { reviseTripTime(it) }, { confirmDeleteTrip(it) },
-            { showTripDetails(it) })
+            { showTripDetails(it, current = it.tripId == 0L, returnTab = 1) })
         showingGaugeSettings = savedInstanceState?.getBoolean("gauge_settings_page") ?: false
         showingVehicleSettings = savedInstanceState?.getBoolean("vehicle_settings_page") ?: false
         showingFeedback = savedInstanceState?.getBoolean("feedback_page") ?: false
@@ -232,6 +248,13 @@ class MainActivity : Activity() {
         outState.putInt("tab", tab)
         outState.putBoolean("history_revision_mode", historyRevisionMode)
         outState.putInt("accounting_section", accountingSection)
+        outState.putInt("accounting_year",accountingYear)
+        outState.putInt("accounting_month",accountingMonth)
+        outState.putBoolean("accounting_income",showingAccountingIncome)
+        outState.putBoolean("accounting_assets",showingAccountingAssets)
+        outState.putString("accounting_fixed_section",fixedSection)
+        outState.putBoolean("accounting_daily_income",dailyIncome)
+        outState.putInt("accounting_statistics_return",ledgerStatisticsReturn)
         outState.putInt("calendar_year", calendarYear)
         outState.putBoolean("legal_notice_page", showingLegalNotice)
         outState.putBoolean("gauge_settings_page", showingGaugeSettings)
@@ -255,6 +278,12 @@ class MainActivity : Activity() {
             showingFeedback -> showTab(3)
             showingVehicleSettings -> showTab(3)
             showingGaugeSettings -> showTab(3)
+            showingAccountingAssets -> { showingAccountingAssets=false; showTab(2) }
+            showingAccountingIncome -> { showingAccountingIncome=false; showTab(2) }
+            showingLedgerNotifications -> showTab(3)
+            tab == 2 && refinedAccounting && (fixedSection.isNotEmpty() || accountingSection == accountingStatisticsIndex) -> {
+                fixedSection = ""; accountingSection = if (accountingSection == accountingStatisticsIndex) ledgerStatisticsReturn else 1; showTab(2)
+            }
             else -> super.onBackPressed()
         }
     }
@@ -285,10 +314,20 @@ class MainActivity : Activity() {
         TripSyncService.start(this)
         resumeAppUpdateDownloadPolling()
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (appInitialized && intent.getBooleanExtra("open_bookkeeping", false)) {
+            intent.removeExtra("open_bookkeeping"); showTab(2)
+        }
+    }
     override fun onResume() {
         super.onResume()
         homeVehicleHero?.resumePresentation()
         if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
+        LedgerReminderJob.refresh(this)
+        if (intent.getBooleanExtra("open_bookkeeping", false)) { intent.removeExtra("open_bookkeeping"); showTab(2) }
+        if (showingLedgerNotifications) ledgerNotificationSettings()
         refreshAppUpdateUi()
         if (appUpdateInstallAfterPermission &&
             (Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls())) {
@@ -399,6 +438,11 @@ class MainActivity : Activity() {
         return body
     }
     private fun currentPageKey(): Int = when {
+        tab == 2 && showingAccountingAssets -> 27
+        tab == 2 && showingAccountingIncome -> 26
+        showingLedgerNotifications -> 16
+        tab == 2 && fixedSection.isNotEmpty() -> 20 + fixedKinds.keys.indexOf(fixedSection)
+        tab == 2 && accountingSection == accountingStatisticsIndex -> 25
         showingFirstRunNotice -> 12
         showingLegalNotice -> 11
         showingTripDetail -> 5
@@ -409,6 +453,7 @@ class MainActivity : Activity() {
         showingFeedback -> 9
         showingFirmwareUpdate -> 10
         showingAppUpdate -> 13
+        tab == 2 -> 100 + (if(refinedAccounting) 10 else 0) + accountingSection
         else -> tab
     }
     private fun rememberCurrentScroll() {
@@ -426,6 +471,8 @@ class MainActivity : Activity() {
     }
     private fun showTab(index: Int) {
         rememberCurrentScroll()
+        if (index != 2) { showingAccountingIncome=false; showingAccountingAssets=false }
+        showingLedgerNotifications = false
         showingGaugeSettings = false
         showingVehicleSettings = false
         showingFeedback = false
@@ -437,6 +484,7 @@ class MainActivity : Activity() {
         showingRefuelDetail = false
         showingCustomTripDetail = false
         tab = index
+        historyRefresh = null
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.VISIBLE
@@ -656,7 +704,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        heroTop.addView(label("${model.name} · 6MT", 10f, Color.rgb(201, 237, 248), true).apply {
+        heroTop.addView(label("${model.bodyName} · ${model.transmission}", 10f, Color.rgb(201, 237, 248), true).apply {
             setPadding(dp(10), dp(6), dp(10), dp(6))
             background = rounded(Color.argb(48, 54, 143, 181), 13)
         }, LinearLayout.LayoutParams(-2, -2))
@@ -674,8 +722,8 @@ class MainActivity : Activity() {
             (parent as? android.view.ViewGroup)?.removeView(this)
             set3DEnabled(state.show3DVehicle)
             loadVehicleHero(this, model, when (model) {
-                SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
-                SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
+                SupportedVehicleModel.ZD8, SupportedVehicleModel.ZD8_AT -> R.drawable.brz_zd8_hero
+                SupportedVehicleModel.ZC6, SupportedVehicleModel.ZC6_AT -> R.drawable.brz_zc6_hero
             })
             showInstalledPlate(
                 state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
@@ -782,8 +830,8 @@ class MainActivity : Activity() {
             (parent as? android.view.ViewGroup)?.removeView(this)
             set3DEnabled(state.show3DVehicle)
             loadVehicleHero(this, model, when (model) {
-                SupportedVehicleModel.ZD8 -> R.drawable.brz_zd8_hero
-                SupportedVehicleModel.ZC6 -> R.drawable.brz_zc6_hero
+                SupportedVehicleModel.ZD8, SupportedVehicleModel.ZD8_AT -> R.drawable.brz_zd8_hero
+                SupportedVehicleModel.ZC6, SupportedVehicleModel.ZC6_AT -> R.drawable.brz_zc6_hero
             })
             showInstalledPlate(
                 state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
@@ -880,6 +928,7 @@ class MainActivity : Activity() {
             else if (updated && showingLegalNotice) Unit
             else if (updated && tab == 3) showTab(3)
             else refreshHome()
+            updateHistory()
         } catch (error: RuntimeException) {
             Log.e("BRZ-MainActivity", "Post-sync UI refresh failed", error)
         } catch (error: OutOfMemoryError) {
@@ -1052,37 +1101,37 @@ class MainActivity : Activity() {
         add(body, header)
         countText = label("", 12f, muted); add(body, countText, 7)
 
-        val vehicleTrips = trips.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
-        val totalDistance = vehicleTrips.sumOf { it.distanceM }
-        val totalDuration = vehicleTrips.sumOf { it.durationS }
-        val totalFuel = vehicleTrips.sumOf { it.fuelMl }
-        val totalAverageFuel = totalDistance.takeIf { it > 0L }?.let {
-            totalFuel.toDouble() / it * 100.0
-        }
-        val activeDays = vehicleTrips.filter { it.hasValidTime }.map {
-            Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
-        }.distinct().size
+        val initialRows = drivingHistory(trips, state.dataDeviceId, state.vehicle(), state.currentTripSnapshotArchived())
+        val vehicleTrips = initialRows.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
         val totalCard = card(body, "驾驶总览")
-        addMetricPair(totalCard,
-            bookkeepingMetric("累计里程", fmt("%.1f km", totalDistance / 1000.0), bookkeepingFuel),
-            bookkeepingMetric("驾驶日", "$activeDays 天", ink))
-        addMetricPair(totalCard,
-            bookkeepingMetric("行程记录", "${vehicleTrips.size} 次", ink),
-            bookkeepingMetric("驾驶时长", durationDetailed(totalDuration), ink))
-        addMetricPair(totalCard,
-            bookkeepingMetric("平均每次行程", if (vehicleTrips.isEmpty()) "—" else
-                fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), bookkeepingFuel),
-            bookkeepingMetric("总平均油耗", totalAverageFuel?.let {
-                fmt("%.1f L/100km", it)
-            } ?: "—", bookkeepingFuel, "累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}"), 10)
+        fun renderTotals(vehicleTrips: List<TripRecord>) {
+            if (totalCard.childCount > 1) totalCard.removeViews(1, totalCard.childCount - 1)
+            val totalDistance = vehicleTrips.sumOf { it.distanceM }
+            val totalDuration = vehicleTrips.sumOf { it.durationS }
+            val totalFuel = vehicleTrips.sumOf { it.fuelMl }
+            val totalAverageFuel = totalDistance.takeIf { it > 0L }?.let {
+                totalFuel.toDouble() / it * 100.0
+            }
+            val activeDays = vehicleTrips.filter { it.hasValidTime }.map {
+                Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
+            }.distinct().size
+            addMetricPair(totalCard,
+                bookkeepingMetric("累计里程", fmt("%.1f km", totalDistance / 1000.0), bookkeepingFuel),
+                bookkeepingMetric("驾驶日", "$activeDays 天", ink))
+            addMetricPair(totalCard,
+                bookkeepingMetric("行程记录", "${vehicleTrips.size} 次", ink),
+                bookkeepingMetric("驾驶时长", durationDetailed(totalDuration), ink))
+            addMetricPair(totalCard,
+                bookkeepingMetric("平均每次行程", if (vehicleTrips.isEmpty()) "—" else
+                    fmt("%.1f km", totalDistance / 1000.0 / vehicleTrips.size), bookkeepingFuel),
+                bookkeepingMetric("总平均油耗", totalAverageFuel?.let {
+                    fmt("%.1f L/100km", it)
+                } ?: "—", bookkeepingFuel, "累计消耗 ${fmt("%.2f L", totalFuel / 1000.0)}"), 10)
 
-        val dayActivities = vehicleTrips.filter { it.hasValidTime }.groupBy {
-            Instant.ofEpochSecond(it.startEpochS).atZone(ZoneId.systemDefault()).toLocalDate()
-        }.map { (day, records) -> DrivingDayActivity(
-            day, records.size, records.sumOf { it.distanceM }, records.sumOf { it.durationS },
-            records.sumOf { it.fuelMl })
         }
-        val years = dayActivities.map { it.date.year }.distinct().sorted()
+        renderTotals(vehicleTrips)
+        var dayActivities = drivingDays(vehicleTrips)
+        var years = dayActivities.map { it.date.year }.distinct().sorted()
         if (years.isNotEmpty() && calendarYear !in years) calendarYear = years.last()
         val calendarCard = card(body, "驾驶日历")
         val yearControls = LinearLayout(this).apply {
@@ -1097,12 +1146,16 @@ class MainActivity : Activity() {
                 else soften(bookkeepingFuel), 14)
             setOnClickListener { target?.let { calendarYear = it; showTab(1) } }
         }
-        yearControls.addView(yearButton("‹", years.lastOrNull { it < calendarYear }),
-            LinearLayout.LayoutParams(dp(48), dp(40)))
-        yearControls.addView(label("${calendarYear} 年", 16f, ink, true).apply { gravity = Gravity.CENTER },
-            LinearLayout.LayoutParams(0, -2, 1f))
-        yearControls.addView(yearButton("›", years.firstOrNull { it > calendarYear }),
-            LinearLayout.LayoutParams(dp(48), dp(40)))
+        fun renderYears() {
+            yearControls.removeAllViews()
+            yearControls.addView(yearButton("‹", years.lastOrNull { it < calendarYear }),
+                LinearLayout.LayoutParams(dp(48), dp(40)))
+            yearControls.addView(label("${calendarYear} 年", 16f, ink, true).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(0, -2, 1f))
+            yearControls.addView(yearButton("›", years.firstOrNull { it > calendarYear }),
+                LinearLayout.LayoutParams(dp(48), dp(40)))
+        }
+        renderYears()
         add(calendarCard, yearControls, 7)
         val selectedDay = label("点击日期方格查看当天统计", 12f, muted).apply {
             background = rounded(Color.rgb(247, 248, 251), 13)
@@ -1137,7 +1190,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
         add(calendarCard, calendarLegend, 8)
         add(calendarCard, selectedDay, 6)
-        add(calendarCard, label("仅使用具有可靠开始时间的行程；时间未知的旧记录仍计入上方总览。", 11f, muted), 6)
+        add(calendarCard, label("包含当前驾驶，随仪表快照更新；按开始日期统计，时间未知的行程仅计入总览。", 11f, muted), 6)
 
         add(body, label("历史驾驶记录", 19f, ink, true), 22)
         add(body, label("点击记录卡查看里程、油耗与驾驶表现", 11f, muted), 4)
@@ -1149,18 +1202,45 @@ class MainActivity : Activity() {
         add(body, historyEmptyText, 4)
         list.addHeaderView(body, null, false)
         list.adapter = tripAdapter
+        var previousRows: List<TripRecord>? = null
+        var previousDevice = state.dataDeviceId
+        historyRefresh = { rows ->
+            if (previousRows != rows || previousDevice != state.dataDeviceId) {
+                previousRows = rows
+                previousDevice = state.dataDeviceId
+                val vehicleRows = rows.filter { state.dataDeviceId.isBlank() || it.deviceId == state.dataDeviceId }
+                renderTotals(vehicleRows)
+                dayActivities = drivingDays(vehicleRows)
+                years = dayActivities.map { it.date.year }.distinct().sorted()
+                if (years.isNotEmpty() && calendarYear !in years) calendarYear = years.last()
+                renderYears()
+                calendar.submit(calendarYear, dayActivities)
+            }
+        }
         updateHistory()
     }
     private fun updateHistory() {
-        // Retain all devices' old records; never delete on a new association.
-        tripAdapter.submit(trips)
+        if (!appInitialized || tab != 1 || showingTripDetail || showingLegalNotice) return
+        // Adopt archive evidence already on this phone before the user can
+        // revise/delete that row, including after upgrading from an older app.
+        val vehicle = state.vehicle()
+        currentDrivingRecord(state.dataDeviceId, vehicle)?.let { current ->
+            trips.firstOrNull { archivedCurrentDriving(it, current) }?.let(state::markCurrentTripArchived)
+        }
+        // Display live data only; it never enters the archived trip database.
+        val rows = drivingHistory(trips, state.dataDeviceId, vehicle, state.currentTripSnapshotArchived())
+        tripAdapter.submit(rows, state.connected)
         tripAdapter.setRevisionMode(historyRevisionMode)
-        if (tab == 1 && ::countText.isInitialized) {
+        historyRefresh?.invoke(rows)
+        if (::countText.isInitialized) {
             if (::historyEmptyText.isInitialized) {
-                historyEmptyText.visibility = if (trips.isEmpty()) View.VISIBLE else View.GONE
+                historyEmptyText.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             }
             val valid = trips.count { it.hasValidTime && !it.timeInconsistent }
-            countText.text = "${trips.size} 次行程 · $valid 次时间完整 · 记录仅保存在本机" +
+            countText.text = "${trips.size} 次已归档 · $valid 次时间完整" +
+                (if (rows.any { it.tripId == 0L }) {
+                    if (state.connected) " · 1 次当前驾驶" else " · 1 次未归档缓存"
+                } else "") + " · 记录仅保存在本机" +
                 if (state.prefs.getBoolean("overflow_${state.address}", false)) "\n仪表曾发生队列溢出，部分旧行程可能缺失" else ""
         }
     }
@@ -1183,26 +1263,26 @@ class MainActivity : Activity() {
         ), current = true)
     }
 
-    private fun showTripDetails(trip: TripRecord, current: Boolean = false) {
+    private fun showTripDetails(trip: TripRecord, current: Boolean = false, returnTab: Int = if (current) 0 else 1) {
         rememberCurrentScroll()
         showingGaugeSettings = false
         showingVehicleSettings = false
         showingTripDetail = true
         showingRefuelDetail = false
         showingCustomTripDetail = false
-        tripDetailReturnTab = if (current) 0 else 1
+        tripDetailReturnTab = returnTab
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
 
-        val subtitle = if (current) "正在进行 · 数据来自仪表实时快照" else if (trip.hasValidTime) {
+        val subtitle = if (current) { if (state.connected) "正在进行 · 数据来自仪表实时快照" else "未归档缓存 · 等待连接后更新" } else if (trip.hasValidTime) {
             val start = Instant.ofEpochSecond(trip.startEpochS).atZone(ZoneId.systemDefault())
             start.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) + " · #${trip.displayId}"
         } else "时间未知 · #${trip.displayId}"
         val body = page("行程详情", subtitle)
-        homeDetailBackPill(body, if (current) "返回首页" else "返回驾驶足迹",
+        homeDetailBackPill(body, if (returnTab == 0) "返回首页" else "返回驾驶足迹",
             bookkeepingFuel) {
-            showTab(if (current) 0 else 1)
+            showTab(returnTab)
         }
         settingsSubpageHero(
             body,
@@ -2164,7 +2244,7 @@ class MainActivity : Activity() {
         DailyExpenseKind.REPAIR -> Color.rgb(202, 72, 78)
         DailyExpenseKind.ACCESSORY -> Color.rgb(222, 122, 50)
         DailyExpenseKind.INSURANCE -> Color.rgb(139, 88, 176)
-        DailyExpenseKind.PAPERWORK -> Color.rgb(184, 91, 102)
+        DailyExpenseKind.INSPECTION, DailyExpenseKind.PAPERWORK -> Color.rgb(184, 91, 102)
         DailyExpenseKind.VIOLATION -> Color.rgb(211, 78, 55)
         DailyExpenseKind.OTHER -> Color.rgb(105, 115, 130)
     }
@@ -2223,6 +2303,7 @@ class MainActivity : Activity() {
         amount: Double,
         color: Int,
         first: Boolean,
+        amountText: String? = null,
     ) {
         val divider = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2236,13 +2317,88 @@ class MainActivity : Activity() {
             marginStart = dp(10)
             marginEnd = dp(10)
         })
-        divider.addView(label("$count 笔  ·  ${fmt("¥%.2f", amount)}", 10f, muted, true))
+        divider.addView(label("$count 笔  ·  ${amountText ?: fmt("¥%.2f", amount)}", 10f, muted, true))
         add(parent, divider, if (first) 9 else 17)
     }
 
+    private var accountingYear = LocalDate.now().year
+    private var accountingMonth = LocalDate.now().monthValue
+    private var showingAccountingAssets = false
+    private var showingAccountingIncome = false
+    private fun inAccountingYear(day: Long) = LocalDate.ofEpochDay(day).year == accountingYear
+    private val accountingStatisticsIndex: Int get() = if(refinedAccounting) 4 else 3
+    private var ledgerStatisticsReturn = 0
+    private var showingLedgerNotifications = false
+    private var fixedSection = ""
+    private var dailyIncome = false
+    private var maintenanceFilter = 0
+    private val refinedAccounting: Boolean get() = state.prefs.getBoolean("refined_accounting_ui", false)
+
+    private fun addAccountingModeSwitch(body: LinearLayout) {
+        val heading=body.getChildAt(0); body.removeView(heading)
+        (heading as? TextView)?.apply { setSingleLine(true); ellipsize=android.text.TextUtils.TruncateAt.END }
+        val row=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL }
+        row.addView(heading,LinearLayout.LayoutParams(0,-2,1f))
+        row.addView(label((if(refinedAccounting) "精细版" else "精简版")+" ▾",12f,bookkeepingStats,true).apply {
+            setPadding(dp(12),dp(10),dp(12),dp(10)); background=rounded(soften(bookkeepingStats),13)
+            isClickable=true; isFocusable=true; contentDescription="切换精简版或精细版"
+            setOnClickListener {
+                rememberCurrentScroll(); currentScrollView=null
+                val fromRefined=refinedAccounting
+                val next=if(!fromRefined && showingAccountingAssets) 2 else if(!fromRefined && showingAccountingIncome) 3
+                    else accountingSectionAfterSwitch(accountingSection,fromRefined,fixedSection)
+                state.prefs.edit().putBoolean("refined_accounting_ui",!fromRefined).apply()
+                if(showingAccountingIncome) dailyIncome=true
+                val keepAsset=fromRefined && accountingSection==2
+                val keepIncome=fromRefined && accountingSection==3 && dailyIncome
+                ledgerStatisticsReturn=accountingSectionAfterSwitch(ledgerStatisticsReturn,fromRefined).coerceAtMost(if(fromRefined) 2 else 3)
+                accountingSection=next; fixedSection=""; showingAccountingIncome=keepIncome; showingAccountingAssets=keepAsset
+                showTab(2)
+            }
+        })
+        body.addView(row,0)
+    }
+
     private fun bookkeeping() {
+        if(showingAccountingAssets && !refinedAccounting) {
+            val body=page("资产 / 配件","持有清单与完整历史")
+            addAccountingModeSwitch(body)
+            homeDetailBackPill(body,"返回用车记账",bookkeepingStats) { showingAccountingAssets=false; showTab(2) }
+            renderAccountingPeriod(body); renderAssets(body)
+            if(!expenseLoaded && !expenseLoading) loadExpenseRecords()
+            return
+        }
+        if (showingAccountingIncome && !refinedAccounting) {
+            val body=page("收入记录","收入分类与历史明细")
+            addAccountingModeSwitch(body)
+            homeDetailBackPill(body,"返回用车记账",bookkeepingDaily) { showingAccountingIncome=false; showTab(2) }
+            renderAccountingPeriod(body)
+            add(body,primaryBookkeepingAction("＋  记录收入",bookkeepingDaily) { editLedgerRecord(null,"income",true) },10)
+            val records=expenseRecords.filter { it.income && inAccountingYear(it.dateEpochDay) }
+            renderDailyBreakdown(body,records,true)
+            renderExpenseList(card(body,"$accountingYear 年收入记录"),records,"该年还没有收入记录")
+            return
+        }
+        if (refinedAccounting && (fixedSection.isNotEmpty() || accountingSection == accountingStatisticsIndex)) {
+            val statistics = accountingSection == accountingStatisticsIndex
+            val body = page(if (statistics) "账本统计" else fixedKinds[fixedSection].orEmpty(),
+                if (statistics) "月度趋势与分类明细" else "费用记录与车辆事项")
+            addAccountingModeSwitch(body)
+            homeDetailBackPill(body, "返回用车记账", bookkeepingStats) {
+                fixedSection = ""; accountingSection = if (statistics) ledgerStatisticsReturn else 1; showTab(2)
+            }
+            renderAccountingPeriod(body)
+            if (statistics) renderExpenseStatistics(body) else renderFixedSection(body)
+            if (!expenseLoaded && !expenseLoading) loadExpenseRecords()
+            if (!fuelLoaded && !fuelLoading) loadFuelRecords()
+            return
+        }
         val body = page("用车记账", "轻扫或点击切换栏目 · 数据仅保存在本机")
-        val sectionTitles = listOf("加油", "保养", "日常", "统计")
+        addAccountingModeSwitch(body)
+        renderAccountingPeriod(body)
+        if (refinedAccounting) renderLedgerOverview(body)
+        val sectionTitles = if (refinedAccounting) listOf("加油", "固定开销", "资产", "日常")
+            else listOf("加油", "保养/维修", "日常", "统计")
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -2286,14 +2442,16 @@ class MainActivity : Activity() {
         add(body, position, 8)
         when (accountingSection) {
             0 -> renderFuelSection(body)
-            1 -> renderMaintenanceSection(body)
-            2 -> renderDailyExpenseSection(body)
+            1 -> if (refinedAccounting) renderFixedSection(body) else renderMaintenanceSection(body)
+            2 -> if (refinedAccounting) renderAssets(body) else renderDailyExpenseSection(body)
+            3 -> if(refinedAccounting) renderRefinedDaily(body) else renderExpenseStatistics(body)
             else -> renderExpenseStatistics(body)
         }
         attachAccountingSwipe()
         content.alpha = 0f
         content.animate().alpha(1f).setDuration(150L).start()
         if (!expenseLoaded && !expenseLoading) loadExpenseRecords()
+        if (!fuelLoaded && !fuelLoading) loadFuelRecords()
     }
 
     private fun attachAccountingSwipe() {
@@ -2307,6 +2465,7 @@ class MainActivity : Activity() {
                     kotlin.math.abs(velocityX) < 250f) return false
                 val next = if (dx < 0) accountingSection + 1 else accountingSection - 1
                 if (next !in 0..3) return false
+                fixedSection = ""
                 accountingSection = next
                 showTab(2)
                 return true
@@ -2331,7 +2490,7 @@ class MainActivity : Activity() {
         val totalLitres = statisticalRecords.sumOf { it.litres }
         val totalCost = fuelRecords.sumOf { it.cost }
         val totalAverage = analysis.historicalAverage
-        val currentMonth = YearMonth.now()
+        val currentMonth = YearMonth.of(accountingYear,accountingMonth)
         val monthRecords = fuelRecords.filter {
             YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == currentMonth
         }
@@ -2339,9 +2498,9 @@ class MainActivity : Activity() {
         val monthLitres = monthRecords.filter { !it.draft }.sumOf { it.litres }
         val summary = card(body, "加油概览")
         addMetricPair(summary,
-            bookkeepingMetric("本月花费", fmt("¥%.2f", monthCost), bookkeepingFuel,
+            bookkeepingMetric("${accountingMonth} 月花费", fmt("¥%.2f", monthCost), bookkeepingFuel,
                 "${monthRecords.size} 条记录"),
-            bookkeepingMetric("本月加油", fmt("%.2f L", monthLitres), ink,
+            bookkeepingMetric("${accountingMonth} 月加油", fmt("%.2f L", monthLitres), ink,
                 if (monthRecords.any { it.draft }) "含暂存记录" else "已计入口径"))
         addMetricPair(summary,
             bookkeepingMetric("累计花费", fmt("¥%.2f", totalCost)),
@@ -2362,21 +2521,23 @@ class MainActivity : Activity() {
         add(summary, label("第一次加满只建立里程基准，不计算油耗。从第二次开始，本次加油量视为此前区间的消耗量；未满时同时累计油量和里程，到下一次加满再合并计算。最新一条若已加满，也正常计入历史油耗。", 11f, muted), 12)
 
         val chartCard = card(body, "平均油耗变化 · 蓝色虚线为历史均值")
-        val chart = FuelChartView(this).apply { submit(analysis.points, analysis.historicalAverage) }
+        val selectedFuelIds = fuelRecords.filter { inAccountingYear(it.dateEpochDay) }.map { it.id }.toSet()
+        val chart = FuelChartView(this).apply { submit(analysis.points.filter { it.recordId in selectedFuelIds }, analysis.historicalAverage) }
         chartCard.addView(chart, LinearLayout.LayoutParams(-1, dp(220)).apply { topMargin = dp(10) })
 
+        val visibleFuelRecords=fuelRecords.filter { inAccountingYear(it.dateEpochDay) }
         val listCard = card(body, "加油记录")
         if (!fuelLoaded || fuelLoading) add(listCard, label("正在读取…", 14f, muted), 12)
-        else if (fuelRecords.isEmpty()) bookkeepingEmpty(listCard, "还没有加油记录",
+        else if (visibleFuelRecords.isEmpty()) bookkeepingEmpty(listCard, "还没有加油记录",
             "点击上方按钮，录入第一次加油")
-        else fuelRecords.forEachIndexed { index, record ->
+        else visibleFuelRecords.forEachIndexed { index, record ->
             val date = LocalDate.ofEpochDay(record.dateEpochDay)
             val month = YearMonth.from(date)
-            val previousMonth = fuelRecords.getOrNull(index - 1)?.let {
+            val previousMonth = visibleFuelRecords.getOrNull(index - 1)?.let {
                 YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay))
             }
             if (month != previousMonth) {
-                val monthGroup = fuelRecords.filter {
+                val monthGroup = visibleFuelRecords.filter {
                     YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month
                 }
                 bookkeepingMonthDivider(listCard, month, monthGroup.size,
@@ -2432,28 +2593,37 @@ class MainActivity : Activity() {
     private fun expenseDeviceId(): String = state.dataDeviceId.ifBlank { "local" }
 
     private fun renderMaintenanceSection(body: LinearLayout) {
+        renderNextMaintenance(body)
         add(body, primaryBookkeepingAction("＋  记录保养", bookkeepingMaintenance) {
             editExpenseRecord(null, ExpenseCategory.MAINTENANCE)
         }, 16)
-        val maintenance = expenseRecords.filter { it.category == ExpenseCategory.MAINTENANCE }
-        val year = LocalDate.now().year
+        add(body, button("＋  记录维修") { editExpenseRecord(null, ExpenseCategory.MAINTENANCE, true) }, 8)
+        val maintenance = expenseRecords.filter { it.isMaintenance }
+        val year = accountingYear
         val yearRecords = maintenance.filter { LocalDate.ofEpochDay(it.dateEpochDay).year == year }
-        val overview = card(body, "保养概览")
+        val overview = card(body, "保养/维修概览")
         addMetricPair(overview,
-            bookkeepingMetric("$year 年保养花费", fmt("¥%.2f", yearRecords.sumOf { it.amount }),
+            bookkeepingMetric("$year 年保养/维修花费", fmt("¥%.2f", yearRecords.sumOf { it.amount }),
                 bookkeepingMaintenance),
             bookkeepingMetric("累计保养记录", "${maintenance.size} 笔", ink))
 
         val currentKm = if (state.odometerDisplayEnabled)
             currentMileageEstimate().distanceM / 1000.0 else null
-        val dueStates = calculateMaintenanceDueStates(maintenance, currentKm, LocalDate.now())
+        val dueStates = calculateMaintenanceDueStates(maintenance, currentKm, LocalDate.now()).filter { it.kind in vehicleMaintenanceKinds() }
         val tireKinds = setOf(MaintenanceServiceKind.TIRE_REPLACEMENT)
         val projects = dueStates.filter { it.kind !in tireKinds }
         val tires = dueStates.filter { it.kind in tireKinds }
         addMaintenanceTrackingCard(body, "保养项目跟踪", projects)
         addMaintenanceTrackingCard(body, "轮胎寿命", tires)
-        val list = card(body, "保养历史")
-        renderExpenseList(list, maintenance, "还没有保养记录")
+        add(overview, label(fmt("保养 ¥%.2f   ·   维修 ¥%.2f", yearRecords.filter { !it.isRepair }.sumOf { it.amount },
+            yearRecords.filter { it.isRepair }.sumOf { it.amount }), 12f, muted), 8)
+        add(body, button("筛选：" + listOf("全部", "保养", "维修")[maintenanceFilter]) {
+            AlertDialog.Builder(this).setTitle("历史记录").setItems(arrayOf("全部", "保养", "维修")) { _, which ->
+                maintenanceFilter = which; showTab(2)
+            }.show()
+        }, 12)
+        val list = card(body, "保养/维修历史")
+        renderExpenseList(list, maintenance.filter { maintenanceFilter == 0 || it.isRepair == (maintenanceFilter == 2) }, "还没有记录")
     }
 
     private fun addMaintenanceTrackingCard(body: LinearLayout, title: String, items: List<MaintenanceDueState>) {
@@ -2461,12 +2631,19 @@ class MainActivity : Activity() {
         val dueSoon = items.count { it.status == MaintenanceDueStatus.DUE_SOON }
         val missingKm = items.count { it.status == MaintenanceDueStatus.MISSING_ODOMETER }
         val schedule = card(body, title)
-        add(schedule, label(when {
+        val tire = items.singleOrNull()?.takeIf { it.kind == MaintenanceServiceKind.TIRE_REPLACEMENT }
+        val nextDate = items.mapNotNull { it.dueDate }.minOrNull()
+        val summary = if (tire != null) tire.kmSinceService?.takeIf { it >= 0 }?.let {
+            fmt("本轮胎已行驶 %.0f km",it)
+        } ?: "本轮胎已行驶里程待补充" else when {
             overdue > 0 -> "$overdue 项已到或超期"
             dueSoon > 0 -> "$dueSoon 项即将到期"
-            missingKm > 0 -> "$missingKm 项缺里程"
-            else -> "暂无到期提醒"
-        }, 18f, if (overdue > 0 || dueSoon > 0) bookkeepingMaintenance else ink, true), 11)
+            nextDate != null -> "下次保养：$nextDate"
+            else -> "下次保养时间待补充"
+        }
+        add(schedule,label(summary,18f,if(overdue>0 || dueSoon>0) bookkeepingMaintenance else ink,true),9)
+        if(tire != null && (overdue>0 || dueSoon>0)) add(schedule,label(if(overdue>0) "轮胎更换已到或超期" else "轮胎更换即将到期",12f,bookkeepingMaintenance,true),5)
+        if(missingKm>0) add(schedule,label("$missingKm 项缺里程",12f,muted),5)
         items.forEach { addMaintenanceDueRow(schedule, it) }
     }
 
@@ -2585,8 +2762,10 @@ class MainActivity : Activity() {
         add(body, primaryBookkeepingAction("＋  记录日常花费", bookkeepingDaily) {
             editExpenseRecord(null, ExpenseCategory.DAILY)
         }, 16)
-        val daily = expenseRecords.filter { it.category == ExpenseCategory.DAILY }
-        val currentMonth = YearMonth.now()
+        add(body, button("收入记录 ›") { dailyIncome = true; renderIncomeDialog() }, 8)
+        add(body, button("资产清单与完整历史 ›") { showingAccountingAssets=true; showTab(2) }, 6)
+        val daily = expenseRecords.filter { !it.income && !it.isMaintenance && !it.isAssetExit }
+        val currentMonth = YearMonth.of(accountingYear,accountingMonth)
         val monthRecords = daily.filter {
             YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == currentMonth
         }
@@ -2594,12 +2773,12 @@ class MainActivity : Activity() {
         val year = currentMonth.year
         val yearRecords = daily.filter { LocalDate.ofEpochDay(it.dateEpochDay).year == year }
         val yearTotal = yearRecords.sumOf { it.amount }
-        val summary = card(body, "本月概览")
+        val summary = card(body, "${accountingMonth} 月概览")
         addMetricPair(summary,
-            bookkeepingMetric("本月日常花费", fmt("¥%.2f", monthTotal), bookkeepingDaily),
+            bookkeepingMetric("${accountingMonth} 月日常花费", fmt("¥%.2f", monthTotal), bookkeepingDaily),
             bookkeepingMetric("$year 年日常花费", fmt("¥%.2f", yearTotal), ink,
                 "${yearRecords.size} 笔记录"))
-        add(summary, label("从停车、通行、车辆洗护、维修、配件用品、保险、证件手续、违章或其他中选择分类。", 12f, muted), 7)
+        add(summary, label("停车、通行、车辆洗护、配件用品、保险、证件手续、年审、违章及其他；维修统一在保养/维修中记录。", 12f, muted), 7)
 
         val slices = DailyExpenseKind.entries.map { kind ->
             DailyExpenseSlice(kind.title,
@@ -2638,7 +2817,9 @@ class MainActivity : Activity() {
         renderExpenseList(list, daily, "还没有日常花费记录")
     }
 
-    private fun renderExpenseList(parent: LinearLayout, records: List<ExpenseRecord>, empty: String) {
+    private fun renderExpenseList(parent: LinearLayout, allRecords: List<ExpenseRecord>, empty: String,
+        filterYear: Boolean = true, onRecordClick: ((ExpenseRecord) -> Unit)? = null) {
+        val records=allRecords.filter { !filterYear || inAccountingYear(it.dateEpochDay) }
         if (!expenseLoaded || expenseLoading) {
             add(parent, label("正在读取…", 13f, muted), 10)
             return
@@ -2661,11 +2842,15 @@ class MainActivity : Activity() {
                 val monthGroup = records.filter {
                     YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month
                 }
+                val activeGroup=monthGroup.filter { row -> !row.isAssetEvent || expenseRecords.any { it.transferId==row.transferId } }
                 bookkeepingMonthDivider(parent, month, monthGroup.size,
-                    monthGroup.sumOf { it.amount },
+                    activeGroup.sumOf { it.amount },
                     if (record.category == ExpenseCategory.DAILY) bookkeepingDaily
                     else bookkeepingMaintenance,
-                    index == 0)
+                    index == 0,
+                    if(monthGroup.any { it.isAssetEvent }) fmt("有效净支出 ¥%.2f",activeGroup.sumOf { if(it.income) -it.amount else it.amount })
+                    else if(monthGroup.any { it.income } && monthGroup.any { !it.income })
+                        fmt("净支出 ¥%.2f",activeGroup.sumOf { if(it.income) -it.amount else it.amount }) else null)
             }
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2674,7 +2859,7 @@ class MainActivity : Activity() {
                 setPadding(dp(12), dp(12), dp(12), dp(12))
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { editExpenseRecord(record, record.category) }
+                setOnClickListener { if(onRecordClick != null) onRecordClick(record) else if(record.isAssetEvent) viewAssetEvent(record) else editExpenseRecord(record, if (record.isMaintenance) ExpenseCategory.MAINTENANCE else record.category, record.isRepair) }
             }
             val dateBadge = column().apply {
                 gravity = Gravity.CENTER
@@ -2698,7 +2883,10 @@ class MainActivity : Activity() {
                 imageTintList = android.content.res.ColorStateList.valueOf(color)
                 contentDescription = record.title
             }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(7) })
-            val heading = if (record.category == ExpenseCategory.MAINTENANCE)
+            val heading = if(record.isAssetEvent)
+                (if(record.isAssetCancellation) "撤销" else if(record.isAsset) "登记" else if(record.income) "出售" else "移除") + " · " + assetLabel(record) +
+                    (if(assetHistoryRecords.any { it.isAssetCancellation && it.assetRef==record.transferId }) "（已撤销）" else "")
+            else if (record.category == ExpenseCategory.MAINTENANCE)
                 record.resolvedMaintenanceType().title else record.title
             titleRow.addView(label(heading, 14f, ink, true), LinearLayout.LayoutParams(0, -2, 1f))
             add(details, titleRow)
@@ -2713,10 +2901,10 @@ class MainActivity : Activity() {
                 }
                 if (isEmpty()) append(if (record.category == ExpenseCategory.DAILY) "未填写详细" else "未填写备注")
             }
-            add(details, label(detailText, 11f, muted), 4)
+            add(details, label(listOf(record.itemName, record.party, detailText).filter { it.isNotBlank() }.joinToString(" · "), 11f, muted), 4)
             row.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
             val amount = column().apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
-            add(amount, label(fmt("¥%.2f", record.amount), 15f, color, true).apply {
+            add(amount, label((if (record.income) "+" else "") + fmt("¥%.2f", record.amount), 15f, color, true).apply {
                 gravity = Gravity.END
             })
             add(amount, label("›", 22f, Color.rgb(168, 175, 186)).apply { gravity = Gravity.END }, 2)
@@ -2729,16 +2917,11 @@ class MainActivity : Activity() {
         months.map { month ->
             val fuel = fuelRecords.filter { it.cost > 0.0 && YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month }
                 .sumOf { it.cost }
-            val monthExpenses = expenseRecords.filter {
-                YearMonth.from(LocalDate.ofEpochDay(it.dateEpochDay)) == month
-            }
-            MonthlyExpenseSummary(month, fuel,
-                monthExpenses.filter { it.category == ExpenseCategory.MAINTENANCE }.sumOf { it.amount },
-                monthExpenses.filter { it.category == ExpenseCategory.DAILY }.sumOf { it.amount })
+            summarizeExpenseMonth(month,fuel,expenseRecords,refinedAccounting)
         }
 
     private fun monthlyExpenseSummaries(): List<MonthlyExpenseSummary> {
-        val now = YearMonth.now()
+        val now = YearMonth.of(accountingYear,12)
         return expenseSummariesFor((11 downTo 0).map { now.minusMonths(it.toLong()) })
     }
 
@@ -2755,14 +2938,17 @@ class MainActivity : Activity() {
 
     private fun renderExpenseStatistics(body: LinearLayout) {
         val months = monthlyExpenseSummaries()
-        val allMonths = allMonthlyExpenseSummaries()
-        val current = months.lastOrNull() ?: MonthlyExpenseSummary(YearMonth.now(), 0.0, 0.0, 0.0)
-        val year = YearMonth.now().year
+        val allMonths = allMonthlyExpenseSummaries().filter { it.month.year==accountingYear }
+        val current = months.firstOrNull { it.month.monthValue==accountingMonth } ?: MonthlyExpenseSummary(YearMonth.of(accountingYear,accountingMonth), 0.0, 0.0, 0.0)
+        val year = accountingYear
         val annual = months.filter { it.month.year == year }
         val annualFuel = annual.sumOf { it.fuel }
         val annualMaintenance = annual.sumOf { it.maintenance }
         val annualDaily = annual.sumOf { it.daily }
-        val annualTotal = annualFuel + annualMaintenance + annualDaily
+        val annualAssets = annual.sumOf { it.assets }
+        val annualIncome = annual.sumOf { it.income }
+        val annualTotal = annual.sumOf { it.total }
+        val annualNet = annualTotal - annualIncome
 
         val overview = column().apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
@@ -2772,23 +2958,23 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(18), dp(20), dp(19))
             elevation = dp(2).toFloat()
         }
-        add(overview, label("本月总开销", 12f, Color.rgb(224, 225, 246), true))
-        add(overview, label(fmt("¥%.2f", current.total), 31f, Color.WHITE, true), 6)
-        add(overview, label(fmt("%d 年累计  ¥%.2f", year, annualTotal), 14f,
+        add(overview, label("${accountingMonth} 月净支出", 12f, Color.rgb(224, 225, 246), true))
+        add(overview, label(fmt("¥%.2f", current.netExpense), 31f, Color.WHITE, true), 6)
+        add(overview, label(fmt("%d 年净支出  ¥%.2f", year, annualNet), 14f,
             Color.rgb(239, 236, 250), true), 8)
-        add(overview, label("加油、保养与日常花费统一统计", 10f,
-            Color.rgb(211, 208, 237)), 5)
+        add(overview,label(fmt("${accountingMonth} 月支出 ¥%.2f · 收入 ¥%.2f",current.total,current.income),11f,Color.WHITE),6)
+        add(overview,label(fmt("全年支出 ¥%.2f · 收入 ¥%.2f",annualTotal,annualIncome),11f,Color.rgb(211,208,237)),5)
         add(body, overview, 16)
 
-        val chartCard = card(body, "月度趋势")
+        val chartCard = card(body, "月度支出构成")
         chartCard.addView(BookkeepingChartView(this).apply { submit(months) },
             LinearLayout.LayoutParams(-1, dp(220)).apply { topMargin = dp(10) })
         val legend = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        listOf("加油" to bookkeepingFuel, "保养" to bookkeepingMaintenance,
-            "日常" to bookkeepingDaily).forEachIndexed { index, (title, color) ->
+        (listOf("加油" to bookkeepingFuel, (if (refinedAccounting) "固定开销" else "保养/维修") to bookkeepingMaintenance,
+            "日常" to bookkeepingDaily) + if(refinedAccounting) listOf("资产" to bookkeepingStats) else emptyList()).forEachIndexed { index, (title, color) ->
             legend.addView(label("●  $title", 11f, color, true), LinearLayout.LayoutParams(-2, -2).apply {
                 if (index > 0) marginStart = dp(18)
             })
@@ -2813,8 +2999,9 @@ class MainActivity : Activity() {
             }, 4)
         }
         categoryRow("加油", annualFuel, bookkeepingFuel)
-        categoryRow("保养", annualMaintenance, bookkeepingMaintenance)
+        categoryRow((if (refinedAccounting) "固定开销" else "保养/维修"), annualMaintenance, bookkeepingMaintenance)
         categoryRow("日常", annualDaily, bookkeepingDaily)
+        if(refinedAccounting) categoryRow("资产",annualAssets,bookkeepingStats)
 
         val monthlyDetails = card(body, "全部月度明细")
         if (allMonths.isEmpty()) {
@@ -2840,11 +3027,11 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            listOf(
+            (listOf(
                 Triple("加油", month.fuel, bookkeepingFuel),
-                Triple("保养", month.maintenance, bookkeepingMaintenance),
+                Triple((if (refinedAccounting) "固定开销" else "保养/维修"), month.maintenance, bookkeepingMaintenance),
                 Triple("日常", month.daily, bookkeepingDaily),
-            ).forEach { (title, amount, color) ->
+            ) + if(refinedAccounting) listOf(Triple("资产",month.assets,bookkeepingStats)) else emptyList()).forEach { (title, amount, color) ->
                 val metric = column().apply {
                     gravity = Gravity.CENTER
                     add(this, label("● $title", 10f, color, true).apply { gravity = Gravity.CENTER })
@@ -2855,11 +3042,16 @@ class MainActivity : Activity() {
                 categories.addView(metric, LinearLayout.LayoutParams(0, -2, 1f))
             }
             add(item, categories, 9)
+            add(item,label(fmt("收入 ¥%.2f · 净支出 ¥%.2f",month.income,month.netExpense),12f,ink,true),9)
             add(monthlyDetails, item, if (index == 0) 10 else 8)
         }
     }
 
-    private fun editExpenseRecord(existing: ExpenseRecord?, category: ExpenseCategory) {
+    private fun editExpenseRecord(existing: ExpenseRecord?, category: ExpenseCategory, repair: Boolean = existing?.isRepair == true) {
+        if (category != ExpenseCategory.MAINTENANCE) {
+            editLedgerRecord(existing, existing?.section ?: "daily", existing?.income ?: false)
+            return
+        }
         var selectedDate = existing?.let { LocalDate.ofEpochDay(it.dateEpochDay) } ?: LocalDate.now()
         val form = column().apply { setPadding(dp(22), dp(4), dp(22), 0) }
         add(form, label("日期", 12f, muted, true), 10)
@@ -2885,14 +3077,14 @@ class MainActivity : Activity() {
             "当时车辆里程（km；用于推荐项目和里程提醒）",
             existing?.odometerKm?.let { fmt("%.1f", it) } ?: suggestedKm?.let { fmt("%.1f", it) } ?: "", true
         ) else null
-        val automaticMaintenanceKinds = if (category == ExpenseCategory.MAINTENANCE && existing == null) {
-            suggestedKm?.let(::recommendedMaintenanceKinds) ?: setOf(
+        val automaticMaintenanceKinds = if (category == ExpenseCategory.MAINTENANCE && existing == null && !repair) {
+            suggestedKm?.let { recommendedMaintenanceKinds(it).filter { kind -> kind in vehicleMaintenanceKinds() }.toSet() } ?: setOf(
                 MaintenanceServiceKind.ENGINE_OIL,
                 MaintenanceServiceKind.ENGINE_OIL_FILTER,
                 MaintenanceServiceKind.FUEL_ADDITIVE,
             )
         } else emptySet()
-        val selectedMaintenanceKinds = MaintenanceServiceKind.entries.map { kind ->
+        val selectedMaintenanceKinds = vehicleMaintenanceKinds().map { kind ->
             existing?.takeIf { category == ExpenseCategory.MAINTENANCE }?.let { kind.matches(it.title) }
                 ?: (kind in automaticMaintenanceKinds)
         }.toBooleanArray()
@@ -2903,7 +3095,7 @@ class MainActivity : Activity() {
                     MaintenanceRecordType.entries.map { it.title }).also {
                     it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
                 }
-                val initialType = existing?.resolvedMaintenanceType() ?: ExpenseRecord(
+                val initialType = existing?.resolvedMaintenanceType() ?: if (repair) MaintenanceRecordType.REPAIR else ExpenseRecord(
                     deviceId = "", dateEpochDay = selectedDate.toEpochDay(), category = category,
                     amount = 0.0, title = automaticMaintenanceKinds.joinToString("、") { it.recordTitle }
                 ).resolvedMaintenanceType()
@@ -2915,7 +3107,7 @@ class MainActivity : Activity() {
             add(form, label("保养项目（可多选）", 12f, muted, true), 10)
             lateinit var selector: TextView
             fun refreshSelector() {
-                val selected = MaintenanceServiceKind.entries.filterIndexed { index, _ ->
+                val selected = vehicleMaintenanceKinds().filterIndexed { index, _ ->
                     selectedMaintenanceKinds[index]
                 }
                 selector.text = when {
@@ -2930,7 +3122,7 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("本次完成了哪些项目？")
                         .setMultiChoiceItems(
-                            MaintenanceServiceKind.entries.map { "${it.action} · ${it.title}" }.toTypedArray(),
+                            vehicleMaintenanceKinds().map { "${it.action} · ${it.title}" }.toTypedArray(),
                             pending,
                         ) { _, which, checked -> pending[which] = checked }
                         .setNegativeButton("取消", null)
@@ -2945,7 +3137,7 @@ class MainActivity : Activity() {
             refreshSelector()
             add(form, button("快捷：仅记录轮胎更换") {
                 selectedMaintenanceKinds.fill(false)
-                selectedMaintenanceKinds[MaintenanceServiceKind.TIRE_REPLACEMENT.ordinal] = true
+                selectedMaintenanceKinds[vehicleMaintenanceKinds().indexOf(MaintenanceServiceKind.TIRE_REPLACEMENT)] = true
                 maintenanceTypeSpinner?.setSelection(MaintenanceRecordType.TIRES.ordinal)
                 refreshSelector()
             }, 5)
@@ -2954,9 +3146,9 @@ class MainActivity : Activity() {
                 if (km == null || !km.isFinite() || km < 0.0) {
                     toast("请先填写有效的保养里程")
                 } else {
-                    val recommended = recommendedMaintenanceKinds(km)
+                    val recommended = recommendedMaintenanceKinds(km).filter { it in vehicleMaintenanceKinds() }
                     selectedMaintenanceKinds.fill(false)
-                    MaintenanceServiceKind.entries.forEachIndexed { index, kind ->
+                    vehicleMaintenanceKinds().forEachIndexed { index, kind ->
                         selectedMaintenanceKinds[index] = kind in recommended
                     }
                     refreshSelector()
@@ -2987,6 +3179,8 @@ class MainActivity : Activity() {
                 form.addView(this, LinearLayout.LayoutParams(-1, dp(52)))
             }
         } else null
+        val serviceName = field(if (repair) "维修内容" else "项目补充说明（可选）", existing?.itemName.orEmpty())
+        val serviceParty = field("门店（可选）", existing?.party.orEmpty())
         val amount = field("金额（元，可填 0）", existing?.let { fmt("%.2f", it.amount) } ?: "", true)
         val initialDetail = if (category == ExpenseCategory.DAILY && existing != null && existingDailyKind == null) {
             listOf(existing.title, existing.note).filter { it.isNotBlank() }.joinToString(" · ")
@@ -2994,7 +3188,7 @@ class MainActivity : Activity() {
         val detail = field(if (category == ExpenseCategory.DAILY) "详细（可选）" else "备注（可选）",
             initialDetail)
         val dialog = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) "记录${category.title}" else "编辑${category.title}记录")
+            .setTitle((if (existing == null) "记录" else "编辑") + if (repair) "维修" else "保养")
             .setView(ScrollView(this).apply { addView(form) })
             .setNegativeButton("取消", null)
             .setPositiveButton("保存", null)
@@ -3004,12 +3198,12 @@ class MainActivity : Activity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = if (category == ExpenseCategory.MAINTENANCE) {
                     buildList {
-                        MaintenanceServiceKind.entries.forEachIndexed { index, kind ->
+                        vehicleMaintenanceKinds().forEachIndexed { index, kind ->
                             if (selectedMaintenanceKinds[index]) add(kind.recordTitle)
                         }
                         customMaintenanceTitle?.text?.toString()?.trim()
                             ?.takeIf { it.isNotEmpty() }?.let(::add)
-                    }.distinct().joinToString("、")
+                    }.distinct().joinToString("、").ifBlank { if (repair) "维修" else "" }
                 } else DailyExpenseKind.entries[
                     categorySpinner?.selectedItemPosition ?: DailyExpenseKind.OTHER.ordinal
                 ].title
@@ -3023,7 +3217,11 @@ class MainActivity : Activity() {
                 }
                 saveExpenseRecord(ExpenseRecord(existing?.id ?: 0L, existing?.deviceId ?: expenseDeviceId(),
                     selectedDate.toEpochDay(), category, paid, name, detail.text.toString(), km,
-                    maintenanceTypeSpinner?.let { MaintenanceRecordType.entries[it.selectedItemPosition] }))
+                    maintenanceTypeSpinner?.let { MaintenanceRecordType.entries[it.selectedItemPosition] },
+                    ledgerKind = if (repair) "repair" else existing?.ledgerKind.orEmpty(),
+                    income = existing?.income ?: false, dueEpochDay = existing?.dueEpochDay,
+                    startEpochDay = existing?.startEpochDay, party = serviceParty.text.toString(),
+                    itemName = serviceName.text.toString()))
                 dialog.dismiss()
             }
             if (existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -3036,6 +3234,492 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
+    private val fixedKinds = linkedMapOf("maintenance" to "保养/维修", "insurance" to "保险",
+        "inspection" to "年审", "paperwork" to "证件手续")
+
+    private fun renderAssets(body: LinearLayout) {
+        val registrations=expenseRecords.filter { it.isAsset }
+        val exits=expenseRecords.filter { it.isAssetExit }
+        val held=registrations.filter { root -> exits.none { it.assetRef==root.transferId } }
+        add(body,primaryBookkeepingAction("＋  登记资产",bookkeepingStats) { editLedgerRecord(null,"asset") },14)
+        val overview=card(body,"资产概览")
+        addMetricPair(overview,bookkeepingMetric("当前持有","${held.size} 件",bookkeepingStats),
+            bookkeepingMetric("登记成本",fmt("¥%.2f",held.sumOf { it.amount }),bookkeepingMaintenance))
+        add(overview,label("当前清单跨年份展示；历史按上方年份筛选。登记成本不代表当前市值。",11f,muted),6)
+        renderExpenseList(card(body,"持有清单"),held,"暂无持有资产",filterYear=false) { root ->
+            AlertDialog.Builder(this).setTitle(assetLabel(root)).setItems(arrayOf("查看登记","出售（记录收入）","移除（不产生收入）")) { _,which ->
+                when(which) { 0 -> viewAssetEvent(root); 1 -> editAssetExit(null,root,true); else -> editAssetExit(null,root,false) }
+            }.setNegativeButton("取消",null).show()
+        }
+        val history=assetHistoryRecords.filter { it.isAssetEvent }.sortedWith(compareByDescending<ExpenseRecord> { it.dateEpochDay }.thenByDescending { it.id })
+        renderExpenseList(card(body,"$accountingYear 年资产全部历史"),history,"该年暂无资产记录")
+    }
+
+    private fun viewAssetEvent(record: ExpenseRecord) {
+        val cancelled=assetHistoryRecords.any { it.isAssetCancellation && it.assetRef==record.transferId }
+        val action=when { record.isAssetCancellation -> "旧版撤销记录"; record.isAsset -> "资产登记"; record.income -> "出售资产"; else -> "移除资产" }
+        val text=listOf(assetLabel(record),"$action · ${LocalDate.ofEpochDay(record.dateEpochDay)}",
+            (if(record.income) "收入 " else "金额 ")+fmt("¥%.2f",record.amount),record.note,
+            if(cancelled) "该事件已在旧版撤销；仍可选择彻底删除原记录。" else "正常出售或移除保留历史；撤销并删除会彻底删除选中的记录。").filter { it.isNotBlank() }.joinToString("\n\n")
+        AlertDialog.Builder(this).setTitle(action).setMessage(text).setNegativeButton("关闭",null)
+            .apply {
+                if(record.isAssetCancellation) setPositiveButton("查看原记录") { _,_ ->
+                    assetHistoryRecords.firstOrNull { it.transferId==record.assetRef }?.let { viewAssetEvent(it) }
+                } else setPositiveButton("撤销并删除") { _,_ ->
+                    if(record.isAsset && assetHistoryRecords.any { it.isAssetExit && it.assetRef==record.transferId }) {
+                        toast("请先撤销并删除该资产的处置记录，再删除登记")
+                    } else AlertDialog.Builder(this@MainActivity).setTitle("彻底删除这条记录？")
+                        .setMessage(if(record.isAsset) "删除此登记后，资产不再持有，该笔购入支出也会删除。此操作不可撤销。"
+                            else "删除这次处置及关联收入，资产恢复持有。原购买登记保留。此操作不可撤销。")
+                        .setNegativeButton("取消",null).setPositiveButton("彻底删除") { _,_ -> deleteExpenseRecord(record) }.show()
+                }
+            }.show()
+    }
+
+    private fun assetLabel(record: ExpenseRecord): String = record.itemName.ifBlank { record.note.ifBlank { "配件用品 · ${LocalDate.ofEpochDay(record.dateEpochDay)}" } }
+
+    private fun chooseAssetExit(root: ExpenseRecord) {
+        AlertDialog.Builder(this).setTitle(assetLabel(root)).setItems(arrayOf("出售（记录收入）","移除（不产生收入）")) { _,which ->
+            editAssetExit(null,root,which==0)
+        }.setNegativeButton("取消",null).show()
+    }
+
+    private fun editAssetExit(existing: ExpenseRecord?, asset: ExpenseRecord? = null, sale: Boolean = existing?.income == true) {
+        if(existing != null) { viewAssetEvent(existing); return }
+        val root=asset ?: return
+        val form=column().apply { setPadding(dp(22),dp(8),dp(22),dp(8)) }
+        add(form,label(assetLabel(root),18f,ink,true),6)
+        var date=LocalDate.now()
+        val pick=button(date.toString()) {}
+        add(form,label("处置日期",12f,muted,true),10); add(form,pick,4)
+        pick.setOnClickListener { DatePickerDialog(this,{ _,y,m,d -> date=LocalDate.of(y,m+1,d); pick.text=date.toString() },date.year,date.monthValue-1,date.dayOfMonth).show() }
+        fun field(title: String,value: String,decimal: Boolean=false): EditText {
+            add(form,label(title,12f,muted,true),10)
+            return EditText(this).apply {
+                if(decimal) inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setText(value); form.addView(this,LinearLayout.LayoutParams(-1,-2))
+            }.refineDialogField()
+        }
+        val amount=if(sale) field("出售收入（元，可填 0）","",true) else null
+        val note=field("备注（可选）","")
+        val dialog=AlertDialog.Builder(this).setTitle(if(sale) "出售资产" else "移除资产")
+            .setView(ScrollView(this).apply { addView(form) }).setNegativeButton("取消",null).setPositiveButton("保存",null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val paid=if(sale) amount?.text?.toString()?.replace(',','.')?.toDoubleOrNull() else 0.0
+                if(paid==null || !paid.isFinite() || paid<0 || paid>1e12) { amount?.error="请填写有效收入"; return@setOnClickListener }
+                if(date.toEpochDay()<root.dateEpochDay) { toast("请核对资产及处置日期，不能早于登记日期"); return@setOnClickListener }
+                val base=ExpenseRecord(deviceId=root.deviceId,dateEpochDay=date.toEpochDay(),category=ExpenseCategory.DAILY,
+                    amount=paid,title=if(sale) "配件出售" else "资产移除",ledgerKind=if(sale) "asset_sale" else "asset_retire",income=sale,
+                    itemName=assetLabel(root),assetRef=root.transferId)
+                saveExpenseRecord(base.copy(dateEpochDay=date.toEpochDay(),amount=paid,note=note.text.toString()))
+                dialog.dismiss()
+            }
+
+        }
+        dialog.show()
+    }
+
+    private fun renderAccountingPeriod(body: LinearLayout) {
+        val years=(assetHistoryRecords.map { LocalDate.ofEpochDay(it.dateEpochDay).year } +
+            fuelRecords.map { LocalDate.ofEpochDay(it.dateEpochDay).year } + LocalDate.now().year + accountingYear).distinct().sortedDescending()
+        val row=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL }
+        fun periodPill(text: String, action: () -> Unit) = label(text,12f,bookkeepingStats,true).apply {
+            setPadding(dp(12),dp(8),dp(12),dp(8)); background=rounded(soften(bookkeepingStats),12)
+            minHeight=dp(36); gravity=Gravity.CENTER; isClickable=true; isFocusable=true; setOnClickListener { action() }
+        }
+        row.addView(periodPill("$accountingYear 年 ▾") {
+            AlertDialog.Builder(this).setTitle("选择账本年份").setItems(years.map { "$it 年" }.toTypedArray()) { _,which -> accountingYear=years[which]; showTab(2) }.show()
+        })
+        row.addView(periodPill("${accountingMonth} 月 ▾") {
+            AlertDialog.Builder(this).setTitle("选择账本月份").setItems((1..12).map { "$it 月" }.toTypedArray()) { _,which -> accountingMonth=which+1; showTab(2) }.show()
+        },LinearLayout.LayoutParams(-2,-2).apply { marginStart=dp(8) })
+        add(body,row,8)
+    }
+
+    private fun renderLedgerOverview(body: LinearLayout) {
+        val row=LinearLayout(this)
+        listOf(false,true).forEach { annual ->
+            fun inPeriod(day: Long): Boolean { val date=LocalDate.ofEpochDay(day); return date.year==accountingYear && (annual || date.monthValue==accountingMonth) }
+            val records=expenseRecords.filter { inPeriod(it.dateEpochDay) }
+            val outgoing=records.filter { !it.income }.sumOf { it.amount } + fuelRecords.filter { inPeriod(it.dateEpochDay) }.sumOf { it.cost }
+            val incoming=records.filter { it.income }.sumOf { it.amount }
+            val overview=column().apply {
+                setPadding(dp(13),dp(11),dp(13),dp(11)); background=rounded(Color.WHITE,18)
+                isClickable=true; isFocusable=true; contentDescription=if(annual) "查看年度账本统计" else "查看月度账本统计"
+                setOnClickListener { ledgerStatisticsReturn=accountingSection.coerceAtMost(3); accountingSection=accountingStatisticsIndex; showTab(2) }
+            }
+            add(overview,label((if(annual) "$accountingYear 年账本" else "${accountingMonth} 月账本")+"  ›",12f,bookkeepingStats,true))
+            fun metric(title: String,value: Double,color: Int) {
+                val line=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL }
+                line.addView(label(title,11f,muted),LinearLayout.LayoutParams(0,-2,1f))
+                line.addView(label(fmt("¥%.2f",value),14f,color,true))
+                add(overview,line,5)
+            }
+            metric("支出",outgoing,bookkeepingMaintenance); metric("收入",incoming,bookkeepingDaily)
+            metric("净支出",outgoing-incoming,ink)
+            row.addView(overview,LinearLayout.LayoutParams(0,-2,1f).apply { if(annual) marginStart=dp(10) })
+        }
+        add(body,row,9)
+    }
+
+    private fun renderFixedSection(body: LinearLayout) {
+        if (fixedSection.isNotEmpty()) {
+            if (fixedSection == "maintenance") { renderMaintenanceSection(body); return }
+            val records = expenseRecords.filter { it.section == fixedSection && !it.income }
+            add(body, primaryBookkeepingAction("＋  记录${fixedKinds[fixedSection]}", bookkeepingMaintenance) {
+                editLedgerRecord(null, fixedSection)
+            }, 14)
+            val overview = card(body, fixedKinds[fixedSection] ?: "固定开销")
+            add(overview, label(fmt("$accountingYear 年支出  ¥%.2f", records.filter {
+                LocalDate.ofEpochDay(it.dateEpochDay).year == accountingYear }.sumOf { it.amount }), 22f, ink, true), 8)
+            if (fixedSection == "inspection") {
+                val registration = state.vehicleRegistration()
+                settingsListGroup(body, listOf(settingsListRow(SettingsIconView.Icon.VEHICLE, "初次注册日期",
+                    registration?.registeredDay?.let { LocalDate.ofEpochDay(it).toString() } ?: "设置后自动估计年审时间",
+                    bookkeepingFuel, action = { editVehicleRegistration() })))
+            }
+            if (fixedSection in setOf("insurance", "inspection")) {
+                renderDeadlineTracking(body, records, false)
+            }
+            renderExpenseList(card(body, "历史记录"), records, "还没有记录")
+            return
+        }
+        val year = accountingYear
+        val overview = card(body, "固定开销")
+        add(overview, label(fmt("%d 年累计  ¥%.2f", year, expenseRecords.filter {
+            it.section in fixedKinds.keys && !it.income && LocalDate.ofEpochDay(it.dateEpochDay).year == year }.sumOf { it.amount }), 22f, ink, true), 8)
+        val colors = listOf(bookkeepingMaintenance, bookkeepingStats, bookkeepingFuel, bookkeepingDaily, bookkeepingMaintenance)
+        fixedKinds.entries.toList().chunked(2).forEach { entries ->
+            val row = LinearLayout(this)
+            entries.forEach { entry ->
+                val index = fixedKinds.keys.indexOf(entry.key)
+                val tile = column().apply {
+                    setPadding(dp(13),dp(10),dp(13),dp(10)); background=rounded(Color.WHITE,20)
+                    isClickable=true; isFocusable=true
+                    setOnClickListener { fixedSection=entry.key; showTab(2) }
+                }
+                val records=expenseRecords.filter { it.section==entry.key && !it.income }
+                add(tile,label(entry.value + "  ›",14f,colors[index],true))
+                add(tile,label(fmt("¥%.2f",records.filter { LocalDate.ofEpochDay(it.dateEpochDay).year==year }.sumOf { it.amount }),17f,ink,true),5)
+                add(tile,label("$year 年 · ${records.count { inAccountingYear(it.dateEpochDay) }} 笔",11f,muted),4)
+                row.addView(tile,LinearLayout.LayoutParams(0,-2,1f).apply { if(row.childCount>0) marginStart=dp(10) })
+            }
+            add(body,row,7)
+        }
+        renderDeadlineTracking(body, expenseRecords.filter { it.section in setOf("insurance", "inspection") }, true)
+        renderExpenseList(card(body, "最近记录"), expenseRecords.filter { it.section in fixedKinds.keys && inAccountingYear(it.dateEpochDay) }.take(8), "还没有固定开销")
+    }
+
+    private fun renderDeadlineTracking(body: LinearLayout, records: List<ExpenseRecord>, compact: Boolean) {
+        val panel = card(body, if (compact) "待办与到期" else "到期跟踪")
+        val latest = deadlineTracks(records.map {
+            if (it.deviceId == "local") it.copy(deviceId = expenseDeviceId()) else it
+        }, LocalDate.now(), if (compact || fixedSection == "inspection")
+            state.vehicleRegistrations().filterKeys { it == expenseDeviceId() } else emptyMap())
+        if (latest.isEmpty()) add(panel, label("尚未设置 · 可记录费用为 0 的办理事项并设置下次日期", 12f, muted), 9)
+        latest.forEach { track ->
+            // Resolve the original row so editing a pre-binding record preserves its device identity.
+            val record = records.firstOrNull { it.id == track.record.id &&
+                (it.deviceId == track.record.deviceId || it.deviceId == "local") } ?: track.record
+            val days = track.dueDay?.minus(LocalDate.now().toEpochDay())
+            val status = track.status
+            val color = when { days == null -> muted; days < 0 -> Color.rgb(198,48,75)
+                days <= 30 -> Color.rgb(224,132,38); else -> bookkeepingDaily }
+            val row = column().apply {
+                setPadding(dp(14), dp(12), dp(14), dp(12)); background = rounded(soften(color), 15)
+                setOnClickListener {
+                    if (track.fromVehicleInfo) editVehicleRegistration() else editLedgerRecord(record, record.section)
+                }
+            }
+            add(row, label(listOf(fixedKinds[record.section].orEmpty(), record.itemName).filter { it.isNotBlank() }.joinToString(" · "), 14f, ink, true))
+            add(row, label(status, 22f, color, true), 6)
+            track.dueDay?.let { add(row, label((if (record.section == "insurance") "本保单保障到期 " else "检验 / 办理有效期止 ") + LocalDate.ofEpochDay(it), 12f, muted), 6) }
+            if (track.detail.isNotBlank()) add(row, label(track.detail, 11f, muted), 6)
+            val start = record.startEpochDay.takeIf { record.section != "inspection" }
+            val due = track.dueDay
+            if (start != null && due != null && due > start) add(row, ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 1000; progress = ((LocalDate.now().toEpochDay() - start).toDouble() / (due - start) * 1000).toInt().coerceIn(0,1000)
+                progressTintList = android.content.res.ColorStateList.valueOf(color)
+            }, 8)
+            add(row, button(if (record.section == "insurance") "记录续保" else "已办结 · 更新有效期") {
+                if (track.fromVehicleInfo) editVehicleRegistration(completed = true)
+                else editLedgerRecord(null, record.section, template = record)
+            }, 8)
+            add(panel, row, 10)
+        }
+    }
+
+    private fun renderRefinedDaily(body: LinearLayout) {
+        val switches=LinearLayout(this).apply { setPadding(dp(4),dp(4),dp(4),dp(4)); background=rounded(Color.rgb(232,235,241),18) }
+        listOf("支出","收入").forEachIndexed { i,title ->
+            val selected=dailyIncome==(i==1)
+            switches.addView(label(title,13f,if(selected) Color.WHITE else muted,true).apply {
+                gravity=Gravity.CENTER; minHeight=dp(42); background=if(selected) rounded(bookkeepingDaily,14) else null
+                setOnClickListener { dailyIncome=i==1; showTab(2) }
+            },LinearLayout.LayoutParams(0,dp(42),1f))
+        }
+        add(body,switches,14)
+        add(body, primaryBookkeepingAction(if (dailyIncome) "＋  记录收入" else "＋  记录支出", bookkeepingDaily) {
+            editLedgerRecord(null, "daily", dailyIncome)
+        }, 12)
+        val records = expenseRecords.filter { if (dailyIncome) it.income else !it.income && !it.isFixed }
+        renderDailyBreakdown(body, records, dailyIncome)
+        renderExpenseList(card(body, if (dailyIncome) "收入记录" else "日常支出"), records, "还没有记录")
+    }
+
+    private fun renderDailyBreakdown(body: LinearLayout, records: List<ExpenseRecord>, income: Boolean) {
+        val year=accountingYear
+        val annual=records.filter { LocalDate.ofEpochDay(it.dateEpochDay).year==year }
+        val colors=listOf(bookkeepingDaily,bookkeepingFuel,bookkeepingMaintenance,bookkeepingStats,
+            Color.rgb(211,139,64),Color.rgb(123,147,87),Color.rgb(133,122,162))
+        val grouped=annual.groupBy { it.title }
+        val ordered=if(income) (listOf("他人付款","报销","补贴","保险赔付","配件出售","其他收入")+grouped.keys).distinct()
+            else grouped.keys.toList()
+        val slices=ordered.mapIndexed { i,title -> DailyExpenseSlice(title,grouped[title].orEmpty().sumOf { it.amount },colors[i%colors.size]) }
+        val panel=card(body,"$year 年"+if(income) "收入构成" else "日常支出构成")
+        panel.addView(DailyExpenseBreakdownView(this).apply { submit(slices,if(income) "年度收入" else "年度日常") },
+            LinearLayout.LayoutParams(-1,dp(184)).apply { topMargin=dp(8) })
+        val total=slices.sumOf { it.amount }
+        slices.filter { it.amount>0 }.forEach { slice ->
+            val row=LinearLayout(this)
+            row.addView(label("● ${slice.title}",12f,slice.color,true),LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(label(fmt("¥%.2f · %.0f%%",slice.amount,if(total>0) slice.amount/total*100 else 0.0),12f,ink,true))
+            add(panel,row,9)
+        }
+    }
+
+    private fun ledgerNotificationSettings() {
+        content.removeAllViews(); showingLedgerNotifications=true
+        val body=page("到期通知","管理用车事项的系统通知")
+        settingsBackPill(body) { showTab(3) }
+        settingsSubpageHero(body,SettingsIconView.Icon.ACCOUNTING,"到期提醒","保险 · 年审 · 保养",
+            "提前 30、7、3 天及当天",bookkeepingMaintenance)
+        val manager=getSystemService(android.app.NotificationManager::class.java)
+        val enabled=manager.areNotificationsEnabled() && manager.getNotificationChannel("ledger_deadlines")?.importance!=android.app.NotificationManager.IMPORTANCE_NONE
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.DISPLAY,"系统通知权限",
+            if(enabled) "已开启 · 点击管理" else "未开启 · 点击授权",bookkeepingStats,action={
+                if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),104)
+                else startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))
+            })))
+        val detail=card(body,"提醒规则")
+        add(detail,label("到期前30、7、3天及当天在通知栏提醒。记录续保或完成保养后，根据新周期更新提醒。",13f,ink),10)
+        add(detail,label("年审按车辆注册资料估计，并可用实际检验有效期校准。后台送达时间受系统通知与省电设置影响。",12f,muted),8)
+    }
+
+    private fun renderIncomeDialog() {
+        showingAccountingIncome=true
+        showTab(2)
+    }
+
+    private fun renderNextMaintenance(body: LinearLayout) {
+        val now = LocalDate.now()
+        val km = if (state.odometerDisplayEnabled) currentMileageEstimate().distanceM / 1000.0 else null
+        val states = calculateMaintenanceDueStates(expenseRecords, km, now).filter { it.kind in vehicleMaintenanceKinds() }.filter { it.kind != MaintenanceServiceKind.TIRE_REPLACEMENT }
+        val distance = states.filter { it.kmRemaining != null }.minByOrNull { it.kmRemaining!! }
+        val time = states.filter { it.daysRemaining != null }.minByOrNull { it.daysRemaining!! }
+        val overdue = (distance?.kmRemaining ?: 1.0) < 0 || (time?.daysRemaining ?: 1) < 0
+        val soon = (distance?.kmRemaining ?: Double.MAX_VALUE) <= 1000 || (time?.daysRemaining ?: Long.MAX_VALUE) <= 30
+        val color = if (overdue) Color.rgb(198,48,75) else if (soon) Color.rgb(224,132,38) else bookkeepingMaintenance
+        val panel = column().apply {
+            setPadding(dp(20),dp(20),dp(20),dp(20)); background = rounded(soften(color),22)
+        }
+        add(panel, label("距离下次保养", 14f, ink, true))
+        val distanceText = distance?.kmRemaining?.let { if (it < 0) fmt("已超出 %.0f km", -it) else fmt("还剩 %.0f km", it) } ?: "里程待补充"
+        val timeText = time?.dueDate?.let { date ->
+            val days = ChronoUnit.DAYS.between(now, date)
+            val months = if (days >= 0) ChronoUnit.MONTHS.between(now, date) else ChronoUnit.MONTHS.between(date, now)
+            if (days == 0L) "今天到期" else (if (days < 0) "已超期 " else "还剩 ") +
+                if (months > 0) "$months 个月" else "${kotlin.math.abs(days)} 天"
+        } ?: "时间待补充"
+        add(panel, label(distanceText, 29f, color, true), 10)
+        add(panel, label("/  $timeText", 25f, color, true), 3)
+        add(panel, label("里程或时间，以先到者为准", 12f, muted), 8)
+        distance?.let { add(panel, label("里程最近：${it.kind.title} · 预计 ${fmt("%.0f km", it.dueOdometerKm ?: 0.0)}", 11f, muted), 6) }
+        time?.let { add(panel, label("时间最近：${it.kind.title} · ${it.dueDate}", 11f, muted), 4) }
+        if (time == null) add(panel, label("记录实际保养日期后可计算剩余时间", 11f, muted), 5)
+        add(body, panel, 16)
+    }
+
+    private fun editLedgerRecord(existing: ExpenseRecord?, section: String, income: Boolean = existing?.income ?: false, template: ExpenseRecord? = null) {
+        if(existing?.isAssetEvent==true) { viewAssetEvent(existing); return }
+        val form = column().apply { setPadding(dp(22), dp(8), dp(22), dp(8)) }
+        var fieldParent = form
+        fun field(title: String, value: String, decimal: Boolean = false): EditText {
+            add(fieldParent, label(title, 12f, muted, true), 10)
+            return EditText(this).apply {
+                if (decimal) inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setText(value); fieldParent.addView(this, LinearLayout.LayoutParams(-1, -2))
+            }.refineDialogField()
+        }
+        var date = existing?.dateEpochDay?.let(LocalDate::ofEpochDay) ?: LocalDate.now()
+        var onAccountingDateChanged: ((LocalDate) -> Unit)? = null
+        val dateButton = button(date.toString()) {}
+        add(form, label("记账日期", 12f, muted, true)); add(form, dateButton, 4)
+        dateButton.setOnClickListener { DatePickerDialog(this, { _, y, m, d -> date = LocalDate.of(y,m+1,d); dateButton.text = date.toString(); onAccountingDateChanged?.invoke(date) }, date.year,date.monthValue-1,date.dayOfMonth).show() }
+        val refinedDailyExpense = refinedAccounting && !income && section == "daily"
+        val kinds = when {
+            income -> listOf("他人付款", "报销", "补贴", "保险赔付", "配件出售", "其他收入")
+            refinedDailyExpense -> listOf("停车", "通行", "车辆洗护", "违章", "其他")
+            else -> listOf("停车", "通行", "车辆洗护", "违章", "其他", "保险", "年审", "证件手续", "配件用品")
+        }
+        val initialTitle = existing?.title ?: when(section) { "insurance" -> "保险"; "inspection" -> "年审"; "paperwork" -> "证件手续"; "asset" -> "配件用品"; else -> kinds.first() }
+        val assetRegistration = refinedAccounting && !income && section == "asset"
+        val lockedCategory = !income && (section in fixedKinds.keys || section == "asset")
+        val options = if (lockedCategory) listOf(initialTitle) else if (initialTitle in kinds) kinds else kinds + initialTitle
+        add(form, label(if (income) "收入分类" else "支出分类", 12f, muted, true), 10)
+        val spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_item, options).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            isEnabled = !lockedCategory
+            setSelection(options.indexOf(initialTitle).coerceAtLeast(0)); form.addView(this, LinearLayout.LayoutParams(-1, dp(52)))
+        }
+        val amount = field("金额（元，可填 0）", existing?.let { fmt("%.2f", it.amount) }.orEmpty(), true)
+        val note = field("备注（可选）", existing?.note.orEmpty())
+        val more = column().apply { visibility = if (refinedAccounting || section in setOf("insurance", "inspection")) View.VISIBLE else View.GONE }
+        if (!income && !refinedDailyExpense && !assetRegistration) add(form, button("更多信息 · 名称、门店与到期日期") { more.visibility = if (more.visibility == View.VISIBLE) View.GONE else View.VISIBLE }, 10)
+        if (!income && !refinedDailyExpense && !assetRegistration) add(form, more, 4)
+        fieldParent = if(assetRegistration) form else more
+        val name = field(if(assetRegistration) "资产名称" else "项目名称 / 险种 / 配件名称（可选）", existing?.itemName ?: template?.itemName.orEmpty())
+        fieldParent = more
+        val inspection = initialTitle == "年审"
+        val insurance = initialTitle == "保险"
+        val dynamicInsurance = !income && !lockedCategory && !refinedDailyExpense
+        val insuranceFields=column().apply { visibility=if(insurance) View.VISIBLE else View.GONE }
+        add(more,insuranceFields,0)
+        if (insurance || dynamicInsurance) {
+            add(insuranceFields, label("默认从投保 / 保障开始日期计算一年期终止日；提前续保预填上一保单到期次日，已过期时从本次日期预填。付款日期与实际起保日期可分别修改，交强险、商业险独立追踪。", 11f, muted), 3)
+            add(insuranceFields, label("交强险应及时续保，未投保不得上路；商业险按合同约定。App提前提醒不代表法定宽限期，短期保单也应按实际日期填写。", 11f, muted), 4)
+            add(insuranceFields, button("交强险") { name.setText("交强险") }, 4)
+            add(insuranceFields, button("商业险") { name.setText("商业险") }, 4)
+        }
+        val party = field("门店 / 保险公司 / 收付款对象（可选）", existing?.party ?: template?.party.orEmpty())
+        val registration = state.vehicleRegistration()
+        if (inspection && registration != null) add(more, label("注册资料已从车辆信息读取；当前年检以车辆信息中的有效期追踪。办结后请在车辆信息更新，费用记录单独保存。", 11f, muted), 5)
+        var linkedToPayment = insurance && existing == null && (template?.dueEpochDay ?: Long.MIN_VALUE) < date.toEpochDay()
+        var autoInsuranceEnd = insurance && (existing == null || existing.dueEpochDay == null ||
+            (existing.startEpochDay != null && existing.dueEpochDay == annualInsuranceEnd(LocalDate.ofEpochDay(existing.startEpochDay)).toEpochDay()))
+        var start = existing?.startEpochDay ?: when {
+            insurance && existing == null -> insuranceRenewalStart(date, template?.dueEpochDay?.let(LocalDate::ofEpochDay)).toEpochDay()
+            inspection && registration != null -> registration.registeredDay
+            inspection && template?.itemName == PRIVATE_INSPECTION -> template.startEpochDay
+            else -> null
+        }
+        var due = existing?.dueEpochDay ?: when {
+            insurance && start != null -> annualInsuranceEnd(LocalDate.ofEpochDay(start!!)).toEpochDay()
+            inspection && registration != null -> registration.inspectionDueDay
+            else -> null
+        }
+        fun optionalDate(title: String, initial: Long?, update: (Long?) -> Unit): Button {
+            add(insuranceFields, label(title, 12f, muted, true), 10)
+            val pick = button(initial?.let { LocalDate.ofEpochDay(it).toString() } ?: "未设置") {}
+            var value = initial
+            pick.setOnClickListener {
+                val current = runCatching { LocalDate.parse(pick.text.toString()) }.getOrNull() ?: date
+                DatePickerDialog(this, { _, y, m, d -> value = LocalDate.of(y,m+1,d).toEpochDay(); update(value); pick.text = LocalDate.ofEpochDay(value!!).toString() }, current.year,current.monthValue-1,current.dayOfMonth).show()
+            }
+            add(insuranceFields,pick,4)
+            add(insuranceFields,button("清除日期") { value = null; update(null); pick.text = "未设置" },2)
+            return pick
+        }
+        if (insurance || dynamicInsurance) {
+            var duePicker: Button? = null
+            val startPick = optionalDate(if (inspection) "初次注册日期（从车辆信息读取，可核对）" else "投保 / 保障开始日期（提前续保填实际生效日）", start) {
+                start = it; linkedToPayment = false
+                if (autoInsuranceEnd) {
+                    due = it?.let { day -> annualInsuranceEnd(LocalDate.ofEpochDay(day)).toEpochDay() }
+                    duePicker?.text = due?.let { day -> LocalDate.ofEpochDay(day).toString() } ?: "未设置"
+                }
+            }
+            val duePick = optionalDate(if (inspection) "交管12123检验有效期止（选该月任一天，按月末追踪）" else "本保单保障终止日期（自动预填，可按保单修改）", due) {
+                due = it; autoInsuranceEnd = false
+            }
+            duePicker = duePick
+            if (insurance || dynamicInsurance) {
+                add(insuranceFields, button("按开始日期自动计算一年期终止日") {
+                    start = start ?: date.toEpochDay(); autoInsuranceEnd = true
+                    due = annualInsuranceEnd(LocalDate.ofEpochDay(start!!)).toEpochDay()
+                    startPick.text = LocalDate.ofEpochDay(start!!).toString(); duePick.text = LocalDate.ofEpochDay(due!!).toString()
+                }, 4)
+                add(insuranceFields, label("终止日默认按开始日加1个日历年再减1天；短期、特殊保单请直接修改终止日期，具体起止时刻以保单为准。", 11f, muted), 5)
+                onAccountingDateChanged = { payment ->
+                    if (linkedToPayment && options[spinner.selectedItemPosition]=="保险") {
+                        val begin = insuranceRenewalStart(payment, template?.dueEpochDay?.let(LocalDate::ofEpochDay))
+                        start = begin.toEpochDay(); startPick.text = begin.toString()
+                        if (autoInsuranceEnd) { due = annualInsuranceEnd(begin).toEpochDay(); duePick.text = LocalDate.ofEpochDay(due!!).toString() }
+                    }
+                }
+            }
+            if (inspection) {
+                add(insuranceFields, label("第2/4/8年免上线领标，第6/10年上线，10年后每年上线。有效期优先；逾期不会自动跳至下一周期。办理窗口包含到期当月共3个月，领标仍需有效交强险及车船税凭证。", 11f, muted), 6)
+                if (template?.dueEpochDay != null) add(insuranceFields, button("按已办结周期填入下次日期参考值") {
+                    val registered = start?.let(LocalDate::ofEpochDay)
+                    val next = if (name.text.toString() == PRIVATE_INSPECTION && registered != null)
+                        nextInspectionDue(registered, LocalDate.ofEpochDay(template.dueEpochDay)) else null
+                    if (next == null) toast("先确认适用常规规则并填写初次注册日期；特殊周期请手填")
+                    else { due = next.toEpochDay(); duePick.text = next.toString() }
+                }, 4)
+                add(insuranceFields, label("记录费用不等于已完成年检；请在办结后核对并更新交管12123显示的新有效期。", 11f, muted), 6)
+            }
+            if(dynamicInsurance) {
+                fun refreshInsuranceFields() {
+                    val selected=options[spinner.selectedItemPosition]=="保险"
+                    insuranceFields.visibility=if(selected) View.VISIBLE else View.GONE
+                    if(selected) {
+                        more.visibility=View.VISIBLE
+                        if(start==null) {
+                            start=date.toEpochDay(); due=annualInsuranceEnd(date).toEpochDay()
+                            autoInsuranceEnd=true; linkedToPayment=true
+                        }
+                        startPick.text=start?.let { LocalDate.ofEpochDay(it).toString() } ?: "未设置"
+                        duePick.text=due?.let { LocalDate.ofEpochDay(it).toString() } ?: "未设置"
+                    } else {
+                        start=existing?.startEpochDay; due=existing?.dueEpochDay
+                        autoInsuranceEnd=false; linkedToPayment=false
+                    }
+                }
+                spinner.onItemSelectedListener=object: android.widget.AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: android.widget.AdapterView<*>?,view: View?,position: Int,id: Long) { refreshInsuranceFields() }
+                    override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                }
+                refreshInsuranceFields()
+            }
+        }
+        val dialog = AlertDialog.Builder(this).setTitle((if (existing == null) "记录" else "编辑") + if (income) "收入" else "支出")
+            .setView(ScrollView(this).apply { addView(form) }).setNegativeButton("取消",null).setPositiveButton("保存",null)
+            .apply { if(existing != null) setNeutralButton("删除",null) }.create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if(assetRegistration && name.text.toString().isBlank()) { name.error="请填写资产名称"; return@setOnClickListener }
+                val paid = amount.text.toString().replace(',','.').toDoubleOrNull()
+                if(paid == null || !paid.isFinite() || paid < 0 || paid > 1e12) { amount.error = "请填写有效金额"; return@setOnClickListener }
+                if(start != null && due != null && due!! < start!!) { toast("到期日期不能早于开始日期"); return@setOnClickListener }
+                val title = options[spinner.selectedItemPosition]
+                val kind = if(income) "income" else when(title) { "保险" -> "insurance"; "年审" -> "inspection"; "证件手续" -> "paperwork"; "配件用品", "车辆配件" -> "asset"; else -> "daily" }
+                if (kind == "insurance" && !insurance && !dynamicInsurance && existing == null) {
+                    start = start ?: date.toEpochDay()
+                    due = due ?: annualInsuranceEnd(LocalDate.ofEpochDay(start!!)).toEpochDay()
+                }
+                if (start != null && due != null && due!! < start!!) { toast("终止日期不能早于开始日期"); return@setOnClickListener }
+                if (listOfNotNull(start,due).any { it !in -36525L..47482L }) { toast("日期需在1900至2099年范围内"); return@setOnClickListener }
+                if (kind == "insurance" && name.text.toString().isBlank() && existing == null) { name.error = "请选择交强险、商业险或填写其他险种"; more.visibility = View.VISIBLE; return@setOnClickListener }
+                if (kind == "inspection" && name.text.toString() == PRIVATE_INSPECTION && start == null) { toast("请填写行驶证初次注册日期"); return@setOnClickListener }
+                if (kind == "inspection" && start != null && start!! > LocalDate.now().toEpochDay()) { toast("初次注册日期不能在未来"); return@setOnClickListener }
+                if (kind == "inspection") due = due?.let { YearMonth.from(LocalDate.ofEpochDay(it)).atEndOfMonth().toEpochDay() }
+                val base = existing ?: ExpenseRecord(deviceId=template?.deviceId ?: expenseDeviceId(),dateEpochDay=date.toEpochDay(),category=ExpenseCategory.DAILY,amount=0.0,title=title)
+                saveExpenseRecord(base.copy(dateEpochDay=date.toEpochDay(),amount=paid,title=title,note=note.text.toString(),ledgerKind=kind,income=income,
+                    dueEpochDay=due,startEpochDay=start,party=party.text.toString(),itemName=name.text.toString()))
+                dialog.dismiss()
+            }
+            if(existing != null) dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                AlertDialog.Builder(this).setTitle("删除这条记录？").setMessage("两个记账模式中都会删除；到期跟踪会按剩余历史重新计算。")
+                    .setNegativeButton("取消",null).setPositiveButton("删除") { _,_ -> deleteExpenseRecord(existing); dialog.dismiss() }.show()
+            }
+        }
+        dialog.show()
+    }
+
     private fun saveExpenseRecord(record: ExpenseRecord) {
         io.execute {
             val ok = try { expenseDatabase.save(record) != -1L } catch (_: RuntimeException) { false }
@@ -3043,6 +3727,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (!isDestroyed && result != null) {
                     expenseRecords = result; expenseLoaded = true
+                    LedgerReminderJob.refresh(this)
                     if (tab == 2) showTab(2)
                 } else if (!isDestroyed) toast("保存失败，请重试")
             }
@@ -3050,12 +3735,17 @@ class MainActivity : Activity() {
     }
 
     private fun deleteExpenseRecord(record: ExpenseRecord) {
+        if(record.isAssetCancellation) { viewAssetEvent(record); return }
+        if(record.isAsset && assetHistoryRecords.any { it.isAssetExit && it.assetRef==record.transferId }) {
+            toast("请先撤销并删除处置记录，再删除登记"); return
+        }
         io.execute {
             val ok = try { expenseDatabase.delete(record.deviceId, record.id) } catch (_: RuntimeException) { false }
             val result = if (ok) try { expenseDatabase.allForVehicle(state.dataDeviceId) } catch (_: RuntimeException) { null } else null
             runOnUiThread {
                 if (!isDestroyed && result != null) {
                     expenseRecords = result; expenseLoaded = true
+                    LedgerReminderJob.refresh(this)
                     if (tab == 2) showTab(2)
                 } else if (!isDestroyed) toast("删除失败，请重试")
             }
@@ -3072,6 +3762,7 @@ class MainActivity : Activity() {
                 expenseLoading = false
                 if (!isDestroyed && result != null) {
                     expenseRecords = result; expenseLoaded = true
+                    LedgerReminderJob.refresh(this)
                     if (tab == 2) showTab(2)
                 }
             }
@@ -3516,6 +4207,8 @@ class MainActivity : Activity() {
     }
 
     private fun renderAppSettingsOverview(body: LinearLayout) {
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
+            "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val appDetail = when {
             appUpdateChecking -> "正在检查最新版本…"
             appUpdateCheckError != null -> appUpdateCheckError!!
@@ -3644,6 +4337,8 @@ class MainActivity : Activity() {
 
     private fun settingsLegacy() {
         val body = page("设置", "连接、显示与仪表功能")
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
+            "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val style = card(body, "设置页样式")
         add(style, label("当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。",
             12f, muted), 8)
@@ -4245,6 +4940,19 @@ class MainActivity : Activity() {
             vehicle3DSettingsSwitch(),
         ))
 
+        val registration = state.vehicleRegistration()
+        val registrationCard = card(body, "车辆注册登记与年检")
+        settingsReadOnlyRow(registrationCard, "初次注册日期", registration?.registeredDay?.let { LocalDate.ofEpochDay(it).toString() } ?: "未填写")
+        settingsReadOnlyRow(registrationCard, "检验有效期止", registration?.inspectionDueDay?.let { LocalDate.ofEpochDay(it).toString() } ?: "待计算 / 核对")
+        if (registration != null) {
+            val plan = deadlineTracks(emptyList(), LocalDate.now(), mapOf(expenseDeviceId() to registration)).single()
+            add(registrationCard, label(plan.status, 20f, bookkeepingFuel, true), 8)
+            add(registrationCard, label(plan.detail, 11f, muted), 6)
+            add(registrationCard, button("本次已办结 · 计算下一有效期") { editVehicleRegistration(completed = true) }, 8)
+        }
+        add(registrationCard, button(if (registration == null) "填写车辆注册信息" else "编辑注册资料 / 校准有效期") { editVehicleRegistration() }, 8)
+        add(registrationCard, label("初次填写按注册日期计算预计周期，保存后保持该期到期日；办结后再推进。实际有效期可按交管12123校准。", 11f, muted), 6)
+
         val settings = state.gaugeSettings()
         val model = card(body, "车型设置")
         editableVehicleModel(model, settings?.vehicleProfile)
@@ -4323,6 +5031,86 @@ class MainActivity : Activity() {
         }
         add(range, label("设置直接在本页完成，不再跳转到经典设置。",
             11f, muted), 10)
+    }
+    private fun editVehicleRegistration(completed: Boolean = false) {
+        val device = expenseDeviceId()
+        val previous = state.vehicleRegistration(device)
+        var registered = previous?.registeredDay?.let(LocalDate::ofEpochDay)
+        var regular = previous?.regularPrivateCar ?: true
+        var estimated = previous?.estimated ?: true
+        var due = previous?.inspectionDueDay?.let(LocalDate::ofEpochDay)
+        if (completed) {
+            due = if (regular && registered != null && due != null) nextInspectionDue(registered!!, due!!) else null
+            estimated = true
+        }
+        val form = column().apply { setPadding(dp(20), dp(8), dp(20), dp(8)) }
+        add(form, label("中国大陆车辆资料。初次注册日期取自行驶证，车龄从该日期起算。", 12f, muted))
+        val registrationPick = button(registered?.toString() ?: "选择初次注册日期") {}
+        add(form, label("初次注册日期", 12f, muted, true), 12); add(form, registrationPick, 4)
+        val regularSwitch = CheckBox(this).apply {
+            text = "适用常规私家车规则"; isChecked = regular
+            textSize = 14f; buttonTintList = android.content.res.ColorStateList.valueOf(bookkeepingFuel)
+        }
+        add(form, regularSwitch, 10)
+        add(form, label("9座及以下非营运小微型客车，面包车除外；有人员伤亡事故、非法改装处罚等特殊情形时取消勾选，按交管实际有效期填写。", 11f, muted), 4)
+        val duePick = button(due?.toString() ?: "待计算 / 选择实际有效期") {}
+        add(form, label(if (completed) "办结后的下一检验有效期止" else "检验有效期止", 12f, muted, true), 12)
+        add(form, duePick, 4)
+        val explanation = label("", 11f, muted)
+        add(form, explanation, 7)
+        fun renderDraft() {
+            registrationPick.text = registered?.toString() ?: "选择初次注册日期"
+            duePick.text = due?.toString() ?: "待计算 / 选择实际有效期"
+            explanation.text = (if (estimated) "按规则预计，需核对12123。" else "已按实际有效期校准。") +
+                (if (!completed) "初次估算假定往期均已办结；可手动改为实际有效期，之后不会按今天日期自动跳期。" else "仅在本次已办结后保存；请核对新有效期。") +
+                due?.let { "\n${inspectionAction(registered, it, regular)}\n办理窗口 ${inspectionWindow(it)} 至 $it" }.orEmpty()
+        }
+        fun calculateInitial() {
+            due = if (regular && registered != null) initialInspectionDue(registered!!, LocalDate.now()) else null
+            estimated = true; renderDraft()
+        }
+        registrationPick.setOnClickListener {
+            val value = registered ?: LocalDate.now()
+            DatePickerDialog(this, { _, y, m, d ->
+                registered = LocalDate.of(y,m+1,d)
+                if (estimated && !completed) calculateInitial() else renderDraft()
+            },value.year,value.monthValue-1,value.dayOfMonth).show()
+        }
+        regularSwitch.setOnCheckedChangeListener { _, checked ->
+            regular = checked
+            if (estimated) {
+                if (!completed) calculateInitial() else { due = null; renderDraft() }
+            } else renderDraft()
+        }
+        duePick.setOnClickListener {
+            val value = due ?: LocalDate.now()
+            DatePickerDialog(this, { _, y, m, _ ->
+                due = YearMonth.of(y,m+1).atEndOfMonth(); estimated = false; renderDraft()
+            },value.year,value.monthValue-1,value.dayOfMonth).show()
+        }
+        if (!completed) add(form, button("按注册日期自动计算预计有效期") {
+            if (registered == null) toast("先填写初次注册日期")
+            else if (!regular) toast("特殊车辆请直接选择交管12123实际有效期") else calculateInitial()
+        }, 8)
+        add(form, label("第2/4/8年免上线领标，第6/10年上线，10年后每年上线。年检费用可另在记账录入，不影响这里的办结状态。", 11f, muted), 8)
+        renderDraft()
+        val dialog = AlertDialog.Builder(this).setTitle(if (completed) "本次已办结 · 更新年检周期" else "车辆注册登记信息")
+            .setView(ScrollView(this).apply { addView(form) }).setNegativeButton("取消",null).setPositiveButton("保存",null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val day = registered
+                if (day == null || day.isAfter(LocalDate.now()) || day.toEpochDay() < 0) { toast("请填写有效的初次注册日期"); return@setOnClickListener }
+                if (regular && due == null && !completed) due = initialInspectionDue(day, LocalDate.now())
+                if (completed && due == null) { toast("请填写办结后的实际有效期"); return@setOnClickListener }
+                if (due != null && (due!!.isBefore(day) || due!!.toEpochDay() > 47482)) { toast("请核对检验有效期"); return@setOnClickListener }
+                if (completed && previous?.inspectionDueDay != null && due!!.toEpochDay() <= previous.inspectionDueDay) { toast("办结后的有效期应晚于原有效期；纠错请使用编辑资料"); return@setOnClickListener }
+                state.saveVehicleRegistration(VehicleRegistration(day.toEpochDay(),regular,due?.toEpochDay(),estimated),device)
+                LedgerReminderJob.refresh(this)
+                dialog.dismiss()
+                if (showingVehicleSettings) vehicleSettingsPage() else if (tab == 2) showTab(2)
+            }
+        }
+        dialog.show()
     }
     private fun showVehicleDisplayNameDialog() {
         val entry = EditText(this).apply {
@@ -4737,7 +5525,7 @@ class MainActivity : Activity() {
             })
             vehicleSettingsPage()
         }, 5)
-        add(parent, label("切换后首页车辆图立即变化。ZC6 使用与 ZD8 相同的单路 OBD/PID 采集结构，并保留 FA20 专用机油温度请求；车型命令不会打断正在进行的授时、行程或车辆数据同步。", 11f, muted), 5)
+        add(parent, label("自动挡需固件 4.1.0 或更新版本；关闭挡位显示，基础数据和油耗待实车验证。自动变速箱油按对应年款手册维护，不套用手动挡周期。切换后首页车辆图立即变化。ZC6 使用与 ZD8 相同的单路 OBD/PID 采集结构，并保留 FA20 专用机油温度请求；车型命令不会打断正在进行的授时、行程或车辆数据同步。", 11f, muted), 5)
     }
     private fun frozenChoice(parent: LinearLayout, name: String, choices: List<String>, selected: Int?) {
         val value = when {
@@ -4871,6 +5659,7 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
+        if (code == 104) { LedgerReminderJob.refresh(this); if (showingLedgerNotifications) ledgerNotificationSettings() else if (tab == 2) showTab(2); return }
         if (code == 103) {
             val wifiPermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES
                 else Manifest.permission.ACCESS_FINE_LOCATION

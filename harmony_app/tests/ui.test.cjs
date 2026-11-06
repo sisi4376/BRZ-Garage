@@ -2,6 +2,20 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.join(__dirname,'../test-output');
 const U=require(root+'/core/Ui'),P=require(root+'/core/AndroidPresentation');
+test('production calendar selection refreshes its detail and clears only when its date disappears',()=>{
+ const ts=require((process.env.DEVECO_HOME||'C:/Program Files/Huawei/DevEco Studio')+'/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
+ let source=fs.readFileSync(path.join(__dirname,'../entry/src/main/ets/components/CalendarHeatmap.ets'),'utf8').split('  build(){')[0]+'\n}';
+ source=source.replace('@Component','').replace('export struct CalendarHeatmap','export class CalendarHeatmap')
+  .replace(/@Prop @Watch\('refreshWeeks'\)/g,'').replace(/@State /g,'');
+ const exports={};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,
+  {exports,require:id=>id.endsWith('Ui')?U:P,CanvasRenderingContext2D:class{width=0;},RenderingContextSettings:class{}});
+ const calendar=new exports.CalendarHeatmap(),messages=[];
+ calendar.selected='2026-10-20';calendar.onSelect=value=>messages.push(value);
+ calendar.weeks=[{cells:[{date:'2026-10-20',detail:'1 次 · 1.0 km'}]}];calendar.refreshWeeks();
+ calendar.weeks=[{cells:[{date:'2026-10-20',detail:'1 次 · 2.5 km'}]}];calendar.refreshWeeks();
+ assert.equal(calendar.selected,'2026-10-20');assert.deepEqual(messages,['1 次 · 1.0 km','1 次 · 2.5 km']);
+ calendar.weeks=[];calendar.refreshWeeks();assert.equal(calendar.selected,'');assert.equal(messages.at(-1),'点击日期方格查看当天统计');
+});
 test('small accent text and filled controls remain readable on every shared light surface',()=>{
  for(const color of [...P.COLORS,...P.DAILY_COLORS,'#E08426','#2B8B6F','#7E8694']){
   for(const surface of ['#FFFFFF','#F7F8FB','#E8EBF1',P.soften(color)])assert.ok(U.contrast(U.readable(color),surface)>=4.5,color+' on '+surface);

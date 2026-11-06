@@ -79,7 +79,8 @@ enum class MaintenanceServiceKind(
         "发动机冷却液", "更换", 100_000, 60,
         firstIntervalKm = 220_000, firstIntervalMonths = 132,
         aliases = arrayOf("发动机冷却液", "冷却液", "防冻液"),
-    );
+    ),
+    AUTOMATIC_TRANSMISSION_OIL("自动变速箱油", "更换", null, null);
 
     fun intervalLabel(): String {
         if (intervalKm == null && intervalMonths == null) return "按实际情况更换，不设固定周期"

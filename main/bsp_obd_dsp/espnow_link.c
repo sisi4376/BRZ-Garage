@@ -137,6 +137,7 @@ static void master_pack(espnow_obd_packet_t *p) {
     p->flags   = (elm327_ble_is_connected() ? 0x01 : 0x00) | (s_linktest_active ? 0x02 : 0x00);
     if (vehicle_profile_is_zc6_pid(vehicle_profile_get_active())) p->flags |= ESPNOW_FLAG_ZC6_PID;
     if (elm327_ble_has_valid_data()) p->flags |= ESPNOW_FLAG_OBD_DATA_VALID;
+    if (vehicle_profile_is_automatic(vehicle_profile_get_active())) p->flags |= ESPNOW_FLAG_AUTOMATIC;
     p->seq     = ++s_tx_seq;
     obd_data_get_snapshot(&snap);
     p->rpm              = snap.rpm;
@@ -541,3 +542,5 @@ void espnow_link_stop(void) {
     s_is_master = false;
     ESP_LOGI(TAG, "ESP-NOW stopped");
 }
+
+bool espnow_link_slave_is_automatic(void) { return (s_rx_obd_flags & ESPNOW_FLAG_AUTOMATIC) != 0; }

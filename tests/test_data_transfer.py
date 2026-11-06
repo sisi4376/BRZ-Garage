@@ -32,10 +32,10 @@ class DataTransferTest(unittest.TestCase):
         cp = os.pathsep.join(str(p) for p in jars + runtime)
         sources = ROOT / 'android_app/app/src/main/java/com/brz/gauge/trips'
         names = ['TransferSchema', 'TransferMerge', 'TransferArchive', 'TransferMigrations', 'TransferStore',
-                 'TripDatabase', 'TripRecord', 'FuelDatabase', 'FuelRecord', 'ExpenseDatabase', 'ExpenseRecord', 'MaintenanceSchedule',
+                 'TripDatabase', 'TripRecord', 'FuelDatabase', 'FuelRecord', 'ExpenseDatabase', 'ExpenseRecord', 'MaintenanceSchedule', 'LedgerReminders',
                  'CustomTripDatabase', 'CustomTripInterval', 'RefuelIntervalDatabase', 'RefuelInterval',
-                 'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState',
-                 'MileageEstimator', 'RangeEstimator', 'VehicleDisplayName', 'LicensePlateGenerator']
+                 'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState', 'CurrentDriving',
+                 'MileageEstimator', 'RangeEstimator', 'VehicleDisplayName', 'LicensePlateGenerator', 'DeadlineTracking', 'VehicleRegistration']
         with tempfile.TemporaryDirectory(prefix='brz-transfer-') as temp:
             harness = Path(temp) / 'RefuelServiceHarness.kt'
             write_harness(ROOT, harness)
@@ -45,6 +45,8 @@ class DataTransferTest(unittest.TestCase):
                 *map(str, (ROOT / 'tests/transfer_host_stubs').glob('*.kt')),
                 str(ROOT / 'tests/data_transfer_host_test.kt'),
                 str(ROOT / 'tests/custom_trip_host_test.kt'),
+                str(ROOT / 'tests/current_driving_host_test.kt'),
+                str(ROOT / 'tests/deadline_tracking_host_test.kt'),
                 str(harness), str(ROOT / 'tests/refuel_service_host_test.kt'),
                 str(ROOT / 'tests/refuel_history_host_test.kt')], capture_output=True, text=True, encoding='utf-8', errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

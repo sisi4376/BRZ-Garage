@@ -1,3 +1,6 @@
+import { monthEnd } from './Registration';
+import { assetEvent } from './Models';
+import { LEDGER_DEFAULTS } from './Transfer';
 import { Row, Snapshot } from './Models';
 import { need, numeric, parseDay, dayText, today, upsert, reviseTrip, splitTrip } from './Garage';
 export interface Field { key: string; label: string; value: string; }
@@ -14,6 +17,8 @@ export function fields(table: string, row: Row | null): Field[] {
     add('category', '类别（1 保养 / 2 日常）', String(r.category ?? 2)); add('title', '项目名称（保养可填 更换发动机油 等）', String(r.title ?? ''));
     add('amount', '金额 元', String(r.amount ?? '')); add('odometer', '里程 km（可留空）', r.odometer_km === null ? '' : String(r.odometer_km ?? ''));
     add('maintenance', '保养分类（1 A保 / 2 B保 / 3 轮胎 / 4 维修；可空）', r.maintenance_type === null ? '' : String(r.maintenance_type ?? '')); add('note', '备注', String(r.note ?? ''));
+    ['ledger_kind','income','party','item_name','asset_ref'].forEach((key: string) => add(key,key,String(r[key] ?? (key === 'income' ? 0 : ''))));
+    ['start_epoch_day','due_epoch_day'].forEach((key: string) => add(key,key,r[key] == null ? '' : dayText(Number(r[key]))));
   } else {
     if (table === 'custom') add('name', '自定义区间名称', String(r.name ?? ''));
     if (table === 'trips' || table === 'custom') { add('start', '开始时间 YYYY-MM-DDTHH:mm:ss', localTime(Number(r.start_epoch_s || Date.now() / 1000))); add('end', '结束时间 YYYY-MM-DDTHH:mm:ss', localTime(Number(r.end_epoch_s || Date.now() / 1000))); }
@@ -37,6 +42,7 @@ export function fields(table: string, row: Row | null): Field[] {
   } return out;
 }
 export function applyEdit(s: Snapshot, table: string, old: Row | null, values: Field[], id: string, gauge: string, mode: string = 'all'): void {
+  need(!(table==='expenses' && old!==null && assetEvent(old)), '资产历史不可覆盖，请查看原记录或撤销并删除');
   const v: Record<string, string> = {}; values.forEach((f: Field) => v[f.key] = f.value.trim());
   const number = (key: string, label: string, max: number = 1e12): number => numeric(v[key], label, max);
   let row: Row;
@@ -48,9 +54,16 @@ export function applyEdit(s: Snapshot, table: string, old: Row | null, values: F
   } else if (table === 'expenses') {
     need(v.category === '1' || v.category === '2', '类别请填 1 或 2'); need(v.title.length > 0, '请输入项目名称');
     need(v.maintenance === '' || ['1', '2', '3', '4'].includes(v.maintenance), '保养分类请填 1 至 4');
-    row = { transfer_id: old?.transfer_id ?? id, device_id: old?.device_id ?? (gauge || 'local'), date_epoch_day: parseDay(v.date), category: Number(v.category),
+    row = { ...LEDGER_DEFAULTS, ...old, transfer_id: old?.transfer_id ?? id, device_id: old?.device_id ?? (gauge || 'local'), date_epoch_day: parseDay(v.date), category: Number(v.category),
       title: v.title, amount: number('amount', '金额'), odometer_km: v.odometer === '' ? null : number('odometer', '里程'), note: v.note,
       maintenance_type: v.category === '1' && v.maintenance !== '' ? Number(v.maintenance) : null };
+    ['ledger_kind','party','item_name','asset_ref'].forEach((key: string) => { if(v[key] !== undefined) row[key] = v[key]; });
+    if(v.income !== undefined) { need(['0','1'].includes(v.income),'收支类型无效'); row.income = Number(v.income); }
+    ['start_epoch_day','due_epoch_day'].forEach((key: string) => { if(v[key] !== undefined) row[key] = v[key] ? parseDay(v[key]) : null; });
+    need(row.start_epoch_day == null || row.due_epoch_day == null || Number(row.due_epoch_day) >= Number(row.start_epoch_day), '终止日期不能早于开始日期');
+    if(row.ledger_kind === 'inspection'){need(row.start_epoch_day==null||Number(row.start_epoch_day)<=parseDay(today()),'初次注册日期不能在未来');need(row.item_name!=='常规私家车检验'||row.start_epoch_day!=null,'请填写初次注册日期');if(row.due_epoch_day!=null)row.due_epoch_day=monthEnd(Number(row.due_epoch_day));}
+    if(row.ledger_kind === 'insurance' && !old) need(String(row.item_name).length > 0, '请填写险种');
+
   } else {
     const distance = Math.round(number('distance', '距离', 50000) * 1000), duration = number('duration', '时长', 31536000), fuel = Math.round(number('fuel', '耗油', 5000) * 1000);
     need(Number.isInteger(duration), '驾驶时长请填整数秒');
@@ -69,7 +82,7 @@ export function applyEdit(s: Snapshot, table: string, old: Row | null, values: F
       result.max_decel_x100 = decel === null ? null : Math.round(decel * 100); upsert(s, 'trips', result); return; }
     if (table === 'refuel') { need(old !== null, '未选择区间'); row = { ...old!, distance_m: distance, duration_s: duration, fuel_ml: fuel, data_revised: 1 }; }
     else { const start = epoch(v.start), end = epoch(v.end); need(end >= start && duration <= end - start, '起止时间或驾驶时长无效');
-      row = { transfer_id: old?.transfer_id ?? id, device_id: old?.device_id ?? gauge, name: Array.from(v.name).slice(0, 8).join(''), start_epoch_s: start, end_epoch_s: end, distance_m: distance, duration_s: duration, fuel_ml: fuel }; }
+      row = { ...old, transfer_id: old?.transfer_id ?? id, device_id: old?.device_id ?? gauge, name: Array.from(v.name).slice(0, 8).join(''), start_epoch_s: start, end_epoch_s: end, distance_m: distance, duration_s: duration, fuel_ml: fuel }; }
   }
   upsert(s, table, row);
 }

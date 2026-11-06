@@ -111,7 +111,7 @@ export async function decodeArchive(bytes: Uint8Array, runtime: ArchiveRuntime):
   }
   const manifest = JSON.parse(utf8Decode(contents.get('manifest.json')!)) as Record<string, unknown>;
   check(manifest !== null && typeof manifest === 'object' && manifest.format === FORMAT &&
-    (manifest.version === 1 || manifest.version === 2 || manifest.version === 3), '数据包版本不支持');
+    (manifest.version === 1 || manifest.version === 2 || manifest.version === 3 || manifest.version === 4 || manifest.version === 5 || manifest.version === 6), '数据包版本不支持');
   const payload = contents.get('data.json')!;
   check(manifest.bytes === payload.length && manifest.sha256 === await runtime.sha256(payload), '数据包 SHA-256 校验失败');
   check(typeof manifest.gauge === 'string' && typeof manifest.createdAt === 'number', '数据包清单无效');
@@ -119,7 +119,7 @@ export async function decodeArchive(bytes: Uint8Array, runtime: ArchiveRuntime):
 }
 export async function encodeArchive(snapshot: Snapshot, runtime: ArchiveRuntime): Promise<Uint8Array> {
   const data = utf8Encode(toJson(snapshot)); check(data.length <= MAX_DATA, '数据超过 32 MiB 上限');
-  const manifest = utf8Encode(JSON.stringify({ format: FORMAT, version: 3, appVersion: 'harmony-0.3.10',
+  const manifest = utf8Encode(JSON.stringify({ format: FORMAT, version: 6, appVersion: 'harmony-0.5.0',
     createdAt: snapshot.createdAt, gauge: snapshot.gauge, bytes: data.length, sha256: await runtime.sha256(data) }));
   const files = [{ name: 'manifest.json', data: manifest }, { name: 'data.json', data }];
   const total = files.reduce((sum, file) => sum + 30 + file.name.length + file.data.length + 46 + file.name.length, 22);

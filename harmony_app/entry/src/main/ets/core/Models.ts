@@ -50,3 +50,13 @@ export interface Vehicle {
   totalFuel: number; rpm: number | null; speed: number | null; average: number | null; currentStart: number;
   maxSpeed?: number | null; maxRpm?: number | null; maxAccel?: number | null; maxDecel?: number | null; fuelSequence?: number | null;
 }
+
+export function effectiveAssetRows(rows: Row[]): Row[] {
+  const cancelled=new Set(rows.filter((r: Row)=>r.ledger_kind==='asset_cancel').map((r: Row)=>r.asset_ref));
+  return rows.filter((r: Row)=>r.ledger_kind!=='asset_cancel'&&!cancelled.has(r.transfer_id));
+}
+export function assetEvent(row: Row): boolean {
+  if(['asset_sale','asset_retire','asset_cancel'].includes(String(row.ledger_kind)))return true;
+  if(row.income===1||row.category===1||row.ledger_kind==='repair')return false;
+  return row.ledger_kind?row.ledger_kind==='asset':row.title==='配件用品'||row.title==='车辆配件';
+}

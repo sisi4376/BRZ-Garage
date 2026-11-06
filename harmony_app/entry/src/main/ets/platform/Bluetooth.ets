@@ -23,6 +23,7 @@ export class Bluetooth implements GaugeTransport {
   private occupied: boolean = false;
   private background: boolean = false;
   isBusy(): boolean { return this.occupied; }
+  isConnected(): boolean { return this.client !== undefined && this.characteristics.length > 0; }
   cancelBackground(): void { if (this.background) this.close(); }
   async syncBackground(context: common.Context, address: string): Promise<void> {
     need(!this.occupied, '蓝牙正在使用'); this.occupied = true; this.background = true;

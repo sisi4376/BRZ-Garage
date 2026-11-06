@@ -1,12 +1,12 @@
 import { preciseDuration } from './Ui';
-import { Row, Snapshot } from './Models';
+import { Row, Snapshot, effectiveAssetRows } from './Models';
 import { dayText, today, fuelAnalysis, fuelAverage, sequence } from './Garage';
 export const INK = '#181D27', MUTED = '#6D7784', PAGE = '#F4F5F7';
 export const COLORS: string[] = ['#368FB5', '#DA466F', '#E1912F', '#565CA9'];
 export const DAILY: string[] = ['停车', '通行', '车辆洗护', '维修', '配件用品', '保险', '证件手续', '违章', '其他'];
 export const DAILY_COLORS: string[] = ['#426DBE','#2E8E77','#2391AA','#CA484E','#DE7A32','#8B58B0','#B85B66','#D34E37','#697382'];
 export interface Summary { distance: number; duration: number; fuel: number; count: number; days: number; }
-export interface MonthCost { label: string; fuel: number; maintenance: number; daily: number; total: number; }
+export interface MonthCost { label: string; fuel: number; maintenance: number; daily: number; total: number; assets?: number; income?: number; }
 export interface CalendarCell { date: string; month: string; color: string; detail: string; }
 export interface CalendarWeek { id: number; label: string; cells: CalendarCell[]; }
 export function soften(hex: string): string { const n = parseInt(hex.substring(1),16); return '#' + [n >> 16, n >> 8 & 255, n & 255].map((x: number) => Math.round(x * .12 + 255 * .88).toString(16).padStart(2,'0')).join(''); }
@@ -17,13 +17,13 @@ export function dateKey(d: Date): string { return d.getFullYear() + '-' + String
 export function tripOrder(a:Row,b:Row):number {
  return sequence(b)-sequence(a) || (Number(b.trip_id)<0?-Number(b.trip_id):0)-(Number(a.trip_id)<0?-Number(a.trip_id):0) || String(b.device_id).localeCompare(String(a.device_id));
 }
-export function vehicleRows(s: Snapshot, table: string, gauge: string): Row[] { return s.tables[table].filter((r: Row) => table === 'fuel' || !(gauge || s.gauge) || r.device_id === (gauge || s.gauge) || table === 'expenses' && r.device_id === 'local').slice().sort(table==='trips'?tripOrder:(a: Row,b: Row) => Number(b.date_epoch_day ?? b.end_epoch_s) - Number(a.date_epoch_day ?? a.end_epoch_s)); }
+export function vehicleRows(s: Snapshot, table: string, gauge: string): Row[] { return (table==='expenses'?effectiveAssetRows(s.tables[table]):s.tables[table]).filter((r: Row) => table === 'fuel' || !(gauge || s.gauge) || r.device_id === (gauge || s.gauge) || table === 'expenses' && r.device_id === 'local').slice().sort(table==='trips'?tripOrder:(a: Row,b: Row) => Number(b.date_epoch_day ?? b.end_epoch_s) - Number(a.date_epoch_day ?? a.end_epoch_s)); }
 export function summary(rows: Row[]): Summary { const dates: string[] = []; rows.forEach((r: Row) => { if (Number(r.flags)&1) { const d = dateKey(new Date(Number(r.start_epoch_s)*1000)); if (!dates.includes(d)) dates.push(d); } }); return { distance: sum(rows,'distance_m'), duration: sum(rows,'duration_s'), fuel: sum(rows,'fuel_ml'), count: rows.length, days: dates.length }; }
 export function sum(rows: Row[], key: string): number { return rows.reduce((v: number,r: Row) => v+Number(r[key] || 0),0); }
 export function inMonth(rows: Row[], month: string): Row[] { return rows.filter((r: Row) => dayText(Number(r.date_epoch_day)).startsWith(month)); }
 export function monthCosts(s: Snapshot, gauge: string, fill: boolean = false): MonthCost[] {
  const map: Record<string, MonthCost> = {};
- ['fuel','expenses'].forEach((table: string) => vehicleRows(s,table,gauge).forEach((r: Row) => { const month = dayText(Number(r.date_epoch_day)).substring(0,7); if (!map[month]) map[month] = { label: month, fuel:0, maintenance:0, daily:0, total:0 }; const amount=Number(r[table==='fuel'?'cost':'amount']); if(table==='fuel') map[month].fuel+=amount; else if(r.category===1) map[month].maintenance+=amount; else map[month].daily+=amount; map[month].total+=amount; }));
+ ['fuel','expenses'].forEach((table: string) => vehicleRows(s,table,gauge).forEach((r: Row) => { if(r.income===1)return; const month = dayText(Number(r.date_epoch_day)).substring(0,7); if (!map[month]) map[month] = { label: month, fuel:0, maintenance:0, daily:0, total:0 }; const amount=Number(r[table==='fuel'?'cost':'amount']); if(table==='fuel') map[month].fuel+=amount; else if(r.category===1) map[month].maintenance+=amount; else map[month].daily+=amount; map[month].total+=amount; }));
  const current=today().substring(0,7),keys=Object.keys(map).sort();
  const start=fill?new Date(new Date().getFullYear(),new Date().getMonth()-11,1,12):keys.length?new Date(keys[0]+'-01T12:00:00'):null;
  if(!start)return [];const last=fill?current:keys.length&&keys[keys.length-1]>current?keys[keys.length-1]:current;

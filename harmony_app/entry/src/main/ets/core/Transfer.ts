@@ -1,5 +1,6 @@
 import { Cell, Row, Snapshot, Preference, DeviceState, TABLES, emptySnapshot, cloneSnapshot, rowKey, rowEqual, tripFamily, MergeReport } from './Models';
 
+export const LEDGER_DEFAULTS: Row = { ledger_kind: '', income: 0, due_epoch_day: null, start_epoch_day: null, party: '', item_name: '', asset_ref: '' };
 export const FORMAT = 'brz-garage-transfer';
 export const MAX_DATA = 32 * 1024 * 1024;
 export const GAUGE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/;
@@ -30,7 +31,8 @@ export const SCHEMAS: Record<string, Record<string, Column>> = {
     cost: real, full_tank: bit, draft: bit },
   expenses: { transfer_id: text, device_id: text, date_epoch_day: integer(-36525, 47482),
     category: integer(1, 2), amount: real, title: text, note: text, odometer_km: optional(real),
-    maintenance_type: optional(integer(1, 4)) },
+    maintenance_type: optional(integer(1, 4)), ledger_kind: text, income: bit,
+    due_epoch_day: optional(integer(-36525, 47482)), start_epoch_day: optional(integer(-36525, 47482)), party: text, item_name: text, asset_ref: text },
   refuel: { ...interval, device_id: text, interval_id: n, odometer_x10_km: n, detected_added_ml: n, flags: n, data_revised: bit },
   custom: { ...interval, transfer_id: text, device_id: text, name: text },
   fuel_deleted: { transfer_id: text, deleted_at_s: n },
@@ -69,6 +71,7 @@ const DEVICE_GROUPS: string[][] = [
   ['gauge_settings','gauge_settings_at'],['firmware','firmware_at'],['time','time_at']
 ];
 export function preferenceType(key: string): string | null {
+  if (key.startsWith('vehicle_registration_') && (key.substring(21) === 'local' || GAUGE.test(key.substring(21)))) return 'string';
   if (Object.prototype.hasOwnProperty.call(globalPrefs, key)) return globalPrefs[key];
   const prefix = Object.keys(devicePrefs).find((p: string) => key.startsWith(p + '_') && GAUGE.test(key.substring(p.length + 1)));
   return prefix ? devicePrefs[prefix] : null;
@@ -120,6 +123,26 @@ function normalizeDevices(value: unknown): Record<string, DeviceState> {
   return devices;
 }
 export function validate(snapshot: Snapshot): void {
+  const rows=snapshot.tables.expenses || [];
+  const cancellations=rows.filter((row: Row)=>row.ledger_kind==='asset_cancel');
+  ensure(cancellations.every((row: Row)=>typeof row.asset_ref==='string'&&/^[0-9a-f]{32}$/.test(row.asset_ref)&&row.income===0&&row.amount===0),'资产撤销事件无效');
+  const indexed=new Map(rows.map((row: Row)=>[row.transfer_id,row]));
+  cancellations.forEach((event: Row)=>{
+    const target=indexed.get(event.asset_ref);
+    ensure(target!==undefined&&target.device_id===event.device_id&&target.ledger_kind!=='asset_cancel'&&
+      (['asset','asset_sale','asset_retire'].includes(String(target.ledger_kind))||['配件用品','车辆配件'].includes(String(target.title))),'撤销的原资产事件缺失或类型不匹配');
+  });
+  const cancelled=new Set(cancellations.map((row: Row)=>row.asset_ref));
+  const exits=rows.filter((row: Row)=>(row.ledger_kind==='asset_sale'||row.ledger_kind==='asset_retire')&&!cancelled.has(row.transfer_id));
+  exits.forEach((event: Row)=>{
+    const target=indexed.get(event.asset_ref);
+    ensure(target!==undefined&&!cancelled.has(target.transfer_id)&&target.device_id===event.device_id&&
+      (target.ledger_kind==='asset'||['配件用品','车辆配件'].includes(String(target.title))),'资产处置的有效登记缺失');
+  });
+  const references=exits.map((row: Row)=>row.asset_ref);
+  ensure(references.every((ref: Cell)=>typeof ref==='string'&&/^[0-9a-f]{32}$/.test(ref))&&new Set(references).size===references.length,'资产处置关联无效或存在重复处置');
+  exits.forEach((row: Row)=>ensure(row.income===(row.ledger_kind==='asset_sale'?1:0),'资产处置收支类型无效'));
+
   ensure(Number.isSafeInteger(snapshot.createdAt) && snapshot.createdAt > 0 && snapshot.createdAt <= 253402300799999, '导出时间无效');
   ensure(typeof snapshot.gauge === 'string' && (snapshot.gauge === '' || GAUGE.test(snapshot.gauge)), '仪表标识无效');
   ensure(keysEqual(object(snapshot.tables), TABLES), '数据表不完整或版本不支持');
@@ -180,7 +203,7 @@ export function validate(snapshot: Snapshot): void {
   });
 }
 export function fromJson(dataText: string, gauge: string, createdAt: number, version: number): Snapshot {
-  ensure(version === 1 || version === 2 || version === 3, '数据包版本不支持');
+  ensure(version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6, '数据包版本不支持');
   const data = object(JSON.parse(dataText));
   ensure(keysEqual(data, version >= 3 ? ['tables', 'preferences', 'devices'] : ['tables', 'preferences']), '数据内容不完整');
   const tables = object(data.tables);
@@ -189,10 +212,20 @@ export function fromJson(dataText: string, gauge: string, createdAt: number, ver
     ensure(Array.isArray(tables.expenses), '记账数据格式无效');
     (tables.expenses as unknown[]).forEach((value: unknown) => {
       const row = object(value);
-      ensure(keysEqual(row, Object.keys(SCHEMAS.expenses).filter((k: string) => k !== 'maintenance_type')), 'v1 记账字段无效');
+      ensure(keysEqual(row, Object.keys(SCHEMAS.expenses).filter((k: string) => k !== 'maintenance_type' && !(k in LEDGER_DEFAULTS))), 'v1 记账字段无效');
       row.maintenance_type = null;
     });
   }
+  if (version < 4) {
+    (tables.expenses as Row[]).forEach((row: Row) => {
+      ensure(keysEqual(row, Object.keys(SCHEMAS.expenses).filter((k: string) => !(k in LEDGER_DEFAULTS))), '旧版记账字段无效');
+      Object.keys(LEDGER_DEFAULTS).forEach((key: string) => { row[key] = LEDGER_DEFAULTS[key]; });
+    });
+  }
+  if(version === 4) (tables.expenses as Row[]).forEach((row: Row) => {
+    ensure(keysEqual(row,Object.keys(SCHEMAS.expenses).filter((key: string)=>key!=='asset_ref')), 'v4 记账字段无效');
+    row.asset_ref='';
+  });
   const snapshot: Snapshot = { tables: tables as Record<string, Row[]>, preferences: data.preferences as Record<string, Preference>,
     devices: version >= 3 ? normalizeDevices(data.devices) : {}, gauge, createdAt };
   validate(snapshot); return snapshot;

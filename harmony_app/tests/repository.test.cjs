@@ -36,6 +36,22 @@ test('legacy local metadata without later cache fields exports and backs up succ
  assert.equal((await A.decodeArchive(new Uint8Array(fs.readFileSync(repo.backupPath())),runtime)).gauge,gauge);
 });
 function trip(id=1){return {device_id:gauge,trip_id:id,start_epoch_s:1780000000,end_epoch_s:1780000060,duration_s:60,distance_m:1000,fuel_ml:100,avg_l100_x100:1000,flags:1,time_revised:0,data_revised:0,max_speed_kmh:null,max_rpm:null,max_accel_x100:null,max_decel_x100:null,poll_requested:0,poll_received:0};}
+test('current-trip archive marker commits atomically, survives deletion/restart and allows a new trip',async()=>{
+ const h=harness('current-driving'),repo=new h.Repository();await repo.open(h.context);await repo.agree();await repo.bind(gauge);
+ const v={epoch:1780000060,uptime:600,currentStart:1780000000,currentDistance:1000,currentDuration:60,currentFuel:100,
+  totalDistance:10000,totalDuration:600,totalFuel:1000,fuelPercent:50,rpm:800,speed:0,average:10};
+ await repo.cacheVehicle(v);assert.equal(repo.currentTripSnapshotArchived(),false);
+ h.inject();await assert.rejects(repo.commitTrips(gauge,[trip()],1));h.reset();
+ assert.equal(repo.currentTripSnapshotArchived(),false);assert.equal(repo.snapshot().tables.trips.length,0);
+ await repo.commitTrips(gauge,[trip()],1);assert.equal(repo.currentTripSnapshotArchived(),true);
+ await repo.edit(s=>{s.tables.trips=[];s.tables.deleted_trips=[{device_id:gauge,trip_id:1,deleted_at_s:1780000070}];});
+ const reopened=new h.Repository();await reopened.open(h.context);
+ assert.equal(reopened.currentTripSnapshotArchived(),true);assert.equal(reopened.snapshot().tables.trips.length,0);
+ await reopened.cacheVehicle({...v,currentStart:1780001000,epoch:1780001060});
+ assert.equal(reopened.currentTripSnapshotArchived(),false);
+ assert.equal(reopened.snapshot().tables.trips.length,0);
+ assert.equal(JSON.stringify(reopened.snapshot()).includes('archivedVehicles'),false);
+});
 const normalize=x=>JSON.parse(JSON.stringify(x));
 test('production repository persists trips and cursor atomically, rolls back injected write failure',async()=>{
  const h=harness('atomic'),repo=new h.Repository();await repo.open(h.context);await repo.agree();await repo.bind(gauge);
@@ -148,6 +164,7 @@ test('fresh-phone ZIP migration restores visible home, calibrated mileage and bo
  source.tables.trips=[trip()];source.tables.deleted_trips=[];
  source.tables.expenses=[{transfer_id:'11111111111111111111111111111111',device_id:gauge,date_epoch_day:20500,category:1,amount:300,title:'机油',note:'换手机保留',odometer_km:41000,maintenance_type:1},
   {transfer_id:'22222222222222222222222222222222',device_id:'local',date_epoch_day:20500,category:2,amount:25,title:'停车',note:'绑定前费用',odometer_km:null,maintenance_type:null}];
+ source.tables.expenses=source.tables.expenses.map(row=>({...T.LEDGER_DEFAULTS,...row}));
  const h=harness('fresh-migration'),repo=new h.Repository();await repo.open(h.context);
  await repo.importData(await A.decodeArchive(await A.encodeArchive(source,runtime),runtime),false);
  const reopened=new h.Repository();await reopened.open(h.context);
@@ -307,4 +324,13 @@ test('offline queued archive deletion is not mistaken for a confirmed gauge muta
  const t={has:()=>true,readable:()=>true,write:async(id,b)=>writes.push(b[1]),read:async(id)=>id===11?metaBytes(w):rowBytes(w.rows[0])};
  await I.mutateRefuel(gauge,t,restarted,3,1);
  assert.equal(restarted.refuelRows(gauge)[0].distance_m,2000);assert.equal(restarted.pendingRefuel(gauge),null);assert.ok(writes.every(c=>c===1));
+});
+
+test('unbound registration adopts first gauge once, persists after restart and never overwrites other profile',async()=>{
+ const h=harness('registration-adopt'),repo=new h.Repository();await repo.open(h.context);
+ const value=JSON.stringify({registeredDay:18000,regularPrivateCar:true,inspectionDueDay:21365,estimated:true});
+ await repo.edit(s=>s.preferences.vehicle_registration_local={type:'string',value});await repo.bind(gauge);
+ assert.equal(repo.snapshot().preferences['vehicle_registration_'+gauge].value,value);assert.equal(repo.snapshot().preferences.vehicle_registration_local,undefined);
+ const reopened=new h.Repository();await reopened.open(h.context);assert.equal(reopened.snapshot().preferences['vehicle_registration_'+gauge].value,value);
+ await reopened.bind('AA:BB:CC:DD:EE:02');assert.equal(reopened.snapshot().preferences['vehicle_registration_AA:BB:CC:DD:EE:02'],undefined);
 });

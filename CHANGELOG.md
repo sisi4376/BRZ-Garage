@@ -1,3 +1,11 @@
+# 2026-11-06 低速与累计里程修复
+
+固件 4.1.1 / Android 4.6.1 (166)：取消 OBD 1～2 km/h 车速归零；里程按有效车速独立累计，不再因燃油流量、MAF 或 RPM 缺失而暂停。有效燃油量独立累计，怠速和低速保持正常计油；低于 3 km/h 显示 L/h，达到 3 km/h 显示 L/100km。不补造缺失数据、不重算历史，保留原有 NVS 和 BLE 数据格式。
+
+# 2026-11-06 自动挡基础适配
+
+固件 4.1.0 / Android 4.6.0 / Harmony 0.6.0：新增 ZC6/ZD8 6AT 选项、关闭挡位查询/推算/显示、三连表同步自动挡状态；油耗保留 ECU/MAF 路径，AT 禁用未标定的断油估算；自动变速箱油独立记录，不设固定周期。保留手动挡配置及历史数据。软件与构建验证不等于实车验收。
+
 # Changelog / 更新日志
 
 Newest first. Entries cover behaviour and flashing changes; pure refactors and
