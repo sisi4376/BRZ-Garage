@@ -1,10 +1,10 @@
 {
   "android": "4.6.2",
-  "harmony": "0.6.0",
+  "harmony": "0.6.1",
   "firmware": "4.1.2",
   "files": {
     "android_app/app/build.gradle.kts": "dcea5e723a80c6e72128f73eb3f95594050a23f99b93f894c76dbdc90d33f372",
-    "android_app/app/src/main/assets/firmware/latest.json": "78fb88be39626b6e2bb28d2ea609f5fa687ff7b2d81d7c7eba8e21e6b1d7df36",
+    "android_app/app/src/main/assets/firmware/latest.json": "c514aab14dafb6446902e7a3994fe060a7caa30aacaa380df8ad84ea05582b25",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt": "87b600871a94c95de24974d09396fbda026f10a89ab209dfb84804452ddead9a",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppUpdater.kt": "1c3c5ce4e6cd30ff51b65c794722512164c2234f7dca2ba8d6748ad71cdf6c09",
     "android_app/app/src/main/java/com/brz/gauge/trips/BackgroundBleWake.kt": "45b1800e4c1570ec0eaea00662055c8dff3bb844981e4e0d94e3e5c14483e7a3",
@@ -61,5 +61,5 @@
     "android_app/app/src/main/java/com/brz/gauge/trips/LedgerReminders.kt": "704f097b762450b9c91cffeae506be9f45850ead5530c4bddfba0c825cb988e8",
     "android_app/app/src/main/java/com/brz/gauge/trips/LedgerReminderJob.kt": "a8fbf6b8deb4b9e6dea771a543ed2493e315a1f1b37d2817dbc75e85730e906f"
   },
-  "review": "2026-11-06: reviewed merged source against f32941b and fcc277e. Restored Android-only pairing API, foreground-service lifecycle, binding gate, MAC normalization and local crash diagnostics; no Harmony equivalent claimed. Ledger/current-driving/AT behavior retained from 0.6.0; both firmware resources are 4.1.2 with GNSS and independent mileage. Raw-file newline changes reviewed as non-semantic. Host tests recorded in docs/RELEASE_4_6_2.md; no new HAP/device validation."
+  "review": "2026-11-06: reviewed merged source against f32941b and fcc277e. Restored Android-only pairing API, foreground-service lifecycle, binding gate, MAC normalization and local crash diagnostics; no Harmony equivalent claimed. Ledger/current-driving/AT behavior retained from 0.6.0; both firmware resources are 4.1.2 with GNSS and independent mileage. Raw-file newline changes reviewed as non-semantic. Host tests recorded in docs/RELEASE_4_6_2.md; no new HAP/device validation. 2026-11-09: reviewed final 4.1.2 manifest provenance fields; application sources unchanged. Harmony 0.6.1 adds matching 4.0.6/4.0.7 rollback packages and correct application version labels."
 }

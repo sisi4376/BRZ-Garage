@@ -2,9 +2,9 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const root=path.join(__dirname,'../test-output/core'),raw=path.join(__dirname,'../entry/src/main/resources/rawfile');
 const ts=require((process.env.DEVECO_HOME||'C:/Program Files/Huawei/DevEco Studio')+'/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
-function harness({wrongHardware=false,badHash=false,failChunk=false,cancelAtChunk=false}={}){
+function harness({wrongHardware=false,badHash=false,failChunk=false,cancelAtChunk=false,remoteVersion='3.0.0'}={}){
  const calls=[];let received=0,failed=false,firmware;
- const original=JSON.parse(fs.readFileSync(raw+'/firmware/latest.json'));const remote=JSON.parse(JSON.stringify(original));remote.firmware.version='3.0.0';if(wrongHardware)remote.device.board='other';
+ const original=JSON.parse(fs.readFileSync(raw+'/firmware/latest.json'));const remote=JSON.parse(JSON.stringify(original));remote.firmware.version=remoteVersion;if(wrongHardware)remote.device.board='other';
  const http={RequestMethod:{POST:'POST',GET:'GET'},HttpDataType:{STRING:0},createHttp:()=>({destroy:()=>{},request:async(url,options)=>{
   calls.push({url,options});let result={};
   if(url.endsWith('/ota/discover'))result={ip:'192.168.4.1',port:80,ssid:'OBD-Gauge-OTA-TEST',password:'12345678',token:'test'};
@@ -36,4 +36,14 @@ test('OTA chunk upload retries from confirmed offset and completes exact size',a
 test('OTA cancellation cannot restart upload or commit another chunk',async()=>{
  const h=harness({cancelAtChunk:true});await h.firmware.select(h.context,(await h.firmware.catalog(h.context))[0]);await h.firmware.recover();await assert.rejects(h.firmware.upload(()=>{}));
  assert.equal(h.calls.filter(c=>c.url.endsWith('/ota/firmware')).length,1);assert.equal(h.received(),0);
+});
+test('bundled rollback entries validate real bytes and reject non-downgrades',async()=>{
+ for(const version of ['4.0.6','4.0.7']) {
+  const h=harness({remoteVersion:'4.1.2'}),entry=(await h.firmware.catalog(h.context)).find(e=>e.id===version);
+  assert.ok(entry && entry.rollback);await h.firmware.select(h.context,entry);assert.equal(h.firmware.target.version,version);
+  await h.firmware.recover();await h.firmware.upload(()=>{});
+  assert.equal(h.received(),JSON.parse(fs.readFileSync(raw+'/'+entry.manifest)).files.firmware.size);
+  const same=harness({remoteVersion:version});await same.firmware.select(same.context,entry);await same.firmware.recover();
+  await assert.rejects(same.firmware.upload(()=>{}));assert.equal(same.calls.filter(c=>c.url.endsWith('/ota/firmware')).length,0);
+ }
 });
