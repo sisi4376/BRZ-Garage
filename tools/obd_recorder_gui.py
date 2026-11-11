@@ -16,7 +16,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPainterPath, QIcon, QP
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabel,
     QPushButton, QComboBox, QLineEdit, QFileDialog, QVBoxLayout, QHBoxLayout,
     QGridLayout, QTabWidget, QCheckBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPlainTextEdit, QMessageBox, QProgressBar)
+    QHeaderView, QPlainTextEdit, QMessageBox, QProgressBar, QScrollArea, QSplitter)
 
 from obd_recorder import capture, ReplayData, ReplayElm, body, normalize
 from obd_ble_simulator import serve
@@ -51,6 +51,12 @@ QProgressBar { border:0; background:#203047; border-radius:3px; max-height:6px; 
 QProgressBar::chunk { background:#50dec2; border-radius:3px; }
 QCheckBox { spacing:8px; }
 QToolTip { color:#eef4fa; background:#24364e; border:1px solid #55718f; }
+QScrollArea { border:0; }
+QScrollBar:vertical { background:#111d2e; width:12px; margin:0; }
+QScrollBar::handle:vertical { background:#42566f; min-height:28px; border-radius:5px; }
+QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
+QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:none; }
+QSplitter::handle { background:#25344b; }
 '''
 
 
@@ -196,8 +202,10 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('BRZ OBD Studio · 数据采集与回放')
-        self.resize(1220, 860)
-        self.setMinimumSize(1050, 760)
+        available = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumSize(min(640, available.width()), min(420, available.height()))
+        self.resize(min(1220, available.width() - 32), min(860, available.height() - 64))
+        self.move(available.x() + 16, available.y() + 32)
         self.job = None
         self.closing = self.had_error = False
         self.started = None
@@ -216,21 +224,23 @@ class Window(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
         heading = QHBoxLayout()
         title_box = QVBoxLayout()
         title_box.addWidget(label('BRZ  /  OBD STUDIO', 'title'))
-        title_box.addWidget(label('实车数据采集  →  本地录制  →  仪表蓝牙回放', 'muted'))
+        subtitle = label('实车数据采集  →  本地录制  →  仪表蓝牙回放', 'muted')
+        subtitle.setWordWrap(True)
+        title_box.addWidget(subtitle)
         heading.addLayout(title_box)
         heading.addStretch()
         self.badge = label('●  就绪', 'badge')
         heading.addWidget(self.badge)
         layout.addLayout(heading)
-        body_layout = QHBoxLayout()
-        body_layout.setSpacing(18)
+        self.body_splitter = QSplitter(Qt.Horizontal)
+        self.body_splitter.setChildrenCollapsible(False)
         side = panel()
-        side.setFixedWidth(320)
+        side.setMinimumWidth(230)
         side_layout = QVBoxLayout(side)
         side_layout.setContentsMargins(17, 18, 17, 18)
         side_layout.setSpacing(13)
@@ -251,32 +261,44 @@ class Window(QMainWindow):
         self.stop_button.setObjectName('danger')
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop)
-        side_layout.addWidget(self.stop_button)
+        # Stop stays outside both scrolling panels.
         hint = label('采集前请让手机和仪表断开 ELM。\n回放时，在仪表上选择这台电脑。', 'muted')
         hint.setWordWrap(True)
         side_layout.addWidget(hint)
-        body_layout.addWidget(side)
-        right = QVBoxLayout()
+        self.side_scroll = QScrollArea()
+        self.side_scroll.setWidgetResizable(True)
+        self.side_scroll.setMinimumWidth(245)
+        self.side_scroll.setWidget(side)
+        self.body_splitter.addWidget(self.side_scroll)
+        right_widget = QWidget()
+        right = QVBoxLayout(right_widget)
         right.setSpacing(14)
-        cards = QHBoxLayout()
+        cards = QGridLayout()
+        self.card_grid = cards
+        self.card_widgets = []
         self.cards = {}
         for command, title, unit in [('010C', '发动机转速', 'rpm'), ('010D', '车速', 'km/h'),
                                       ('0105', '冷却液温度', '°C'), ('015C', '机油温度', '°C')]:
             card = panel()
             box = QVBoxLayout(card)
             box.setContentsMargins(16, 12, 16, 12)
-            box.addWidget(label(title, 'muted'))
+            card_title = label(title, 'muted')
+            card_title.setWordWrap(True)
+            box.addWidget(card_title)
             value = label('—', 'value')
             box.addWidget(value)
             box.addWidget(label(unit, 'muted'))
             self.cards[command] = value
-            cards.addWidget(card)
+            self.card_widgets.append(card)
+            cards.addWidget(card, 0, len(self.card_widgets) - 1)
         right.addLayout(cards)
         metrics = panel()
         metric_grid = QGridLayout(metrics)
         metric_grid.setContentsMargins(14, 10, 14, 10)
         metric_grid.setHorizontalSpacing(16)
         self.metric_values, self.metric_units = {}, {}
+        self.metric_grid = metric_grid
+        self.metric_widgets = []
         for index, (key, title, unit) in enumerate([
                 ('instant', '瞬时油耗', 'L/100km'),
                 ('average_l100km', '有效采样平均油耗', 'L/100km'),
@@ -286,15 +308,21 @@ class Window(QMainWindow):
                 ('012F', '燃油余量 · ECU', '%'),
                 ('01A6', '总里程 · ECU', 'km'),
                 ('0142', '电压 · ECU', 'V')]):
-            box = QVBoxLayout()
+            metric_widget = QWidget()
+            metric_widget.setStyleSheet('background:transparent;')
+            box = QVBoxLayout(metric_widget)
+            box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(1)
-            box.addWidget(label(title, 'muted'))
+            card_title = label(title, 'muted')
+            card_title.setWordWrap(True)
+            box.addWidget(card_title)
             value = label('—', 'metric')
             units = label(unit, 'muted')
             self.metric_values[key], self.metric_units[key] = value, units
             box.addWidget(value)
             box.addWidget(units)
-            metric_grid.addLayout(box, index // 4, index % 4)
+            self.metric_widgets.append(metric_widget)
+            metric_grid.addWidget(metric_widget, index // 4, index % 4)
         right.addWidget(metrics)
         self.fuel_note = label('燃油来源：等待数据 · 累计仅覆盖有效采样时段', 'muted')
         self.fuel_note.setWordWrap(True)
@@ -316,17 +344,54 @@ class Window(QMainWindow):
         detail_tabs = QTabWidget()
         detail_tabs.addTab(graph, '转速曲线')
         detail_tabs.addTab(self.table, '原始响应')
+        detail_tabs.setMinimumHeight(240)
         right.addWidget(detail_tabs, 1)
         self.stats = label('00:00:00    ·    0 条响应    ·    0.0 KB 接收', 'muted')
         right.addWidget(self.stats)
-        body_layout.addLayout(right, 1)
-        layout.addLayout(body_layout, 1)
+        self.data_scroll = QScrollArea()
+        self.data_scroll.setWidgetResizable(True)
+        self.data_scroll.setMinimumWidth(0)
+        self.data_scroll.setWidget(right_widget)
+        self.body_splitter.addWidget(self.data_scroll)
+        self.body_splitter.setStretchFactor(0, 0)
+        self.body_splitter.setStretchFactor(1, 1)
+        self.body_splitter.setSizes([290, 880])
+        layout.addWidget(self.body_splitter, 1)
+        self.body_splitter.splitterMoved.connect(self.reflow_cards)
+        footer = QHBoxLayout()
+        self.log_toggle = QCheckBox('显示运行日志')
+        footer.addWidget(self.log_toggle)
+        footer.addStretch()
+        self.stop_button.setMinimumWidth(140)
+        footer.addWidget(self.stop_button)
+        layout.addLayout(footer)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(400)
-        self.log.setFixedHeight(105)
+        self.log.setFixedHeight(85)
+        self.log.setVisible(False)
+        self.log_toggle.toggled.connect(self.log.setVisible)
         layout.addWidget(self.log)
         self.write_log('欢迎使用 OBD Studio。原始收发数据保存为 JSONL，支持离车回放。')
+        QTimer.singleShot(0, self.reflow_cards)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'data_scroll'):
+            self.reflow_cards()
+
+    def reflow_cards(self, *args):
+        columns = 4 if self.data_scroll.viewport().width() >= 720 else 2
+        if getattr(self, '_columns', None) == columns:
+            return
+        self._columns = columns
+        for grid, widgets in ((self.card_grid, self.card_widgets), (self.metric_grid, self.metric_widgets)):
+            for widget in widgets:
+                grid.removeWidget(widget)
+            for index, widget in enumerate(widgets):
+                grid.addWidget(widget, index // columns, index % columns)
+            for column in range(4):
+                grid.setColumnStretch(column, 1 if column < columns else 0)
 
     def capture_tab(self):
         tab = QWidget()
@@ -483,6 +548,7 @@ class Window(QMainWindow):
 
     def on_error(self, error):
         self.had_error = True
+        self.log_toggle.setChecked(True)
         self.badge.setText('●  任务失败')
         self.state_detail.setText('操作未完成，请查看下方错误信息。已接收的录制数据会保留。')
         self.write_log('错误：' + error)

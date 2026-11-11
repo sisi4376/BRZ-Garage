@@ -13,6 +13,31 @@ APP = QApplication.instance() or QApplication([])
 
 
 class StudioTests(unittest.TestCase):
+    def test_small_windows_keep_stop_visible_and_contents_reachable(self):
+        window = Window()
+        window.show()
+        try:
+            for width, height in [(1220, 688), (1024, 600), (800, 500), (640, 420)]:
+                window.resize(width, height)
+                QTest.qWait(30)
+                window.reflow_cards()
+                APP.processEvents()
+                self.assertEqual(window.width(), width)
+                self.assertEqual(window.height(), height)
+                stop = window.stop_button
+                self.assertTrue(window.rect().contains(stop.mapTo(window, stop.rect().bottomRight())))
+                self.assertEqual(window.data_scroll.horizontalScrollBar().maximum(), 0)
+                window.side_scroll.ensureWidgetVisible(window.record_button)
+                APP.processEvents()
+                viewport = window.side_scroll.viewport()
+                self.assertTrue(viewport.rect().contains(window.record_button.mapTo(viewport, window.record_button.rect().center())))
+            self.assertEqual(window._columns, 2)
+            window.log_toggle.setChecked(True)
+            APP.processEvents()
+            self.assertLessEqual(window.height(), 420)
+        finally:
+            window.close()
+
     def test_replay_metrics_use_source_time_and_reset_on_loop(self):
         window = Window()
         try:
