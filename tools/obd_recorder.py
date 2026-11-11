@@ -133,6 +133,8 @@ async def scan():
 
 async def capture(args, on_event=None):
     from bleak import BleakClient
+    if args.profile == 'zd8' and args.extra:
+        raise ValueError('ZD8 gauge mode uses a fixed schedule; --extra is not supported.')
     address = args.address
     if not address:
         devices = await scan()
@@ -152,11 +154,16 @@ async def capture(args, on_event=None):
             recording.emit('transport', write=write_char.uuid, notify=notify_char.uuid)
             elm = ElmConnection(client, write_char, recording)
             await client.start_notify(notify_char, elm.notify)
-            for command in ('ATZ', 'ATE0', 'ATL0', 'ATS1', 'ATH0', 'ATAT1', 'ATST19', 'ATSP6', 'ATSH7E0'):
+            for command in ('ATZ', 'ATE0', 'ATL0', 'ATS1', 'ATH0', 'ATAT1',
+                            'ATST0A' if args.profile == 'zd8' else 'ATST19', 'ATSP6', 'ATSH7E0'):
                 response = await elm.query(command, 'init')
                 if command != 'ATZ' and 'OK' not in body(response, command):
                     raise RuntimeError(f'ELM initialization rejected {command}: {response!r}')
                 await asyncio.sleep(.03)
+            if args.profile == 'zd8':
+                from obd_gauge_poll import capture_zd8
+                await capture_zd8(elm, args, recording)
+                return
             supported = set()
             for base in range(0, 0xE1, 32):
                 pids = set()
@@ -235,6 +242,7 @@ class ReplayData:
         self.times = {key: [item[0] for item in rows] for key, rows in self.samples.items()}
         self.origin = min(times[0] for times in self.times.values())
         self.duration = max(.001, self.end - self.origin)
+        self.profile = session.get('profile', 'gauge')
 
 
 class ReplayElm(StaticElm):
@@ -309,7 +317,7 @@ def main():
     record = sub.add_parser('record', help='Capture from a real ELM327')
     record.add_argument('--address', help='Exact BLE address; otherwise choose from a scan')
     record.add_argument('--output', type=Path)
-    record.add_argument('--profile', choices=('all', 'gauge', 'zc6'), default='all')
+    record.add_argument('--profile', choices=('all', 'gauge', 'zc6', 'zd8'), default='all')
     record.add_argument('--extra', action='append', type=read_request, default=[])
     record.add_argument('--duration', type=float, default=0)
     record.add_argument('--interval', type=float, default=.03, help='Pause after each reply, seconds')

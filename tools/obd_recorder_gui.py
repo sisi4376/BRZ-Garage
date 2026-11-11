@@ -105,7 +105,7 @@ class Job(QThread):
             await capture(self.args, self.report)
         else:
             data = ReplayData(self.args.file)
-            self.event.emit(dict(kind='replay_info', duration=data.duration, pids=len(data.samples)))
+            self.event.emit(dict(kind='replay_info', duration=data.duration, pids=len(data.samples), profile=data.profile))
             await serve(self.args, lambda: ReplayElm(data, self.args.speed, self.args.loop), self.report)
 
     def run(self):
@@ -211,7 +211,7 @@ class Window(QMainWindow):
         self.started = None
         self.count = self.byte_count = 0
         self.rows, self.last_values = {}, {}
-        self.trip = TripMetrics()
+        self.trip = self.new_trip()
         self.trip_epoch = None
         self.folder = HOME / 'OBD-Recordings'
         self.last_recording = None
@@ -219,6 +219,9 @@ class Window(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(250)
+
+    def new_trip(self):
+        return TripMetrics(None if getattr(self, 'full_inspection', False) else 5.0)
 
     def build_ui(self):
         root = QWidget()
@@ -413,7 +416,7 @@ class Window(QMainWindow):
         box.addWidget(self.address)
         box.addWidget(label('采集范围', 'muted'))
         self.profile = QComboBox()
-        for name, value in [('全部支持的标准 PID', 'all'), ('仪表常用 PID · 更快更新', 'gauge'), ('ZC6 · 包含 2101 私有数据', 'zc6')]:
+        for name, value in [('ZD8 · 仪表同款轮询', 'zd8'), ('全部标准 PID · 保留最近值', 'all'), ('仪表常用 PID · 更快更新', 'gauge'), ('ZC6 · 包含 2101 私有数据', 'zc6')]:
             self.profile.addItem(name, value)
         box.addWidget(self.profile)
         self.folder_label = label('保存至：' + self.folder.name, 'muted')
@@ -480,6 +483,8 @@ class Window(QMainWindow):
         if self.job:
             return
         self.had_error = False
+        if mode == 'record':
+            self.full_inspection = args.profile == 'all'
         self.set_busy(True)
         self.badge.setText({'scan': '●  扫描中', 'record': '●  连接中', 'replay': '●  准备回放'}[mode])
         self.state_detail.setText({'scan': '正在扫描附近 BLE 设备，约需 8 秒。',
@@ -489,7 +494,7 @@ class Window(QMainWindow):
             self.count = self.byte_count = 0
             self.rows.clear()
             self.last_values.clear()
-            self.trip = TripMetrics()
+            self.trip = self.new_trip()
             self.trip_epoch = None
             self.table.setRowCount(0)
             self.trend.points.clear()
@@ -563,7 +568,7 @@ class Window(QMainWindow):
             self.write_log('录制文件：' + str(self.last_recording))
             summary_path = self.last_recording.with_suffix('.summary.json')
             try:
-                summary_path.write_text(json.dumps(dict(schema=1, coverage='valid_samples_only',
+                summary_path.write_text(json.dumps(dict(schema=1, coverage='last_sample_hold' if getattr(self, 'full_inspection', False) else 'valid_samples_only',
                     **self.trip.snapshot()), ensure_ascii=False, indent=2), encoding='utf-8')
                 self.write_log('本次统计：' + str(summary_path))
             except OSError as exc:
@@ -587,13 +592,15 @@ class Window(QMainWindow):
             self.write_log(f"扫描完成，发现 {len(event['devices'])} 个 BLE 设备。")
         elif kind == 'poll_plan':
             self.badge.setText('●  正在录制')
-            self.state_detail.setText(f"正在轮询 {len(event['commands'])} 个请求。停止后可直接切换回放。")
+            self.state_detail.setText('ZD8 仪表 14 时隙轮询，等待响应后继续。' if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
         elif kind == 'ready':
             self.badge.setText('●  等待仪表')
             self.state_detail.setText('蓝牙广播已开启。在仪表 BLE SCAN 页面选择此电脑。')
         elif kind == 'clients':
             self.badge.setText('●  仪表已连接' if event['count'] else '●  等待仪表')
         elif kind == 'replay_info':
+            self.full_inspection = event.get('profile') == 'all'
+            self.trip = self.new_trip()
             self.write_log(f"录制信息：{event['duration']:.1f} 秒，{event['pids']} 种请求。")
         elif kind in ('reply', 'replay_reply'):
             if kind == 'reply' and event['phase'] != 'poll':
@@ -616,10 +623,10 @@ class Window(QMainWindow):
             if timeline is not None:
                 epoch = (event.get('client'), timeline['cycle'])
                 if epoch != self.trip_epoch:
-                    self.trip = TripMetrics()
+                    self.trip = self.new_trip()
                     self.trip_epoch = epoch
                 stamp = timeline['sampled_at']
-                if stamp is None or timeline['t'] - stamp >= TripMetrics.FRESH_SECONDS:
+                if stamp is None or timeline['t'] - stamp >= self.trip.FRESH_SECONDS:
                     value = None
                 self.trip.update(command, value[1] if value else None, timeline['t'], stamp)
         else:
@@ -656,6 +663,8 @@ class Window(QMainWindow):
             self.metric_values[key].setText(f'{value:.{decimals}f}' if value is not None else '—')
         self.metric_units['instant'].setText(stats['instant_unit'])
         suffix = ' · 累计含 MAF 估算' if stats['includes_maf_estimate'] else ''
+        if getattr(self, 'full_inspection', False):
+            suffix += ' · 全量：保留最近采样值，无过期限制'
         self.fuel_note.setText(f"燃油来源：{stats['fuel_source']}{suffix} · 有效里程采样 {stats['distance_seconds']:.0f}s / 燃油采样 {stats['fuel_seconds']:.0f}s")
 
     def tick(self):
@@ -665,12 +674,12 @@ class Window(QMainWindow):
             self.stats.setText(f'{elapsed // 3600:02}:{elapsed // 60 % 60:02}:{elapsed % 60:02}    ·    '
                                f'{self.count:,} 条响应    ·    {self.byte_count / 1024:.1f} KB {direction}')
         for command, timestamp in self.last_values.items():
-            if time.monotonic() - timestamp > 15:
+            if not getattr(self, 'full_inspection', False) and time.monotonic() - timestamp > 15:
                 target = self.cards.get(command) or self.metric_values.get(command)
                 if target:
                     target.setText('—')
         # Timers never integrate fuel/distance: delayed GUI events must not add travel.
-        if self.last_values and time.monotonic() - max(self.last_values.values()) > 5:
+        if not getattr(self, 'full_inspection', False) and self.last_values and time.monotonic() - max(self.last_values.values()) > 5:
             self.metric_values['instant'].setText('—')
             self.metric_values['fuel_rate_lph'].setText('—')
         self.trend.update()

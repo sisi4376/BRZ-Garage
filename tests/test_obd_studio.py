@@ -13,6 +13,20 @@ APP = QApplication.instance() or QApplication([])
 
 
 class StudioTests(unittest.TestCase):
+    def test_full_mode_preserves_slow_samples_on_display_and_replay(self):
+        window = Window()
+        try:
+            window.on_event(dict(kind='replay_info', duration=100, pids=47, profile='all'))
+            window.on_event(dict(kind='replay_reply', command='010D', hex=b'41 0D 3C\r>'.hex(),
+                complete=True, client='gauge', timeline=dict(t=20, sampled_at=0, cycle=0)))
+            self.assertEqual(window.cards['010D'].text(), '60')
+            window.last_values['010D'] -= 100
+            window.tick()
+            self.assertEqual(window.cards['010D'].text(), '60')
+            self.assertEqual(window.profile.itemData(0), 'zd8')
+        finally:
+            window.close()
+
     def test_small_windows_keep_stop_visible_and_contents_reachable(self):
         window = Window()
         window.show()

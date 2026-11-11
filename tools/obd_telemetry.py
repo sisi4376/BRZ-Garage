@@ -42,7 +42,8 @@ class TripMetrics:
     """
     FRESH_SECONDS = 5.0
 
-    def __init__(self):
+    def __init__(self, fresh_seconds=5.0):
+        self.FRESH_SECONDS = float('inf') if fresh_seconds is None else fresh_seconds
         self.samples = {}
         self.t = None
         self.distance_km = self.fuel_l = 0.0
