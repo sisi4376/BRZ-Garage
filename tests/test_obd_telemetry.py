@@ -7,6 +7,22 @@ from obd_telemetry import TripMetrics, decode
 
 
 class TripTests(unittest.TestCase):
+    def test_zc6_complete_numbered_and_flat_oil_responses(self):
+        for size in (40, 41):
+            payload = bytearray([0x55] * size)
+            payload[:2] = b'\x61\x01'
+            payload[-5] = 130
+            flat = payload.hex(' ')
+            rows = [f'{size:03X}', '0: ' + payload[:6].hex(' ')]
+            rows += [f'{1+(i-6)//7:X}: ' + payload[i:i+7].hex(' ') for i in range(6, size, 7)]
+            response = '\r'.join(rows)
+            self.assertEqual(decode('2101', flat)[1], 90)
+            self.assertEqual(decode('2101', response)[1], 90)
+            self.assertIsNone(decode('2101', '\r'.join(rows[:-1])))
+            self.assertIsNone(decode('2101', response.replace('1:', '2:')))
+            self.assertIsNone(decode('2101', flat[:-6]))
+        self.assertIsNone(decode('2101', 'NO DATA'))
+
     def test_known_speed_rate_distance_and_consumption(self):
         trip = TripMetrics()
         for t in range(61):

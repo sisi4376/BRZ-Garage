@@ -19,6 +19,8 @@ FORMULAS = {
 
 def decode(command, response):
     command = normalize(command)
+    if command == '2101':
+        return decode_zc6_oil(response)
     if command not in FORMULAS:
         return None
     name, unit, size, formula = FORMULAS[command]
@@ -31,6 +33,40 @@ def decode(command, response):
             if command == '01A6' and data[2:] == b'\xff' * 4:
                 return None
             return name, formula(data[2:]), unit
+    return None
+
+
+def decode_zc6_oil(response):
+    """Mirror zc6_pid.c: 40/41 byte payload, oil five bytes from end.
+
+    Call only for a complete ELM reply. Accept flat or declared numbered CAF1/H0,
+    never infer a temperature from an incomplete or mismatched frame.
+    """
+    lines = [line.strip() for line in response.replace('>', '').splitlines() if line.strip()]
+    try:
+        if len(lines) == 1:
+            payload = bytes.fromhex(lines[0])
+        else:
+            if len(lines[0]) != 3:
+                return None
+            length = int(lines[0], 16)
+            if length not in (40, 41):
+                return None
+            payload = b''
+            for row, line in enumerate(lines[1:]):
+                if not line.startswith(f'{row:X}:'):
+                    return None
+                chunk = bytes.fromhex(line[2:])
+                expected = min(6 if row == 0 else 7, length - len(payload))
+                if expected <= 0 or len(chunk) != expected:
+                    return None
+                payload += chunk
+            if len(payload) != length:
+                return None
+        if len(payload) in (40, 41) and payload[:2] == b'\x61\x01':
+            return '机油温度 · ZC6', payload[-5] - 40, '°C'
+    except ValueError:
+        pass
     return None
 
 

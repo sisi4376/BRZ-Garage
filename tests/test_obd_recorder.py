@@ -50,17 +50,21 @@ class RecorderTests(unittest.IsolatedAsyncioTestCase):
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             self.assertEqual(rows[-1]['kind'], 'end')
             self.assertTrue(data.samples)
-            args.profile = 'zd8'
-            args.output = Path(folder) / 'zd8.jsonl'
-            with patch.dict(sys.modules, bleak=SimpleNamespace(BleakClient=Client)):
-                await capture(args)
-            zd8_rows = [json.loads(line) for line in args.output.read_text().splitlines()]
-            tx = [r['command'] for r in zd8_rows if r['kind'] == 'tx']
-            self.assertIn('ATST0A', tx)
-            self.assertEqual(tx.count('0100'), 3)
-            self.assertNotIn('0120', tx)
-            self.assertEqual(ReplayData(args.output).profile, 'zd8')
-            self.assertTrue(any(r['kind'] == 'poll_slot' for r in zd8_rows))
+            for profile in ('zd8', 'zd8-mt', 'zd8-at', 'zc6-mt', 'zc6-at'):
+                args.profile = profile
+                args.output = Path(folder) / (profile + '.jsonl')
+                with patch.dict(sys.modules, bleak=SimpleNamespace(BleakClient=Client)):
+                    await capture(args)
+                gauge_rows = [json.loads(line) for line in args.output.read_text().splitlines()]
+                tx = [r['command'] for r in gauge_rows if r['kind'] == 'tx']
+                self.assertIn('ATST0A', tx)
+                self.assertEqual(tx.count('0100'), 3)
+                self.assertNotIn('0120', tx)
+                self.assertEqual(ReplayData(args.output).profile, profile)
+                plan = next(r for r in gauge_rows if r['kind'] == 'poll_plan')
+                self.assertEqual(plan['automatic'], profile.endswith('-at'))
+                self.assertEqual(plan['oil_command'], '2101' if profile.startswith('zc6') else '015C')
+                self.assertTrue(any(r['kind'] == 'poll_slot' for r in gauge_rows))
 
     async def test_fragmented_reply_and_raw_bytes_preserved(self):
         with tempfile.TemporaryDirectory() as folder:

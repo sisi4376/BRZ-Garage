@@ -332,7 +332,7 @@ cd C:\path\to\BRZ_OBD
 
 ## 当前边界
 
-本地 Windows 数据采集工具 **OBD Studio v1.3** 支持通过 BLE ELM327 录制原始响应、查看油耗与里程统计，并回放到仪表；提供 ZD8 仪表同款轮询和无样本过期限制的全量采集模式，支持笔记本高 DPI 和小窗口。运行本地 `BRZ-OBD-Studio-v1.3.exe`，操作见 [采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。
+本地 Windows 数据采集工具 **OBD Studio v1.4** 支持通过 BLE ELM327 录制原始响应、查看油耗与里程统计，并回放到仪表；提供 ZC6/ZD8 的 6MT、6AT 四车型仪表轮询和无样本过期限制的全量采集模式，支持笔记本高 DPI 和小窗口。运行本地 `BRZ-OBD-Studio-v1.4.exe`，操作见 [采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。
 
 - ZD8 6MT 是目前唯一完成实车验证的车型；ZC6 6MT 已实现单路 OBD/PID 和 FA20 Toyota Mode 21 机油温度读取，但仍需要更多实车验证。
 - 挡位、油耗、里程和加减速度是推算结果，只适合驾驶回顾，不能替代原厂仪表或专业诊断设备。

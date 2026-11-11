@@ -2,11 +2,26 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from obd_gauge_poll import Zd8Poll
+from obd_gauge_poll import Zd8Poll, GaugePoll, GAUGE_PROFILES
 from obd_telemetry import TripMetrics
 
 
 class GaugePollTests(unittest.TestCase):
+    def test_four_vehicle_schedules_differ_only_at_oil_slot(self):
+        base = None
+        for key in ('zd8-mt', 'zd8-at', 'zc6-mt', 'zc6-at'):
+            with self.subTest(profile=key):
+                poll = GaugePoll(key)
+                slots = [poll.commands(10 + i * .1) for i in range(14)]
+                oil = '2101' if key.startswith('zc6') else '015C'
+                self.assertEqual(slots[6], [oil, '010C'])
+                self.assertEqual(poll.profile.automatic, key.endswith('-at'))
+                self.assertIn(oil, poll.COMMANDS)
+                slots[6] = ['OIL', '010C']
+                if base is None:
+                    base = slots
+                self.assertEqual(slots, base)
+
     def test_first_round_production_order(self):
         poll = Zd8Poll()
         actual = []

@@ -13,6 +13,21 @@ APP = QApplication.instance() or QApplication([])
 
 
 class StudioTests(unittest.TestCase):
+    def test_zc6_oil_card_rejects_incomplete_reply(self):
+        window = Window()
+        try:
+            payload = bytearray([0] * 40)
+            payload[:2] = b'\x61\x01'
+            payload[-5] = 125
+            event = dict(kind='reply', phase='poll', command='2101',
+                         hex=(payload.hex(' ') + '\r>').encode().hex(), t=1, complete=True)
+            window.on_event(event)
+            self.assertEqual(window.cards['015C'].text(), '85')
+            window.on_event(dict(event, complete=False, t=2))
+            self.assertEqual(window.cards['015C'].text(), '—')
+        finally:
+            window.close()
+
     def test_full_mode_preserves_slow_samples_on_display_and_replay(self):
         window = Window()
         try:
@@ -23,7 +38,8 @@ class StudioTests(unittest.TestCase):
             window.last_values['010D'] -= 100
             window.tick()
             self.assertEqual(window.cards['010D'].text(), '60')
-            self.assertEqual(window.profile.itemData(0), 'zd8')
+            self.assertEqual(window.profile.itemData(0), 'zd8-mt')
+            self.assertEqual([window.profile.itemData(i) for i in range(4)], ['zd8-mt', 'zd8-at', 'zc6-mt', 'zc6-at'])
         finally:
             window.close()
 

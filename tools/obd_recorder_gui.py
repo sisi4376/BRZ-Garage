@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
 from obd_recorder import capture, ReplayData, ReplayElm, body, normalize
 from obd_ble_simulator import serve
 from obd_telemetry import decode, TripMetrics
+from obd_gauge_poll import GAUGE_PROFILES
 
 HOME = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
 ACCENT = '#50dec2'
@@ -416,7 +417,7 @@ class Window(QMainWindow):
         box.addWidget(self.address)
         box.addWidget(label('采集范围', 'muted'))
         self.profile = QComboBox()
-        for name, value in [('ZD8 · 仪表同款轮询', 'zd8'), ('全部标准 PID · 保留最近值', 'all'), ('仪表常用 PID · 更快更新', 'gauge'), ('ZC6 · 包含 2101 私有数据', 'zc6')]:
+        for name, value in [(profile.label + ' · 仪表轮询', key) for key, profile in GAUGE_PROFILES.items() if key != 'zd8'] + [ ('全部标准 PID · 保留最近值', 'all'), ('仪表常用 PID · 更快更新', 'gauge'), ('ZC6 · 原有精简采集', 'zc6')]:
             self.profile.addItem(name, value)
         box.addWidget(self.profile)
         self.folder_label = label('保存至：' + self.folder.name, 'muted')
@@ -568,7 +569,7 @@ class Window(QMainWindow):
             self.write_log('录制文件：' + str(self.last_recording))
             summary_path = self.last_recording.with_suffix('.summary.json')
             try:
-                summary_path.write_text(json.dumps(dict(schema=1, coverage='last_sample_hold' if getattr(self, 'full_inspection', False) else 'valid_samples_only',
+                summary_path.write_text(json.dumps(dict(schema=1, profile=job.args.profile, coverage='last_sample_hold' if getattr(self, 'full_inspection', False) else 'valid_samples_only',
                     **self.trip.snapshot()), ensure_ascii=False, indent=2), encoding='utf-8')
                 self.write_log('本次统计：' + str(summary_path))
             except OSError as exc:
@@ -592,7 +593,7 @@ class Window(QMainWindow):
             self.write_log(f"扫描完成，发现 {len(event['devices'])} 个 BLE 设备。")
         elif kind == 'poll_plan':
             self.badge.setText('●  正在录制')
-            self.state_detail.setText('ZD8 仪表 14 时隙轮询，等待响应后继续。' if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
+            self.state_detail.setText(f"{event.get('vehicle', 'ZD8 6MT')} 仪表 14 时隙轮询，等待响应后继续。" if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
         elif kind == 'ready':
             self.badge.setText('●  等待仪表')
             self.state_detail.setText('蓝牙广播已开启。在仪表 BLE SCAN 页面选择此电脑。')
@@ -646,9 +647,10 @@ class Window(QMainWindow):
         for col, text in enumerate(fields):
             self.table.item(row, col).setText(text)
             self.table.item(row, col).setToolTip(text)
-        if command in self.cards:
-            self.cards[command].setText(f'{value[1]:.0f}' if value else '—')
-            self.last_values[command] = now
+        card_command = '015C' if command == '2101' else command
+        if card_command in self.cards:
+            self.cards[card_command].setText(f'{value[1]:.0f}' if value else '—')
+            self.last_values[card_command] = now
         if command in self.metric_values:
             self.metric_values[command].setText(f'{value[1]:.1f}' if value else '—')
             self.last_values[command] = now

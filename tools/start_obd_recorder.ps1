@@ -2,7 +2,7 @@ param(
     [ValidateSet('record', 'scan', 'replay')][string]$Mode = 'record',
     [string]$Address = '',
     [string]$Recording = '',
-    [ValidateSet('all', 'gauge', 'zc6', 'zd8')][string]$Profile = 'all',
+    [ValidateSet('all', 'gauge', 'zc6', 'zd8', 'zd8-mt', 'zd8-at', 'zc6-mt', 'zc6-at')][string]$Profile = 'all',
     [double]$Duration = 0,
     [double]$Speed = 1,
     [switch]$LoopReplay

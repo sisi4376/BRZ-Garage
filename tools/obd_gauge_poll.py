@@ -1,13 +1,34 @@
-"""ZD8 6MT production 14-slot schedule from elm327_ble_client.c.
+"""Four production BRZ 14-slot schedules from elm327_ble_client.c.
 
 This mirrors the request policy, not ESP32 task/radio timing or recovery logic.
 """
 
 
-class Zd8Poll:
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class GaugeProfile:
+    label: str
+    oil_command: str
+    automatic: bool
+
+
+GAUGE_PROFILES = {
+    'zd8-mt': GaugeProfile('ZD8 6MT', '015C', False),
+    'zd8-at': GaugeProfile('ZD8 6AT', '015C', True),
+    'zc6-mt': GaugeProfile('ZC6 6MT', '2101', False),
+    'zc6-at': GaugeProfile('ZC6 6AT', '2101', True),
+}
+GAUGE_PROFILES['zd8'] = GAUGE_PROFILES['zd8-mt']  # v1.3 CLI compatibility
+
+
+class GaugePoll:
     COMMANDS = ('010C', '010F', '010D', '0105', '0104', '0111', '015C',
                 '0142', '0103', '0144', '0110', '012F', '0140', '015E')
-    def __init__(self):
+    def __init__(self, profile='zd8-mt'):
+        self.profile = GAUGE_PROFILES[profile]
+        self.COMMANDS = tuple(self.profile.oil_command if cmd == '015C' else cmd for cmd in self.COMMANDS)
         self.slot = 0
         self.last = {}
         self.status_supported = self.rate_supported = None
@@ -26,7 +47,7 @@ class Zd8Poll:
         if slot == 0:
             commands.append('010C')
         elif slot in (1, 3, 6, 7):
-            command = {1: '010F', 3: '0105', 6: '015C', 7: '0142'}[slot]
+            command = {1: '010F', 3: '0105', 6: self.profile.oil_command, 7: '0142'}[slot]
             if self.due(command, now, 5):
                 commands.append(command)
         elif slot == 2:
@@ -76,14 +97,20 @@ class Zd8Poll:
             self.rate_supported = False
 
 
-async def capture_zd8(elm, args, recording):
+class Zd8Poll(GaugePoll):
+    """Backward-compatible default for v1.3 users/tests."""
+
+
+async def capture_gauge(elm, args, recording):
     import asyncio
     import time
-    poll = Zd8Poll()
+    poll = GaugePoll(args.profile)
     for _ in range(3):
         poll.observe('0100', await elm.query('0100', 'discovery'))
         await asyncio.sleep(.15)
-    recording.emit('poll_plan', commands=list(poll.COMMANDS), schedule='zd8-14slot-v1')
+    recording.emit('poll_plan', commands=list(poll.COMMANDS), schedule='brz-14slot-v2',
+                   vehicle=poll.profile.label, automatic=poll.profile.automatic,
+                   oil_command=poll.profile.oil_command)
     start = time.monotonic()
     while not args.duration or time.monotonic() - start < args.duration:
         if not elm.client.is_connected:
@@ -97,3 +124,6 @@ async def capture_zd8(elm, args, recording):
             response = await elm.query(command, 'discovery' if command == '0140' else 'poll')
             poll.observe(command, response)
         await asyncio.sleep(.001)
+
+
+capture_zd8 = capture_gauge
