@@ -119,6 +119,7 @@ export class Repository {
     value.gauge=gauge || archiveGauge(value); value.createdAt=Date.now();
     if(!value.preferences.refined_home_ui && !this.refinedHome())value.preferences.refined_home_ui={type:'boolean',value:false};
     if(!value.preferences.grouped_settings_ui && !this.groupedSettings())value.preferences.grouped_settings_ui={type:'boolean',value:false};
+    if(!value.preferences.refined_accounting_ui || value.preferences.refined_accounting_ui.value===null)value.preferences.refined_accounting_ui={type:'boolean',value:this.refinedAccounting()};
     if(value.gauge)value.devices[value.gauge]=this.portableDevice(value.gauge,value.devices[value.gauge]); return value;
   }
   refuelLive(): RefuelMeta | null { return this.meta.refuelLive || null; }
@@ -148,7 +149,7 @@ export class Repository {
   groupedSettings(): boolean { return this.meta.groupedSettings !== false; }
   setGroupedSettings(value: boolean): Promise<void> { return this.edit((s:Snapshot)=>{s.preferences.grouped_settings_ui={type:'boolean',value};}); }
   refinedAccounting(): boolean { return this.meta.refinedAccounting === true; }
-  setRefinedAccounting(value: boolean): Promise<void> { return this.serial(async () => { const meta=this.copyMeta(); meta.refinedAccounting=value; await this.saveMeta(meta); }); }
+  setRefinedAccounting(value: boolean): Promise<void> { return this.serial(async () => { const snapshot=this.snapshot();snapshot.preferences.refined_accounting_ui={type:'boolean',value};await this.save(snapshot,this.copyMeta()); }); }
   refinedHome(): boolean { return this.meta.refinedHome !== false; }
   setRefinedHome(value: boolean): Promise<void> { return this.edit((s:Snapshot)=>{s.preferences.refined_home_ui={type:'boolean',value};}); }
   automatic(): boolean { return this.meta.automatic === true; }
@@ -248,6 +249,7 @@ export class Repository {
     adoptLocalRegistration(snapshot,meta.binding||snapshot.gauge);
     validate(snapshot);
     // Keep portable preferences and the active UI in the same transaction.
+    if(snapshot.preferences.refined_accounting_ui?.value!==null && snapshot.preferences.refined_accounting_ui!==undefined)meta.refinedAccounting=snapshot.preferences.refined_accounting_ui.value===true;
     meta.refinedHome=snapshot.preferences.refined_home_ui ? snapshot.preferences.refined_home_ui.value !== false : meta.refinedHome;
     meta.groupedSettings=snapshot.preferences.grouped_settings_ui ? snapshot.preferences.grouped_settings_ui.value !== false : meta.groupedSettings;
     if (utf8Encode(toJson(snapshot)).length > MAX_DATA) throw new Error('Combined data exceeds the 32 MiB archive limit');

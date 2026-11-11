@@ -37,7 +37,7 @@ export function displayTripId(id: number): string {
   return Math.floor((-id - 1) / 2) + ((-id) % 2 === 1 ? '-A' : '-B');
 }
 export interface MergeReport {
-  snapshot: Snapshot; added: number; updated: number; removed: number; unchanged: number; conflicts: number;
+  snapshot: Snapshot; added: number; updated: number; removed: number; unchanged: number; conflicts: number; recordConflicts: number; preferenceConflicts: number; cacheConflicts: number;
 }
 export interface ScanItem { address: string; name: string; rssi: number; }
 export interface TripMeta {

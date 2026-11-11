@@ -29,7 +29,7 @@ internal object TransferArchive {
         val bytes = JSONObject().put("tables", tables).put("preferences", prefs).put("devices", devices)
             .toString().toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_BYTES) { "数据超过 32 MiB 上限" }
-        val manifest = JSONObject().put("format", "brz-garage-transfer").put("version", 6)
+        val manifest = JSONObject().put("format", "brz-garage-transfer").put("version", 7)
             .put("appVersion", BuildConfig.VERSION_NAME).put("createdAt", snapshot.createdAt)
             .put("gauge", snapshot.gauge).put("bytes", bytes.size).put("sha256", digest(bytes))
         ZipOutputStream(stream).use { zip ->
@@ -59,7 +59,7 @@ internal object TransferArchive {
         require(entries.keys == setOf("manifest.json", "data.json")) { "数据包不完整" }
         val manifest = parseObject(entries.getValue("manifest.json"))
         val version = manifest.getInt("version")
-        require(manifest.getString("format") == "brz-garage-transfer" && version in 1..6) { "不支持的数据包版本，请升级 App" }
+        require(manifest.getString("format") == "brz-garage-transfer" && version in 1..7) { "不支持的数据包版本，请升级 App" }
         val bytes = entries.getValue("data.json")
         require(manifest.getLong("bytes") == bytes.size.toLong() && manifest.getString("sha256") == digest(bytes)) { "数据包校验失败，文件可能损坏" }
         val data = parseObject(bytes)

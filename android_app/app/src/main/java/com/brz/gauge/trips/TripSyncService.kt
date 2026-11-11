@@ -377,6 +377,7 @@ class TripSyncService : Service() {
                 description = "当预估剩余油量低于 25% 时提醒及时加油"
             },
         ))
+        WaitingNotification.ensure(this)
         promoteForeground()
         runningForTransfer = true
         running = true
@@ -608,7 +609,7 @@ class TripSyncService : Service() {
                 "驾驶中 %02d:%02d    已行驶 %.1f km",
                 hours, minutes, it.currentDistanceM / 1000.0)
         }
-        val builder = Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, WaitingNotification.channel(CHANNEL, connected, otaSessionActive || pendingFirmwareUpdate || pendingFirmwareScan))
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentTitle(if (driving != null) "BRZ Garage · 驾驶状态" else "BRZ Garage · 自动连接")
             .setContentText(driving ?: message)

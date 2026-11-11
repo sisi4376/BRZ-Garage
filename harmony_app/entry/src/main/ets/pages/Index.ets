@@ -1,8 +1,9 @@
+import { diagnostics } from '../platform/Diagnostics';
 import { APP_VERSION } from '../core/AppVersion';
 import { monthEnd } from '../core/Registration';
 import { nextMaintenance } from '../core/Maintenance';
 import { ledgerNotifications } from '../platform/LedgerNotifications';
-import { vehicleDeadlines, DeadlineTrack, inspectionWindow } from '../core/Deadlines';
+import { vehicleDeadlines, deadlineTracks, DeadlineTrack, inspectionWindow } from '../core/Deadlines';
 import { switchLedgerMode, ledgerHeading, ledgerMonthNet } from '../core/Ledger';
 import { Registration, Deadline, registration, saveRegistration, initialInspectionDue, nextInspectionDue, annualInsuranceEnd, insuranceDeadlines } from '../core/Registration';
 import { ledgerSection, heldAssets, assetLabel, disposeAsset, ledgerTotal, LedgerTotal } from '../core/Ledger';
@@ -99,6 +100,9 @@ struct Index {
   @State private autoText: string = '';
   @State private settingsInput: string = '';
   @State private settingsKey: string = '';
+  @State private draftProfile: number = 4;
+  @State private draftBrightness: number | null = null;
+  @State private draftThreshold: number | null = null;
   @State private gaugeSettings: GaugeSettings | null = null;
   @State private gaugeText: string = '';
   @State private firmwareEntries: CatalogEntry[] = [];
@@ -132,7 +136,7 @@ struct Index {
   private recordTables: string[] = ['fuel', 'expenses', 'refuel', 'custom'];
   private recordNames: string[] = ['加油账本', '费用保养', '加油区间', '自定义行程'];
 
-  aboutToAppear(): void { this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE); try { this.getUIContext().getFont().registerFont({familyName:'GarageSans',familySrc:'file:///system/fonts/HarmonyOS_Sans_SC.ttf'}); } catch (_) {} this.run(async () => { await repository.open(this.context()); this.refresh(); this.ready = true; this.firmwareEntries = await firmware.catalog(this.context()); this.status = '本机数据已就绪'; }); this.refreshTimer = setInterval(() => { this.autoText = automatic.status; if (this.ready && !this.busy && !this.editKind) repository.reload().then(() => { if (!this.busy && !this.editKind) this.refresh(); }).catch(() => {}); }, 2000); }
+  aboutToAppear(): void { this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE); try { this.getUIContext().getFont().registerFont({familyName:'GarageSans',familySrc:'file:///system/fonts/HarmonyOS_Sans_SC.ttf'}); } catch (_) {} this.run(async () => { await repository.open(this.context()); this.tab=Math.max(0,Math.min(3,Number(pref(repository.snapshot(),'default_start_tab',0)))); this.refresh(); this.ready = true; this.firmwareEntries = await firmware.catalog(this.context()); this.status = '本机数据已就绪'; }); this.refreshTimer = setInterval(() => { this.autoText = automatic.status; if (this.ready && !this.busy && !this.editKind) repository.reload().then(() => { if (!this.busy && !this.editKind) this.refresh(); }).catch(() => {}); }, 2000); }
   aboutToDisappear(): void { clearInterval(this.refreshTimer); if (!automatic.running) bluetooth.close(); }
   private context(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
   private async run(action: () => Promise<void>): Promise<void> {
@@ -300,7 +304,7 @@ struct Index {
     try {
     const report = merge(this.snapshot, this.incoming, this.preferIncoming);
     this.preview = '新增 ' + report.added + ' · 更新 ' + report.updated + ' · 删除 ' + report.removed +
-      ' · 保持 ' + report.unchanged + '\n冲突 ' + report.conflicts + ' 处，' + (this.preferIncoming ? '采用数据包内容' : '保留本机内容');
+      ' · 保持 ' + report.unchanged + '\n记录冲突 ' + report.recordConflicts + ' 组 · 设置差异 ' + report.preferenceConflicts + ' 项 · 缓存差异 ' + report.cacheConflicts + ' 组\n差异处理：' + (this.preferIncoming ? '采用数据包内容' : '保留本机内容');
     return true;
     } catch (error) { this.incoming = null; this.preview = ''; this.status = (error as Error).message; return false; }
   }
@@ -350,13 +354,14 @@ struct Index {
   private prefEnabled(key: string, fallback: boolean = true): boolean { return key === 'refined_home_ui' ? this.refinedHome : Boolean(pref(this.snapshot, key, fallback)); }
   private pageKey(): string { if(!this.route&&this.tab===2)return this.ledgerScrollKey();return this.route || String(this.tab) + ':' + this.settingsSection + ':' + this.accountingSection; }
   private navigate(route: string, tab: number = this.tab): void {
+    diagnostics.step('page.' + (route || String(tab)));
     if (route !== this.route) { this.refuelRevision = false; this.customRevision = false; }
     if (route && route !== this.route) this.parentRoutes.push(this.route); if (!route) this.parentRoutes = [];
     this.scrollPositions[this.pageKey()] = this.pageScroller.currentOffset().yOffset; this.route = route; this.tab = tab;
     const y = this.scrollPositions[this.pageKey()] || 0; setTimeout((): void => { this.pageScroller.scrollTo({xOffset:0,yOffset:y}); }, 30);
   }
   onBackPress(): boolean { if (this.editKind) { this.editKind = ''; return true; } if(this.settingsKey){this.settingsKey='';return true;} if(this.route){this.goBack();return true;} if(this.tab===2&&this.ledgerPage){this.ledgerGo('',this.ledgerPage==='statistics'?this.ledgerReturn:this.accountingSection);return true;} if(this.tab!==0){this.navigate('',0);return true;}return false; }
-  private openRoute(route: string): void { if(route==='legacy'){this.run(async()=>{await repository.setGroupedSettings(false);this.refresh();this.navigate('',3);setTimeout(():void=>this.pageScroller.scrollTo({xOffset:0,yOffset:0}),50);});return;}  if (route==='plate') { this.plateInput=String(pref(this.snapshot,'custom_license_plate',''));this.platePreview=this.plateInput; } this.navigate(route); if(route==='gauge' && this.bound && this.consent && !this.busy) this.readGauge(); }
+  private openRoute(route: string): void { if(route==='vehicle'||route==='gauge'){this.draftProfile=this.profile();this.draftBrightness=null;this.draftThreshold=null;}  if(route==='legacy'){this.run(async()=>{await repository.setGroupedSettings(false);this.refresh();this.navigate('',3);setTimeout(():void=>this.pageScroller.scrollTo({xOffset:0,yOffset:0}),50);});return;}  if (route==='plate') { this.plateInput=String(pref(this.snapshot,'custom_license_plate',''));this.platePreview=this.plateInput; } this.navigate(route); if(route==='gauge' && this.bound && this.consent && !this.busy) this.readGauge(); }
   private togglePref(key: string, value: boolean): void { this.run(async () => { if(key === 'refined_home_ui') await repository.setRefinedHome(value); else { await repository.edit((s: Snapshot) => putPref(s,key,value)); if(key.startsWith('odometer_display_')&&this.bound)await repository.queueSetting('display',value); } this.refresh(); }); }
   private fieldValue(key: string): string { return this.editFields.find((f: Field) => f.key===key)?.value || ''; }
   private setField(key: string, value: string): void { this.editFields=this.editFields.map((f: Field):Field=>({key:f.key,label:f.label,value:f.key===key?value:f.value})); }
@@ -366,7 +371,18 @@ struct Index {
     const r=repository.refuelLive();return homeMetrics(this.snapshot,this.gauge(),repository.vehicle(),kind,r?[r.distance,r.duration,r.fuel]:[]);
   }
   private tripMetrics(row: Row): number[] { return [Number(row.distance_m),Number(row.duration_s),Number(row.fuel_ml)]; }
-  private showCurrent(): void { const v=repository.vehicle();if(!v)return;this.selected={device_id:this.gauge(),trip_id:0,start_epoch_s:v.currentStart,end_epoch_s:v.epoch,distance_m:v.currentDistance,duration_s:v.currentDuration,fuel_ml:v.currentFuel,avg_l100_x100:v.currentDistance?Math.round(v.currentFuel/v.currentDistance*10000):0,flags:v.currentStart>0?1:0};this.currentDetail=true;this.navigate('trip'); }
+  private showCurrent(): void {
+    const v=repository.vehicle();if(!v)return;
+    const start=v.currentStart>=1704067200&&v.currentStart<=4102444800?v.currentStart:
+      v.epoch>=1704067200&&v.epoch<=4102444800?Math.max(0,v.epoch-v.currentDuration):0;
+    const end=v.epoch>=start?v.epoch:0;
+    this.selected={device_id:this.gauge(),trip_id:0,start_epoch_s:start,end_epoch_s:end,
+      distance_m:v.currentDistance,duration_s:v.currentDuration,fuel_ml:v.currentFuel,
+      avg_l100_x100:v.currentDistance?Math.round(v.currentFuel/v.currentDistance*10000):0,
+      flags:start>0&&end>=start?1:0,max_speed_kmh:v.maxSpeed??null,max_rpm:v.maxRpm??null,
+      max_accel_x100:v.maxAccel??null,max_decel_x100:v.maxDecel??null};
+    this.selectedTable='trips';this.currentDetail=true;this.navigate('trip');
+  }
   private fuelPercent():number|null{return effectiveFuel(this.snapshot,repository.vehicle());}
   private monthLabel(row: Row): string { const d=dayText(Number(row.date_epoch_day));return d.substring(0,4)+'年'+Number(d.substring(5,7))+'月'; }
   private tripMonth(row: Row): string { return (Number(row.flags)&1)?timeText(Number(row.start_epoch_s)).substring(0,7):'时间未知'; }
@@ -612,8 +628,15 @@ struct Index {
     if(compact||['insurance','inspection'].includes(this.ledgerPage)){Column(){this.sectionTitle(compact?'待办与到期':'到期跟踪');ForEach(vehicleDeadlines(this.snapshot,this.gauge()).filter((t:DeadlineTrack)=>compact||ledgerSection(t.record)===this.ledgerPage),(t:DeadlineTrack)=>{Column(){Text(String(t.record.title)+' · '+String(t.record.item_name||'')).fontFamily('GarageSans').fontSize(14).fontColor(INK);Text(t.status).fontFamily('GarageSans').fontSize(22).fontColor(t.due!==null&&t.due<parseDay(today())?'#C6304B':t.due!==null&&t.due-parseDay(today())<=30?'#E08426':readable(COLORS[2])).margin({top:6});this.note(t.due===null?'待设置有效期':'有效期止 '+dayText(t.due));this.note(t.detail);this.action(ledgerSection(t.record)==='insurance'?'记录续保':'已办结 · 更新有效期',COLORS[0],()=>this.renewLedger(t))}.padding(14).width('100%').backgroundColor('#F7F8FB').borderRadius(15).margin({top:10}).onClick(()=>{if(t.profile)this.editRegistration();else{const r=this.ledgerHistory().find((r:Row)=>r.transfer_id===t.record.transfer_id);if(r)this.ledgerEdit(ledgerSection(r),r);}})});if(!vehicleDeadlines(this.snapshot,this.gauge()).length){this.note('尚未设置 · 可记录费用为 0 的办理事项并设置下次日期')}if(this.ledgerPage==='inspection'){this.action('初次注册日期',COLORS[0],()=>this.editRegistration())}}.padding(20).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})}
   }
   @Builder private accounting() {
-    Row(){Text(this.ledgerPage==='statistics'?'账本统计':this.ledgerPage==='income'?'收入记录':this.ledgerPage==='assets'?'资产':this.fixedKeys().includes(this.ledgerPage)?this.fixedNames()[this.fixedKeys().indexOf(this.ledgerPage)]:'用车记账').fontFamily('GarageSans').fontSize(26).fontColor(INK).layoutWeight(1);this.action(this.refinedAccounting?'精细版 ▾':'精简版 ▾',COLORS[3],()=>this.switchLedger())}.width('100%')
-    Row({space:8}){Select(this.ledgerYears().map((y:string):SelectOption=>({value:y+' 年'}))).value(this.ledgerYear+' 年').onSelect((i:number)=>this.ledgerYear=this.ledgerYears()[i]);Select(['01','02','03','04','05','06','07','08','09','10','11','12'].map((m:string):SelectOption=>({value:m+' 月'}))).value(this.ledgerMonth+' 月').onSelect((i:number)=>this.ledgerMonth=String(i+1).padStart(2,'0'))}.width('100%')
+    Row({space:8}){
+      Text(this.ledgerPage==='statistics'?'账本统计':this.ledgerPage==='income'?'收入记录':this.ledgerPage==='assets'?'资产':this.fixedKeys().includes(this.ledgerPage)?this.fixedNames()[this.fixedKeys().indexOf(this.ledgerPage)]:'用车记账').fontFamily('GarageSans').fontSize(30).fontWeight(FontWeight.Medium).fontColor(INK).maxLines(1).textOverflow({overflow:TextOverflow.Ellipsis}).layoutWeight(1)
+      Text(this.refinedAccounting?'精细版 ▾':'精简版 ▾').fontSize(12).fontWeight(FontWeight.Medium).fontColor(COLORS[3]).padding({left:12,right:12,top:10,bottom:10}).backgroundColor(soften(COLORS[3])).borderRadius(13).enabled(!this.busy).accessibilityText('切换精简版或精细版').onClick(()=>this.switchLedger())
+    }.width('100%')
+    Text(this.ledgerPage?'按所选年份查看记录与统计':'轻扫或点击切换栏目 · 数据仅保存在本机').fontSize(12).fontColor(MUTED).width('100%').margin({top:5})
+    Row({space:8}){
+      Text(this.ledgerYear+' 年 ▾').fontSize(12).fontWeight(FontWeight.Medium).fontColor(COLORS[3]).padding({left:12,right:12,top:8,bottom:8}).constraintSize({minHeight:36}).backgroundColor(soften(COLORS[3])).borderRadius(12).onClick(()=>this.getUIContext().showActionSheet({title:'选择账本年份',message:'',sheets:this.ledgerYears().map((year:string):SheetInfo=>({title:year+' 年',action:()=>{this.ledgerYear=year;}}))}))
+      Text(Number(this.ledgerMonth)+' 月 ▾').fontSize(12).fontWeight(FontWeight.Medium).fontColor(COLORS[3]).padding({left:12,right:12,top:8,bottom:8}).constraintSize({minHeight:36}).backgroundColor(soften(COLORS[3])).borderRadius(12).onClick(()=>this.getUIContext().showActionSheet({title:'选择账本月份',message:'',sheets:[1,2,3,4,5,6,7,8,9,10,11,12].map((month:number):SheetInfo=>({title:month+' 月',action:()=>{this.ledgerMonth=String(month).padStart(2,'0');}}))}))
+    }.width('100%').margin({top:8})
     if(this.ledgerPage){
       this.action('返回用车记账',COLORS[3],()=>this.ledgerGo('',this.ledgerPage==='statistics'?this.ledgerReturn:this.accountingSection))
       if(this.ledgerPage==='assets'){this.assetsSection()}else if(this.ledgerPage==='statistics'){this.ledgerStatistics()}
@@ -702,6 +725,13 @@ struct Index {
   @Builder private ledgerNotificationPage(){
     this.back();this.title('到期通知','管理用车事项的系统通知');this.hero('accounting','到期提醒','保险 · 年审 · 保养','提前 30、7、3 天及当天',COLORS[1]);Column(){this.listRow('settings','系统通知权限',this.notificationEnabled?'已开启 · 点击管理':'未开启 · 点击授权',COLORS[3],()=>this.run(async()=>{await ledgerNotifications.permission(this.context());this.notificationEnabled=await ledgerNotifications.enabled();}));this.note('到期前30、7、3天及当天在通知栏提醒。记录续保或完成保养后，根据新周期更新提醒。');this.note('年审按车辆注册资料估计，并可用实际检验有效期校准。后台送达时间受系统通知与省电设置影响。')}.padding(20).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
   }
+  private startupPageName(): string { return ['车辆首页','驾驶足迹','用车记账','设置'][Math.max(0,Math.min(3,Number(pref(this.snapshot,'default_start_tab',0))))]; }
+  private chooseStartupPage(): void {
+    this.getUIContext().showActionSheet({title:'默认启动页',message:'下次打开 App 时进入；通知入口优先',sheets:['车辆首页','驾驶足迹','用车记账','设置'].map((name:string,index:number):SheetInfo=>({title:name,action:()=>this.run(async()=>{await repository.edit((s:Snapshot)=>putPref(s,'default_start_tab',index));this.refresh();})}))});
+  }
+  @Builder private startupPageSetting(){
+    Column(){this.listRow('display','默认启动页','下次打开 App 时进入；通知入口优先',COLORS[3],()=>this.chooseStartupPage(),this.startupPageName())}.width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:12})
+  }
   @Builder private settings(){
     this.title('设置','连接、显示与仪表功能')
     this.hero('vehicle',this.name(),'Subaru BRZ '+this.model()+' '+this.transmission()+' · '+(mileage(this.snapshot,this.gauge())/1000).toFixed(0)+' km',automatic.running?'●  正在连接 / 同步':'○  仪表未连接',COLORS[3],true)
@@ -721,6 +751,7 @@ struct Index {
       Column(){this.switchRow('fuel','显示上次加油以来','首页行程卡片',COLORS[2],this.prefEnabled('show_since_refuel_'+this.gauge(),false),(v:boolean)=>this.togglePref('show_since_refuel_'+this.gauge(),v));this.divider();this.switchRow('trip','显示自定义行程','首页行程卡片',COLORS[2],this.prefEnabled('show_custom_trip_'+this.gauge(),false),(v:boolean)=>this.togglePref('show_custom_trip_'+this.gauge(),v));this.divider();this.listRow('trip','自定义行程名称',String(pref(this.snapshot,'custom_trip_name_'+this.gauge(),'自定义行程')),COLORS[2],()=>this.setting('custom_trip_name',String(pref(this.snapshot,'custom_trip_name_'+this.gauge(),''))));this.divider();this.listRow('trip','自定义行程与历史','查看、归档或重置当前区间',COLORS[2],()=>this.openRoute('custom'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
       Column(){this.listRow('gauge','仪表设置','日间亮度与当前仪表参数',COLORS[1],()=>this.openRoute('gauge'));this.divider();this.listRow('fuel','自动加油识别阈值','在车辆设置中调整',COLORS[0],()=>this.openRoute('vehicle'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
     }else{
+      this.startupPageSetting()
       Column(){this.listRow('accounting','到期通知','保险 · 年审 · 保养',COLORS[1],()=>this.openLedgerNotifications());this.divider();this.listRow('update','App 更新','当前 v' + APP_VERSION + ' · 查看版本与下载安装',COLORS[3],()=>this.openRoute('appUpdate'));this.divider();this.listRow('legacy','数据迁移','导出完整数据包，或导入并合并旧设备记录',COLORS[3],()=>this.openRoute('transfer'));this.divider();this.listRow('firmware','仪表固件更新','查看更新与回滚',COLORS[1],()=>this.openRoute('firmware'));this.divider();this.listRow('gauge','仪表设置','查看固件信息和显示参数',COLORS[1],()=>this.openRoute('gauge'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
       Column(){this.switchRow('autostart','开机自启 / 自动连接','打开 App 后恢复连接，连接期间保持后台同步',COLORS[0],this.automaticEnabled,(v:boolean)=>this.automaticToggle(v));this.divider();this.listRow('bluetooth','系统级 BLE 唤醒','查看鸿蒙后台连接状态',COLORS[0],()=>this.openRoute('background'));this.divider();this.listRow('feedback','问题反馈','报告异常、提出建议并附带脱敏诊断信息',COLORS[3],()=>this.openRoute('feedback'));this.divider();this.listRow('legal','使用须知与版权','安全边界、数据权限、开源许可与非官方声明',COLORS[3],()=>this.openRoute('legal'));this.divider();this.listRow('legacy','切换到经典设置页','完整保留原有设置界面与全部入口',MUTED,()=>this.openRoute('legacy'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
       this.note('新版与经典版共用同一份设置数据，切换界面不会重置车辆、行程或记账记录。')
@@ -729,13 +760,32 @@ struct Index {
   private dailySlices():Metric[]{return DAILY.map((name:string,i:number):Metric=>({label:name,value:sum(inMonth(this.expenses(2),today().substring(0,4)).filter((r:Row)=>dailyKind(String(r.title))===i),'amount'),detail:''}));}
   private homeCaption():string {const at=Number(this.snapshot.devices[this.gauge()]?.last_fuel_at||0),age=Date.now()-at;const freshness=at>0?(age>=0&&age<=20000?'已更新 · ':'未更新 · 上次更新 ')+timeText(at/1000):'未更新 · 尚未收到油量';const consumption=rangeConsumption(this.snapshot,this.gauge(),repository.vehicle());const rawFactor=Number(pref(this.snapshot,'range_correction_factor','1.06')),factor=rawFactor>=.5&&rawFactor<=2?rawFactor:1.06;const source=this.sourceLabel()+(consumption!==null&&consumption>0?' '+consumption.toFixed(2)+' L/100km'+(String(pref(this.snapshot,'range_consumption_source','gauge_history'))==='fuel_records'?'':'，续航计算 ×'+factor.toFixed(2)):'暂无有效样本');return freshness+'\n按 '+Number(pref(this.snapshot,'tank','50')).toFixed(0)+' L油箱 · '+source+(this.refinedHome?'\n续航仅为估计结果，请合理规划加油。':'');}
   private sourceLabel():string {return ['最近五次驾驶','仪表历史油耗','加油记录平均油耗'][Math.max(0,['recent_five','gauge_history','fuel_records'].indexOf(String(pref(this.snapshot,'range_consumption_source','gauge_history'))))];}
+  private registrationDate(due: boolean): string {
+    const value=registration(this.snapshot,this.gauge());
+    const day=due?value?.inspectionDueDay:value?.registeredDay;
+    return day===undefined||day===null?(due?'待计算 / 核对':'未填写'):dayText(day);
+  }
+  private registrationTrack(): DeadlineTrack | undefined { const gauge=this.gauge()||'local',value=registration(this.snapshot,gauge);if(!value)return undefined;const profiles:Record<string,Registration>={};profiles[gauge]=value;return deadlineTracks([],profiles)[0]; }
+  @Builder private registrationCard(){
+    Column({space:8}){
+      this.sectionTitle('车辆注册登记与年检')
+      this.readRow('初次注册日期',this.registrationDate(false))
+      this.readRow('检验有效期止',this.registrationDate(true))
+      if(registration(this.snapshot,this.gauge())){
+        Text(this.registrationTrack()?.status||'待补充到期日期').fontSize(20).fontWeight(FontWeight.Medium).fontColor(COLORS[0]).width('100%')
+        Text(this.registrationTrack()?.detail||'请核对检验有效期').fontSize(11).fontColor(MUTED).width('100%')
+        this.action('本次已办结 · 计算下一有效期',COLORS[0],()=>this.editRegistration(true))
+      }
+      this.action(registration(this.snapshot,this.gauge())?'编辑注册资料 / 校准有效期':'填写车辆注册信息',COLORS[0],()=>this.editRegistration())
+      this.note('初次填写按注册日期计算预计周期，保存后保持该期到期日；办结后再推进。实际有效期可按交管12123校准。')
+    }.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
+  }
   @Builder private vehicleSettings(){
     this.back();this.title('车辆设置','车辆资料、里程与续航');this.hero('vehicle',this.name(),'Subaru BRZ '+this.model()+' '+this.transmission()+' · '+(mileage(this.snapshot,this.gauge())/1000).toFixed(0)+' km',automatic.running?'● 仪表连接中':'○ 仪表未连接',COLORS[0])
-    Column(){this.listRow('vehicle','首页车辆名称','最多 9 个字符，仅保存在手机本地',COLORS[0],()=>this.setting('vehicle_display_name',this.name()),this.name());this.divider();this.listRow('plate','首页车牌','生成并安装自定义车牌图案',COLORS[0],()=>this.openRoute('plate'))}.width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    this.action('初次注册日期与年检有效期',COLORS[0],()=>this.editRegistration())
-    Column(){this.sectionTitle('车型设置');ForEach(['Subaru BRZ ZD8 6MT','Subaru BRZ ZC6 6MT','Subaru BRZ ZD8 6AT','Subaru BRZ ZC6 6AT'],(name:string,i:number)=>{Row(){Radio({value:name,group:'vehicle'}).checked(this.profile()===[4,1,17,16][i]).radioStyle({checkedBackgroundColor:COLORS[0]}).onChange((checked:boolean)=>{if(checked)this.setModel([4,1,17,16][i]);});Text(name).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK)}.width('100%').height(46)});this.note('车型可离线保存。自动挡需固件 4.1.0 或更新版本；关闭挡位显示，基础数据和油耗待实车验证。');if(this.bound){this.action('同步车型到仪表',COLORS[0],()=>this.writeGauge('profile',this.profile()))}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    Column(){this.sectionTitle('自动加油识别');this.readRow('识别阈值',this.gaugeSettings?.threshold?this.gaugeSettings.threshold/1000+' L':'');Slider({value:(this.gaugeSettings?.threshold||10000)/1000,min:5,max:20,step:1}).enabled(!!this.bound&&!this.busy).onChange((value:number,mode:SliderChangeMode)=>{if(mode===SliderChangeMode.End)this.writeGauge('threshold',value*1000);});if(!this.gaugeSettings){this.action('读取仪表设置',COLORS[0],()=>this.readGauge())}this.note('仪表需要两次独立油位样本确认油量上升。阈值需连接支持该功能的仪表后调整。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    Column(){this.switchRow('vehicle','显示 3D 车辆','默认使用 2D 图片；开启后可旋转、缩放及调整车漆',COLORS[0],this.prefEnabled('show_3d_vehicle',false),(v:boolean)=>this.togglePref('show_3d_vehicle',v))}.width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
+    Column(){this.listRow('vehicle','首页车辆名称','最多 9 个字符，仅保存在手机本地',COLORS[0],()=>this.setting('vehicle_display_name',this.name()),this.name());this.divider();this.listRow('plate','首页车牌','生成并安装自定义车牌图案',COLORS[0],()=>this.openRoute('plate'));this.divider();this.switchRow('vehicle','显示 3D 车辆','默认使用 2D 图片；开启后可旋转、缩放及调整车漆',COLORS[0],this.prefEnabled('show_3d_vehicle',false),(v:boolean)=>this.togglePref('show_3d_vehicle',v))}.width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+    this.registrationCard()
+    Column(){this.sectionTitle('车型设置');ForEach(['Subaru BRZ ZD8 6MT','Subaru BRZ ZC6 6MT','Subaru BRZ ZD8 6AT','Subaru BRZ ZC6 6AT'],(name:string,i:number)=>{Row(){Radio({value:name,group:'vehicle'}).checked(this.draftProfile===[4,1,17,16][i]).radioStyle({checkedBackgroundColor:COLORS[0]}).onChange((checked:boolean)=>{if(checked)this.draftProfile=[4,1,17,16][i];});Text(name).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK)}.width('100%').height(46)});this.note('车型可离线保存。自动挡需固件 4.1.0 或更新版本；关闭挡位显示，基础数据和油耗待实车验证。');this.primaryAction('保存并同步车型',COLORS[0],()=>this.setModel(this.draftProfile))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+    Column(){this.sectionTitle('自动加油识别');this.readRow('识别阈值',this.gaugeSettings?.threshold?(this.draftThreshold??this.gaugeSettings.threshold/1000)+' L':'');Slider({value:this.draftThreshold??(this.gaugeSettings?.threshold||10000)/1000,min:5,max:20,step:1}).enabled(!!this.bound&&!!this.gaugeSettings?.threshold&&!this.busy).onChange((value:number)=>{this.draftThreshold=value;});this.action('应用加油识别阈值',COLORS[0],()=>this.writeGauge('threshold',(this.draftThreshold??(this.gaugeSettings?.threshold||10000)/1000)*1000),true,!!this.bound&&!!this.gaugeSettings?.threshold);if(!this.gaugeSettings){this.action('读取仪表设置',COLORS[0],()=>this.readGauge())}this.note('仪表需要两次独立油位样本确认油量上升。阈值需连接支持该功能的仪表后调整。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){this.sectionTitle('油箱与续航');this.readRow('油箱容量',pref(this.snapshot,'tank','50')+' L',COLORS[0]);this.readRow('油耗来源',this.sourceLabel());this.action('调整油箱容量',COLORS[0],()=>this.setting('tank',String(pref(this.snapshot,'tank','50'))));Text('续航估算油耗来源').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%').margin({top:14});ForEach(['最近五次驾驶','仪表历史油耗','加油记录平均油耗'],(name:string,i:number)=>{Row(){Radio({value:name,group:'range'}).checked(pref(this.snapshot,'range_consumption_source','gauge_history')===['recent_five','gauge_history','fuel_records'][i]).radioStyle({checkedBackgroundColor:COLORS[0]}).onChange((checked:boolean)=>{if(checked)this.run(async()=>{await repository.edit((s:Snapshot)=>putPref(s,'range_consumption_source',['recent_five','gauge_history','fuel_records'][i]));this.refresh();});});Text(name).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK)}.width('100%').height(46)});if(pref(this.snapshot,'range_consumption_source','gauge_history')!=='fuel_records'){this.readRow('续航修正系数',String(pref(this.snapshot,'range_correction_factor','1.06')));this.action('调整续航修正系数',COLORS[0],()=>this.setting('range_correction_factor',String(pref(this.snapshot,'range_correction_factor','1.06'))))}this.note('设置直接在本页完成，不再跳转到经典设置。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
   }
   @Builder private bindingPage(){
@@ -753,7 +803,7 @@ struct Index {
     this.back();this.title('仪表设置','亮度、显示参数与同步状态');this.hero('gauge','SkyGauge',this.gaugeText||'等待读取固件版本',automatic.running?'● 连接中':'○ 当前未连接',COLORS[1])
     Column(){this.sectionTitle('当前可调整');Text('手机端可调整日间亮度；其余参数以整洁的只读行展示。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).lineHeight(20).margin({top:8});this.note('车型与自动加油识别阈值已归入车辆设置。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('同步状态');Text(this.gaugeText||'等待仪表设置数据。当前先显示完整参数结构；请保持仪表上电。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%');this.action('连接并读取仪表信息',COLORS[1],()=>this.readGauge())}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    ForEach(['基本设置','提醒设置','页面显示','图表报警阈值','联动与启动'],(group:string)=>{Column(){this.sectionTitle(group);ForEach(this.gaugeRows(group),(row:Field)=>{this.readRow(row.label,row.value)});if(group==='基本设置'){Text('日间亮度 '+(this.gaugeSettings?.brightness??'—')+'%').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).width('100%');Slider({value:this.gaugeSettings?.brightness||50,min:10,max:100,step:1}).enabled(!!this.bound&&!this.busy).onChange((v:number,mode:SliderChangeMode)=>{if(mode===SliderChangeMode.End)this.writeGauge('brightness',v);})}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})})
+    ForEach(['基本设置','提醒设置','页面显示','图表报警阈值','联动与启动'],(group:string)=>{Column(){this.sectionTitle(group);ForEach(this.gaugeRows(group),(row:Field)=>{this.readRow(row.label,row.value)});if(group==='基本设置'){Text('日间亮度 '+(this.draftBrightness??this.gaugeSettings?.brightness??'—')+'%').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).width('100%');Slider({value:this.draftBrightness??this.gaugeSettings?.brightness??100,min:10,max:100,step:1}).enabled(!!this.bound&&!!this.gaugeSettings&&!this.busy).onChange((v:number)=>{this.draftBrightness=v;});this.action('应用亮度到仪表',COLORS[1],()=>this.writeGauge('brightness',this.draftBrightness??this.gaugeSettings?.brightness??100),true,!!this.bound&&!!this.gaugeSettings)}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})})
   }
   private gaugeRows(group:string):Field[]{
     const names: string[] = group==='基本设置'?['OBD 协议','ELM327 名称','ELM327 MAC','主题','默认页面']:group==='提醒设置'?['转速黄线','转速闪烁','多表联动闪烁','刹车温度提醒','机油压力提醒']:group==='页面显示'?['温度页项目 1','温度页项目 2','温度页项目 3','信息页项目 1','信息页项目 2','信息页项目 3','信息页项目 4','信息页项目 5','指针页数据','图表页数据']:group==='图表报警阈值'?['CLT 水温','IAT 进气温度','OIL 机油温度','LOD 发动机负荷','TPS 节气门','RPM 转速','SPD 车速','BAT 电压','OIP 机油压力','BKT 刹车温度','BST 增压压力','AFR 空燃比']:['仪表角色','仪表位置','联动开机动画','启动画面','RaceChrono 服务','主表 MAC','行程合并间隔'];
@@ -776,7 +826,7 @@ struct Index {
       if(!this.currentDetail){Row({space:8}){Column(){this.action('修订测试数据',COLORS[1],()=>this.edit('trips',this.selected))}.layoutWeight(1);if(Number(this.selected.trip_id)>0){Column(){this.action('手动拆分这条行程',COLORS[0],()=>this.edit('split',this.selected))}.layoutWeight(1)}}.width('100%').margin({top:8})}
       if(!this.currentDetail&&this.selected.data_revised===1){Text(Number(this.selected.trip_id)<0?'由行程 #'+Math.floor((-Number(this.selected.trip_id)-1)/2)+' 手动拆分 · 不会写回仪表':'测试数据已手动修订 · 不会写回仪表').fontFamily('GarageSans').fontSize(11).fontWeight(FontWeight.Medium).fontColor(readable(COLORS[1])).textAlign(TextAlign.Center).width('100%').padding({left:12,right:12,top:9,bottom:9}).backgroundColor(soften(COLORS[1])).borderRadius(13).margin({top:10})}
       StatisticsCard({title:this.currentDetail?'本次行程 · 实时快照':'行程概览',color:COLORS[0],values:this.tripMetrics(this.selected),target:'',note:'平均时速 '+(Number(this.selected.duration_s)>0?(Number(this.selected.distance_m)/Number(this.selected.duration_s)*3.6).toFixed(1)+' km/h':'旧记录未采集'),onOpen:(target:string)=>{if(target==='current')this.showCurrent();else if(target)this.navigate(target);}})
-      Column(){this.sectionTitle('速度与转速');this.metricPair('最高速度',this.selected.max_speed_kmh==null?'旧记录未采集':this.selected.max_speed_kmh+' km/h','最高转速',this.selected.max_rpm==null?'旧记录未采集':this.selected.max_rpm+' rpm');this.note(this.selected.max_speed_kmh!==null||this.selected.max_rpm!==null?'极值由仪表在行程中实时统计。':'该行程来自旧版记录，仪表当时尚未采集速度与转速极值。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+      Column(){this.sectionTitle('速度与转速');this.metricPair('最高速度',this.selected.max_speed_kmh==null?'旧记录未采集':this.selected.max_speed_kmh+' km/h','最高转速',this.selected.max_rpm==null?'旧记录未采集':this.selected.max_rpm+' rpm');this.note(this.selected.max_speed_kmh!=null||this.selected.max_rpm!=null?'极值由仪表在行程中实时统计。':'该行程来自旧版记录，仪表当时尚未采集速度与转速极值。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
       Column(){this.sectionTitle('燃油表现');this.metricPair('平均油耗',(Number(this.selected.avg_l100_x100)/100).toFixed(1)+' L/100km','消耗燃油',(Number(this.selected.fuel_ml)/1000).toFixed(2)+' L')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
       Column(){this.sectionTitle('时间记录');if(Number(this.selected.flags)&1){this.metricBox('开始',this.detailedTime(Number(this.selected.start_epoch_s)));Column(){this.metricBox('结束',this.detailedTime(Number(this.selected.end_epoch_s)))}.width('100%').margin({top:8});if(this.selected.time_revised===1){this.note('时间由用户手动修订')}else if(this.inconsistentTime(this.selected)){this.note('时间跨度与驾驶时长不一致，请核实')}}else{this.note('升级前记录或该次行程未完成手机授时，因此没有可靠的开始/结束时间。')}if(this.currentDetail){this.note('本次行程结束后，最终记录会同步到驾驶足迹。')}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     }
@@ -803,7 +853,7 @@ struct Index {
   @Builder private transferPage(){
     this.back();this.title('数据迁移','切换设备前先同步、导出，再在新设备导入')
     Text('包含九类历史记录与删除标记、全部可迁移车辆参数、车牌与外观、每块仪表的首页快照、剩余油量基线、当前加油区间、仪表设置、固件与授时缓存。系统权限、蓝牙配对与待执行仪表命令需要在新手机重新设置。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).lineHeight(22).fontColor(INK).margin({top:16})
-    Column({space:12}){this.action('导出完整数据包',COLORS[3],()=>this.exportPackage(),true);this.action('导入并合并数据包',COLORS[3],()=>this.importPackage());this.action('导入前备份',COLORS[3],()=>{this.backups=repository.backupPaths();this.navigate('backups');});if(this.incoming){Text('来源仪表：'+(this.incoming.gauge||'未绑定')+'\n导出时间：'+timeText(this.incoming.createdAt/1000)+' · 仪表缓存 '+Object.keys(this.incoming.devices).length+' 份').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED);this.switchRow('legacy','冲突时采用数据包','关闭时保留本机',COLORS[3],this.preferIncoming,(v:boolean)=>{this.preferIncoming=v;this.updatePreview();});Text(this.preview).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(readable(COLORS[3]));this.action('确认合并',COLORS[3],()=>this.run(async()=>{if(!this.incoming)return;await repository.importData(this.incoming,this.preferIncoming);this.incoming=null;this.refresh();this.status='历史记录、车辆配置与仪表缓存已合并。重新绑定同一仪表后会继续核对并补齐新数据。';}),true);this.action('取消',MUTED,()=>this.incoming=null)}this.note('导入前会自动保留本机数据包。冲突可选择以数据包为准或保留本机；不会仅因数据包缺少某条记录就删除本机记录。手动拆分和加油历史版本冲突按整组处理。');this.note('操作期间暂时断开手机与仪表的数据连接，完成后恢复。仪表继续自行记录。已被覆盖且未导出的记录无法补回。');Text(this.status).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK).width('100%')}.width('100%').margin({top:20})
+    Column({space:12}){this.action('导出完整数据包',COLORS[3],()=>this.exportPackage(),true);this.action('导入并合并数据包',COLORS[3],()=>this.importPackage());this.action('导入前备份',COLORS[3],()=>{this.backups=repository.backupPaths();this.navigate('backups');});if(this.incoming){Text('来源仪表：'+(this.incoming.gauge||'未绑定')+'\n导出时间：'+timeText(this.incoming.createdAt/1000)+' · 仪表缓存 '+Object.keys(this.incoming.devices).length+' 份').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED);this.switchRow('legacy','冲突时采用数据包','关闭时保留本机',COLORS[3],this.preferIncoming,(v:boolean)=>{this.preferIncoming=v;this.updatePreview();});Text(this.preview).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(readable(COLORS[3]));this.action('确认合并',COLORS[3],()=>this.run(async()=>{if(!this.incoming)return;await repository.importData(this.incoming,this.preferIncoming);this.incoming=null;this.refresh();this.status='历史记录、车辆配置与仪表缓存已合并。重新绑定同一仪表后会继续核对并补齐新数据。';}),true);this.action('取消',MUTED,()=>this.incoming=null)}this.note('新导出使用 v7 格式，包含精简／精细记账偏好；接收端需使用支持 v7 的版本。仍可导入旧版 v1–v6 数据包。');this.note('导入前会自动保留本机数据包。冲突可选择以数据包为准或保留本机；不会仅因数据包缺少某条记录就删除本机记录。手动拆分和加油历史版本冲突按整组处理。');this.note('操作期间暂时断开手机与仪表的数据连接，完成后恢复。仪表继续自行记录。已被覆盖且未导出的记录无法补回。');Text(this.status).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK).width('100%')}.width('100%').margin({top:20})
   }
   private goBack():void { this.refuelRevision=false;this.customRevision=false;const parent=this.parentRoutes.pop()||'';this.route=parent;const y=this.scrollPositions[this.pageKey()]||0;setTimeout(():void=>{this.pageScroller.scrollTo({xOffset:0,yOffset:y});},30); }
   private generatePlate():void{this.run(async()=>{this.platePreview=plateText(this.plateInput);await repository.edit((s:Snapshot)=>putPref(s,'custom_license_plate',this.platePreview));this.refresh();this.plateMessage='车牌已生成并保存';});}
@@ -825,7 +875,36 @@ struct Index {
   @Builder private backgroundPage(){
     this.back();this.title('系统级 BLE 唤醒','自动连接与后台状态');Column({space:12}){this.switchRow('autostart','自动连接','连接期间申请蓝牙长时任务',COLORS[0],this.automaticEnabled,(v:boolean)=>this.automaticToggle(v));this.readRow('连接状态',automatic.status);this.note('鸿蒙使用蓝牙长时任务保持连接。被系统结束或手机重启后，需要打开 App 恢复。');this.note('此处是鸿蒙系统能力差异，无法直接使用 Android 的伴生设备唤醒服务。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
   }
-  @Builder private feedbackPage(){this.back();this.title('问题反馈','报告异常、提出建议并附带脱敏诊断信息');Column({space:12}){Text('BRZ Garage 鸿蒙 v' + APP_VERSION + '\n行程 '+this.rows('trips').length+' 条\n'+this.status).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).width('100%').copyOption(CopyOptions.LocalDevice);this.action('复制反馈模板',COLORS[3],()=>this.run(async()=>{await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,'BRZ Garage 鸿蒙 v' + APP_VERSION + '\n问题描述：\n复现步骤：\n预期表现：\n实际表现：\n已保存行程：'+this.rows('trips').length));this.status='反馈模板已复制';}));this.action('打开问题反馈',COLORS[3],()=>this.openLink('https://github.com/sisi4376/BRZ-Garage/issues'));this.note('可长按复制诊断信息。请勿在公开问题中上传完整车辆数据包或个人信息。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})}
+  private feedbackDiagnostics(): string {
+    const cache=this.snapshot.devices[this.gauge()];
+    return 'BRZ Garage 鸿蒙 v'+APP_VERSION+'\n仪表连接：'+(this.liveConnected?'已连接':'未连接')+
+      '\n同步服务：'+(automatic.running?'运行中':'未运行')+'\n自动连接：'+(this.automaticEnabled?'已开启':'已关闭')+
+      '\n仪表固件：'+String(cache?.firmware_version||'未读取')+'\n\n'+diagnostics.summary();
+  }
+  private feedbackTemplate(): string {
+    return '### 问题描述\n请简要说明遇到的问题或建议。\n\n### 复现步骤\n1. 请填写第一步\n2. 请填写第二步\n3. 请填写出现问题的操作\n\n### 期望结果\n请填写期望结果\n\n### 实际结果\n请填写实际结果\n\n### 附件\n如方便，请补充截图或录屏；提交前请遮挡车牌、蓝牙地址等个人信息。\n\n### 诊断信息\n'+this.feedbackDiagnostics();
+  }
+  private copyFeedback(): void { this.run(async()=>{await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,this.feedbackTemplate()));this.status='反馈模板已复制，可粘贴到 GitHub 或其他沟通渠道';}); }
+  private openFeedback(): void { this.run(async()=>{
+    try { await this.context().startAbility({action:'ohos.want.action.viewData',uri:'https://github.com/sisi4376/BRZ-Garage/issues/new?title='+encodeURIComponent('[问题反馈] 请简要描述问题')+'&body='+encodeURIComponent(this.feedbackTemplate())}); }
+    catch (_) { await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,this.feedbackTemplate()));this.notice('无法打开浏览器，反馈模板已经复制，可稍后粘贴到 GitHub Issues。'); }
+  }); }
+  @Builder private feedbackPage(){
+    this.back();this.title('问题反馈','报告异常、提出建议或补充兼容性信息')
+    this.hero('feedback','帮助我们改进','通过 GitHub Issues 跟踪处理进度','提交前可检查和修改全部内容',COLORS[3])
+    Column({space:8}){
+      this.sectionTitle('怎样反馈更容易定位')
+      Text('请尽量写明发生场景、复现步骤、期望结果和实际结果；界面或显示问题可附截图，连接问题可说明仪表是否上电及手机系统版本。').fontSize(13).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+      this.note('反馈入口会打开外部 GitHub 页面，需要网络和 GitHub 账号。点击按钮不会直接提交，仍可在网页中检查和删除预填内容。')
+    }.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
+    Column({space:8}){
+      this.sectionTitle('脱敏诊断信息')
+      Text(this.feedbackDiagnostics()).fontFamily('monospace').fontSize(12).fontColor(INK).width('100%').padding(12).backgroundColor('#F7F8FB').borderRadius(13).copyOption(CopyOptions.LocalDevice)
+      this.note('本地记录最近一次 ArkTS 未处理异常的代码位置与页面步骤；不记录异常消息、行程或完整蓝牙地址，不会自动上传。复现后重新打开本页，复制反馈模板即可。')
+    }.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
+    Column({space:8}){this.primaryAction('在 GitHub 提交问题',COLORS[3],()=>this.openFeedback());this.action('复制反馈模板',COLORS[3],()=>this.copyFeedback())}.width('100%').margin({top:14})
+    this.note('如果问题涉及安全、隐私或不适合公开的信息，请不要在公开 Issue 中填写敏感数据。')
+  }
   @Builder private legalPage(){
     if(this.consent){this.back()}
     this.title('使用须知与版权','请先阅读功能边界、数据权限与开源声明')
@@ -837,6 +916,7 @@ struct Index {
   }
   @Builder private legacyPage(){
     this.title('设置','连接、显示与仪表功能')
+    this.startupPageSetting()
     Column({space:12}){this.sectionTitle('设置页样式');this.note('当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。');this.action('切换到新版分组设置页',COLORS[0],()=>this.run(async()=>{await repository.setGroupedSettings(true);this.refresh();this.navigate('',3);setTimeout(():void=>this.pageScroller.scrollTo({xOffset:0,yOffset:0}),50);}))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){this.sectionTitle('数据迁移');this.action('到期通知',COLORS[1],()=>this.openLedgerNotifications());this.action('导出完整数据包 / 导入并合并',COLORS[3],()=>this.openRoute('transfer'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('我的车辆');Text(this.name()).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(18).fontColor(INK).width('100%');Text(this.model()).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(MUTED).width('100%');this.action('车辆设置',COLORS[0],()=>this.openRoute('vehicle'));this.note('在车辆设置中修改首页名称、车型和自动加油识别阈值。');this.action('自定义车牌',COLORS[0],()=>this.openRoute('plate'));this.note('生成的蓝牌可安装在首页车辆示意图。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})

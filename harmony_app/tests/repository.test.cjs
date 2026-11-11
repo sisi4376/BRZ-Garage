@@ -209,7 +209,7 @@ test('real Android database export -> fresh Harmony repository -> re-export for 
  const incoming=await A.decodeArchive(new Uint8Array(input),runtime);
  const h=harness('real-android-store'),repo=new h.Repository();await repo.open(h.context);await repo.importData(incoming,false);
  const cold=new h.Repository();await cold.open(h.context);const s=cold.snapshot(),G=require(root+'/core/Garage'),P=require(root+'/core/AndroidPresentation');
- assert.equal(cold.binding(),'');assert.equal(cold.refinedHome(),false);assert.equal(cold.groupedSettings(),false);assert.deepEqual(normalize(s.preferences),normalize(incoming.preferences));assert.equal(cold.vehicle().totalDistance,456789);assert.equal(cold.vehicle().maxDecel,-92);assert.equal(G.mileage(s,s.gauge),42000000);
+ assert.equal(cold.binding(),'');assert.equal(cold.refinedHome(),false);assert.equal(cold.groupedSettings(),false);assert.deepEqual(normalize(s.preferences),normalize({refined_accounting_ui:{type:'boolean',value:false},...incoming.preferences}));assert.equal(cold.vehicle().totalDistance,456789);assert.equal(cold.vehicle().maxDecel,-92);assert.equal(G.mileage(s,s.gauge),42000000);
  const costs=P.vehicleRows(s,'expenses',s.gauge);assert.equal(costs.length,2);assert.equal(costs.find(r=>r.category===1).amount,300);assert.equal(costs.find(r=>r.category===2).amount,25);
  assert.equal(s.tables.custom.length,55);assert.equal(cold.refuelLive().distance,12345);
  fs.writeFileSync(path.join(root,'harmony-store.zip'),await A.encodeArchive(s,runtime));
@@ -333,4 +333,17 @@ test('unbound registration adopts first gauge once, persists after restart and n
  assert.equal(repo.snapshot().preferences['vehicle_registration_'+gauge].value,value);assert.equal(repo.snapshot().preferences.vehicle_registration_local,undefined);
  const reopened=new h.Repository();await reopened.open(h.context);assert.equal(reopened.snapshot().preferences['vehicle_registration_'+gauge].value,value);
  await reopened.bind('AA:BB:CC:DD:EE:02');assert.equal(reopened.snapshot().preferences['vehicle_registration_AA:BB:CC:DD:EE:02'],undefined);
+});
+
+test('v7 bookkeeping mode survives restart and cross-device import while v6 absence preserves local mode',async()=>{
+ const h=harness('mode-transfer'),source=new h.Repository();await source.open(h.context);
+ await source.setRefinedAccounting(true);
+ const pack=await A.decodeArchive(await A.encodeArchive(source.snapshot(),runtime),runtime);
+ assert.equal(pack.preferences.refined_accounting_ui.value,true);
+ const h2=harness('mode-transfer-target'),target=new h2.Repository();await target.open(h2.context);
+ await target.importData(pack,true);assert.equal(target.refinedAccounting(),true);
+ const reopened=new h2.Repository();await reopened.open(h2.context);assert.equal(reopened.refinedAccounting(),true);
+ const old=M.cloneSnapshot(pack);delete old.preferences.refined_accounting_ui;
+ await reopened.importData(old,true);assert.equal(reopened.refinedAccounting(),true);
+ pack.preferences.refined_accounting_ui.value=false;await reopened.importData(pack,true);assert.equal(reopened.refinedAccounting(),false);
 });

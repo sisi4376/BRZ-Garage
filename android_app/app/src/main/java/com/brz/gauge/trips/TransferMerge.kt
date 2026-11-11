@@ -1,21 +1,39 @@
 package com.brz.gauge.trips
 
+import org.json.JSONObject
+
 internal data class TransferMergeResult(val snapshot: TransferSnapshot, val added: Int,
-    val updated: Int, val removed: Int, val unchanged: Int, val conflicts: Int) {
-    fun summary() = "新增 $added 条\n更新 $updated 条\n删除 $removed 条\n重复或未变化 $unchanged 条\n冲突 $conflicts 组（含配置与仪表缓存）"
+    val updated: Int, val removed: Int, val unchanged: Int, val conflicts: Int,
+    val recordConflicts: Int, val preferenceConflicts: Int, val cacheConflicts: Int) {
+    fun summary() = "新增 $added 条\n更新 $updated 条\n删除 $removed 条\n重复或未变化 $unchanged 条\n记录冲突 $recordConflicts 组\n设置差异 $preferenceConflicts 项\n缓存差异 $cacheConflicts 组"
 }
 
 internal object TransferMerge {
+    private fun preferencesEqual(key: String, a: Map<String, Any?>, b: Map<String, Any?>): Boolean {
+        if (a == b) return true
+        if (a["type"] != b["type"] || !key.startsWith("vehicle_registration_")) return false
+        return runCatching {
+            val x = JSONObject(a["value"] as String); val y = JSONObject(b["value"] as String)
+            val keys = x.keys().asSequence().toSet()
+            keys == y.keys().asSequence().toSet() && keys.all { x.get(it) == y.get(it) }
+        }.getOrDefault(false)
+    }
     fun merge(local: TransferSnapshot, incoming: TransferSnapshot, preferIncoming: Boolean): TransferMergeResult {
         TransferSchema.validate(local)
         TransferSchema.validate(incoming)
         val output = local.tables.mapValues { (_, rows) -> rows.toMutableList() }.toMutableMap()
-        var conflicts = 0
+        var recordConflicts = 0
+        var preferenceConflicts = 0
+        var cacheConflicts = 0
+        val revisionGauges = incoming.preferences.keys.filter { key ->
+            key.startsWith("refuel_history_revision_") && local.preferences[key]?.get("value") != null &&
+                incoming.preferences[key]?.get("value") != null && local.preferences[key]?.get("value") != incoming.preferences[key]?.get("value")
+        }.map { it.removePrefix("refuel_history_revision_") }.toSet()
         val handled = HashSet<String>()
-        fun choose(a: Map<String, List<TransferRow>>, b: Map<String, List<TransferRow>>): Map<String, List<TransferRow>> {
+        fun choose(a: Map<String, List<TransferRow>>, b: Map<String, List<TransferRow>>, count: Boolean): Map<String, List<TransferRow>> {
             fun normalized(v: Map<String, List<TransferRow>>) = v.mapValues { (_, rows) -> rows.toSet() }
             if (normalized(a) == normalized(b)) return a
-            conflicts++
+            if (count) recordConflicts++
             return if (preferIncoming) b else a
         }
         TransferSchema.tables.forEach { table ->
@@ -37,7 +55,7 @@ internal object TransferMerge {
             val a = groups(local)
             val b = groups(incoming)
             val merged = a.toMutableMap()
-            b.forEach { (key, rows) -> merged[key] = a[key]?.let { choose(it, rows) } ?: rows }
+            b.forEach { (key, rows) -> merged[key] = a[key]?.let { choose(it, rows, table.name != "refuel" || rows.getValue(table.name).firstOrNull()?.get("device_id") !in revisionGauges) } ?: rows }
             names.forEach { name -> output[name] = merged.values.flatMap { it.getValue(name) }.toMutableList() }
         }
         // Refuel node deletion can merge adjacent rows without changing their IDs.
@@ -48,7 +66,7 @@ internal object TransferMerge {
             val b = incoming.preferences[key]?.get("value")
             if (a != null && b != null && a != b) {
                 val gauge = key.removePrefix("refuel_history_revision_")
-                conflicts++
+                recordConflicts++
                 output.getValue("refuel").removeAll { it["device_id"] == gauge }
                 output.getValue("refuel").addAll((if (preferIncoming) incoming else local).tables.getValue("refuel")
                     .filter { it["device_id"] == gauge })
@@ -57,8 +75,8 @@ internal object TransferMerge {
         val prefs = local.preferences.toMutableMap()
         incoming.preferences.forEach { (key, value) ->
             val old = prefs[key]
-            if (old != null && old["value"] != null && old != value) {
-                conflicts++
+            if (old != null && old["value"] != null && !preferencesEqual(key, old, value)) {
+                if (!key.startsWith("refuel_history_revision_") || key.removePrefix("refuel_history_revision_") !in revisionGauges) preferenceConflicts++
                 if (preferIncoming) prefs[key] = value
             } else prefs[key] = value
         }
@@ -74,8 +92,8 @@ internal object TransferMerge {
                     val oldAt = old[stamp] as? Long ?: 0L
                     val incomingAt = value[stamp] as? Long ?: 0L
                     val keys = value.keys.filter { it == stamp || it.startsWith("${prefix}_") }
-                    val differs = keys.any { old[it] != value[it] }
-                    if (differs && oldAt == incomingAt) conflicts++
+                    val differs = keys.any { it != "vehicle_data" && old[it] != value[it] }
+                    if (differs && oldAt == incomingAt) cacheConflicts++
                     if (incomingAt > oldAt || incomingAt == oldAt && preferIncoming)
                         keys.forEach { merged[it] = value[it] }
                 }
@@ -99,6 +117,6 @@ internal object TransferMerge {
             } }
             removed += a.keys.count { it !in b }
         }
-        return TransferMergeResult(result, added, updated, removed, unchanged, conflicts)
+        return TransferMergeResult(result, added, updated, removed, unchanged, recordConflicts + preferenceConflicts + cacheConflicts, recordConflicts, preferenceConflicts, cacheConflicts)
     }
 }

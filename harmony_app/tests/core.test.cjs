@@ -28,7 +28,7 @@ test('Android production ZIP -> Harmony -> Android fixture',async()=>{
  assert.equal(Object.keys(s.tables).length,9);assert.equal(s.tables.expenses[0].maintenance_type,3);
  assert.equal(s.preferences.vehicle_display_name.value,'BRZ 测试');
  assert.equal(JSON.parse(s.preferences['vehicle_registration_'+gauge].value).inspectionDueDay,21365);
- assert.equal(s.preferences.refined_home_ui.value,false);
+ assert.equal(s.preferences.refined_home_ui.value,false);assert.equal(s.preferences.refined_accounting_ui.value,true);assert.equal(s.preferences.default_start_tab.value,2);
  assert.equal(s.preferences['appearance.ZD8_finish'].value,'satin');
  assert.equal(s.devices[gauge].vehicle_total_distance,456789);
  assert.equal(s.devices[gauge].vehicle_max_decel,-92);
@@ -163,4 +163,32 @@ test('explicit asset undo deletes the selected event and legacy cancel marker wh
  G.removeRow(s,'expenses',sale);
  assert.deepEqual(s.tables.expenses,[purchase]);assert.equal(s.tables.expenses_deleted.length,2);
  G.removeRow(s,'expenses',purchase);assert.equal(s.tables.expenses.length,0);
+});
+
+test('migration separates preferences and counts a whole refuel revision once',()=>{
+ const a=snap(),b=M.cloneSnapshot(a),key='refuel_history_revision_'+gauge;
+ const row={device_id:gauge,interval_id:1,start_epoch_s:0,end_epoch_s:0,duration_s:0,distance_m:0,fuel_ml:0,odometer_x10_km:0,detected_added_ml:0,flags:0,data_revised:0};
+ a.tables.refuel=[row];b.tables.refuel=[{...row,distance_m:1000}];
+ a.preferences[key]={type:'int',value:1};b.preferences[key]={type:'int',value:2};
+ a.preferences.refined_home_ui={type:'boolean',value:true};b.preferences.refined_home_ui={type:'boolean',value:false};
+ for(const prefer of [false,true]){
+  const r=T.merge(a,b,prefer);assert.equal(r.conflicts,2);assert.equal(r.recordConflicts,1);assert.equal(r.preferenceConflicts,1);assert.equal(r.cacheConflicts,0);
+  assert.deepEqual(r.snapshot.tables.refuel,(prefer?b:a).tables.refuel);assert.equal(r.snapshot.preferences[key].value,prefer?2:1);
+ }
+ const same=M.cloneSnapshot(a);same.tables.refuel[0].distance_m=20;
+ assert.equal(T.merge(a,same,false).recordConflicts,1);
+});
+test('registration key order is not a conflict but changed values remain a conflict',()=>{
+ const a=snap(),b=M.cloneSnapshot(a),key='vehicle_registration_'+gauge;
+ a.preferences[key]={type:'string',value:'{"registeredDay":18000,"regularPrivateCar":true,"inspectionDueDay":null,"estimated":true}'};
+ b.preferences[key]={type:'string',value:'{"estimated":true,"inspectionDueDay":null,"regularPrivateCar":true,"registeredDay":18000}'};
+ assert.equal(T.merge(a,b,false).conflicts,0);
+ b.preferences[key].value=b.preferences[key].value.replace('18000','18001');
+ assert.equal(T.merge(a,b,false).preferenceConflicts,1);
+});
+
+test('diagnostics omit error messages, user paths and arbitrary stack text',()=>{
+ const D=require(root+'/core/Diagnostics');
+ const report=D.diagnosticReport('test','Error: secret vehicle ABC\n at foo (/private/secret/Index.ets:12:3)\nnot a frame secret',[]);
+ assert.ok(report.includes('Index.ets:12:3'));assert.ok(!report.includes('secret'));assert.ok(!report.includes('/private/'));assert.ok(report.length<=12000);
 });

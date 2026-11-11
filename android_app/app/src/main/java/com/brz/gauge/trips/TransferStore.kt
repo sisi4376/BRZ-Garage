@@ -164,7 +164,7 @@ internal class TransferStore(private val context: Context) {
                 "boolean" -> when (value) { is Boolean -> value; is String -> value == "true" || value == "1"; is Number -> value.toInt() != 0; else -> null }
                 else -> value?.toString()
             }
-            mapOf("type" to type, "value" to normalized)
+            mapOf("type" to type, "value" to (if (key == "refined_accounting_ui") normalized ?: false else normalized))
         }.toMutableMap()
         listOf("ZD8_color", "ZD8_finish", "ZC6_color", "ZC6_finish").forEach { key ->
             if (appearancePrefs.containsKey(key)) preferences["appearance.$key"] =

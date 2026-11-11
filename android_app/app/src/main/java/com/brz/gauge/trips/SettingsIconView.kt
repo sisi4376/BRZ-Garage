@@ -40,9 +40,9 @@ class SettingsIconView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         paint.color = iconColor
-        val scale = min(width, height) / 24f
-        val left = (width - 24f * scale) / 2f
-        val top = (height - 24f * scale) / 2f
+        val scale = min(width - paddingLeft - paddingRight, height - paddingTop - paddingBottom).coerceAtLeast(0) / 24f
+        val left = paddingLeft + (width - paddingLeft - paddingRight - 24f * scale) / 2f
+        val top = paddingTop + (height - paddingTop - paddingBottom - 24f * scale) / 2f
         canvas.save()
         canvas.translate(left, top)
         canvas.scale(scale, scale)

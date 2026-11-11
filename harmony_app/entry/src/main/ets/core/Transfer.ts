@@ -43,7 +43,7 @@ const globalPrefs: Record<string, string> = {
   vehicle_display_name: 'string', custom_license_plate: 'string', show_custom_license_plate: 'boolean',
   show_3d_vehicle: 'boolean', selected_vehicle_profile: 'int', tank: 'string', range_consumption_source: 'string',
   range_correction_factor: 'string', manual_fuel_percent: 'string', manual_fuel_baseline_ml: 'long',
-  maintenance_severe_conditions: 'boolean', refined_home_ui: 'boolean', grouped_settings_ui: 'boolean',
+  maintenance_severe_conditions: 'boolean', default_start_tab: 'int', refined_accounting_ui: 'boolean', refined_home_ui: 'boolean', grouped_settings_ui: 'boolean',
   'appearance.ZD8_color': 'string', 'appearance.ZD8_finish': 'string',
   'appearance.ZC6_color': 'string', 'appearance.ZC6_finish': 'string'
 };
@@ -203,7 +203,7 @@ export function validate(snapshot: Snapshot): void {
   });
 }
 export function fromJson(dataText: string, gauge: string, createdAt: number, version: number): Snapshot {
-  ensure(version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6, '数据包版本不支持');
+  ensure(version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6 || version === 7, '数据包版本不支持');
   const data = object(JSON.parse(dataText));
   ensure(keysEqual(data, version >= 3 ? ['tables', 'preferences', 'devices'] : ['tables', 'preferences']), '数据内容不完整');
   const tables = object(data.tables);
@@ -251,9 +251,24 @@ function groupsEqual(a: Record<string, Row[]>, b: Record<string, Row[]>, names: 
     });
   });
 }
+function preferencesEqual(key: string, a: Preference, b: Preference): boolean {
+  if (a.type !== b.type) return false;
+  if (a.value === b.value) return true;
+  if (key.startsWith('vehicle_registration_') && typeof a.value === 'string' && typeof b.value === 'string') {
+    try { return rowEqual(object(JSON.parse(a.value)) as Row, object(JSON.parse(b.value)) as Row); } catch (_) { return false; }
+  }
+  return false;
+}
 export function merge(local: Snapshot, incoming: Snapshot, preferIncoming: boolean): MergeReport {
   validate(local); validate(incoming);
-  const output = cloneSnapshot(local); const handled = new Set<string>(); let conflicts = 0;
+  const output = cloneSnapshot(local); const handled = new Set<string>();
+  let recordConflicts = 0; let preferenceConflicts = 0; let cacheConflicts = 0;
+  const revisionGauges = new Set<string>();
+  Object.keys(incoming.preferences).forEach((key: string) => {
+    if (!key.startsWith('refuel_history_revision_')) return;
+    const a = local.preferences[key]?.value, b = incoming.preferences[key].value;
+    if (a !== undefined && a !== null && b !== null && a !== b) revisionGauges.add(key.substring('refuel_history_revision_'.length));
+  });
   TABLES.forEach((table: string) => {
     if (handled.has(table)) return;
     const names = [table]; if (DELETIONS[table]) names.push(DELETIONS[table]);
@@ -261,7 +276,10 @@ export function merge(local: Snapshot, incoming: Snapshot, preferIncoming: boole
     const a = groupRows(local, table, names); const b = groupRows(incoming, table, names);
     b.forEach((value: Record<string, Row[]>, key: string) => {
       const old = a.get(key);
-      if (old && !groupsEqual(old, value, names)) { conflicts++; if (!preferIncoming) return; }
+      if (old && !groupsEqual(old, value, names)) {
+        if (table !== 'refuel' || !revisionGauges.has(String(value[table][0]?.device_id))) recordConflicts++;
+        if (!preferIncoming) return;
+      }
       a.set(key, value);
     });
     names.forEach((name: string) => { output.tables[name] = []; a.forEach((group: Record<string, Row[]>) => output.tables[name].push(...group[name])); });
@@ -271,14 +289,17 @@ export function merge(local: Snapshot, incoming: Snapshot, preferIncoming: boole
     if (!key.startsWith('refuel_history_revision_')) return;
     const a = local.preferences[key]?.value; const b = incoming.preferences[key]?.value;
     if (a !== undefined && a !== null && b !== undefined && b !== null && a !== b) {
-      conflicts++; const gauge = key.substring('refuel_history_revision_'.length);
+      recordConflicts++; const gauge = key.substring('refuel_history_revision_'.length);
       output.tables.refuel = output.tables.refuel.filter((r: Row) => r.device_id !== gauge)
         .concat((preferIncoming ? incoming : local).tables.refuel.filter((r: Row) => r.device_id === gauge));
     }
   });
   Object.keys(incoming.preferences).forEach((key: string) => {
     const value = incoming.preferences[key]; const old = local.preferences[key];
-    if (old && old.value !== null && (old.type !== value.type || old.value !== value.value)) { conflicts++; if (!preferIncoming) return; }
+    if (old && old.value !== null && !preferencesEqual(key, old, value)) {
+      if (!key.startsWith('refuel_history_revision_') || !revisionGauges.has(key.substring('refuel_history_revision_'.length))) preferenceConflicts++;
+      if (!preferIncoming) return;
+    }
     output.preferences[key] = { type: value.type, value: value.value };
   });
   Object.keys(incoming.devices).forEach((gauge: string) => {
@@ -286,7 +307,7 @@ export function merge(local: Snapshot, incoming: Snapshot, preferIncoming: boole
     const merged: DeviceState={...a};
     DEVICE_GROUPS.forEach((group: string[])=>{const prefix=group[0],stamp=group[1],atA=Number(a[stamp]||0),atB=Number(b[stamp]||0);
       const keys=Object.keys(b).filter((k:string)=>k===stamp||k.startsWith(prefix+'_'));
-      if(atB===atA&&keys.some((k:string)=>a[k]!==b[k]))conflicts++;
+      if(atB===atA&&keys.some((k:string)=>k!=='vehicle_data'&&a[k]!==b[k]))cacheConflicts++;
       if(atB>atA||(atB===atA&&preferIncoming))keys.forEach((k:string)=>merged[k]=b[k]);});
     output.devices[gauge]=merged;
   });
@@ -298,5 +319,5 @@ export function merge(local: Snapshot, incoming: Snapshot, preferIncoming: boole
     b.forEach((row: Row, key: string) => { const old = a.get(key); if (!old) added++; else if (!rowEqual(old, row)) updated++; else unchanged++; });
     a.forEach((_row: Row, key: string) => { if (!b.has(key)) removed++; });
   });
-  return { snapshot: output, added, updated, removed, unchanged, conflicts };
+  return { snapshot: output, added, updated, removed, unchanged, conflicts: recordConflicts + preferenceConflicts + cacheConflicts, recordConflicts, preferenceConflicts, cacheConflicts };
 }

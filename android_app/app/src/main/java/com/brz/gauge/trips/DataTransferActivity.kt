@@ -59,6 +59,7 @@ class DataTransferActivity : Activity() {
         text(body, "数据迁移", 28f)
         text(body, "切换设备前，先让旧手机与仪表同步，再导出数据包。新手机导入后，绑定同一仪表并补齐后续记录。", 15f)
         text(body, "包含行程与修订、删除标记、加油记录、保养及日常费用、加油区间、自定义行程和车辆参数。系统权限、蓝牙配对与待执行仪表命令需要在新手机重新设置。", 14f)
+        text(body, "新导出使用 v7 格式，包含精简／精细记账偏好；接收端需使用支持 v7 的版本。仍可导入旧版 v1–v6 数据包。", 13f)
         button(body, "导出完整数据包") {
             backupToExport = null
             prepareExport(null)

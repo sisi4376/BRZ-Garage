@@ -39,6 +39,8 @@ fun main(args: Array<String>) {
   val prefs = mapOf(
     "vehicle_registration_$gauge" to mapOf("type" to "string", "value" to """{"registeredDay":18000,"regularPrivateCar":true,"inspectionDueDay":21365,"estimated":true}"""),
     "vehicle_display_name" to mapOf("type" to "string", "value" to "BRZ 测试"),
+    "default_start_tab" to mapOf("type" to "int", "value" to 2L),
+    "refined_accounting_ui" to mapOf("type" to "boolean", "value" to true),
     "refined_home_ui" to mapOf("type" to "boolean", "value" to false),
     "appearance.ZD8_finish" to mapOf("type" to "string", "value" to "satin"),
     "custom_base_distance_$gauge" to mapOf("type" to "long", "value" to 4000000000L),

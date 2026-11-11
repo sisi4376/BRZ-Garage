@@ -664,5 +664,21 @@ fun main(args: Array<String>) {
     refuelServiceChecks(File(args[0]))
     customTripChecks(File(args[0]))
     currentDrivingChecks(File(args[0]))
+    run {
+        val tables=TransferSchema.tables.associate { it.name to emptyList<TransferRow>() }
+        val key="refuel_history_revision_$GAUGE"
+        val a=TransferSnapshot(tables,mapOf(key to mapOf("type" to "int","value" to 1L)),GAUGE)
+        val b=a.copy(preferences=mapOf(key to mapOf("type" to "int","value" to 2L)))
+        for (prefer in listOf(false,true)) {
+            val result=TransferMerge.merge(a,b,prefer)
+            check(result.conflicts==1 && result.recordConflicts==1 && result.preferenceConflicts==0)
+            check(result.snapshot.preferences.getValue(key)["value"]==if(prefer) 2L else 1L)
+        }
+        val reg="vehicle_registration_$GAUGE"
+        val x=a.copy(preferences=mapOf(reg to mapOf("type" to "string","value" to """{"registeredDay":18000,"estimated":true}""")))
+        val y=a.copy(preferences=mapOf(reg to mapOf("type" to "string","value" to """{"estimated":true,"registeredDay":18000}""")))
+        check(TransferMerge.merge(x,y,false).conflicts==0)
+        passed("migration counts revision once and ignores registration JSON field order")
+    }
     println("$passed transfer scenarios passed")
 }

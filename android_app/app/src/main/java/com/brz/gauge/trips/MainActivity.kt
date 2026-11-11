@@ -179,7 +179,7 @@ class MainActivity : Activity() {
         navigation = LinearLayout(this).apply { setPadding(dp(12), dp(6), dp(12), dp(10)); elevation = dp(4).toFloat(); setBackgroundColor(Color.WHITE) }
         root.addView(navigation)
         setContentView(root)
-        tab = savedInstanceState?.getInt("tab") ?: 0
+        tab = (savedInstanceState?.getInt("tab") ?: state.prefs.getInt("default_start_tab", 0)).coerceIn(0, 3)
         historyRevisionMode = savedInstanceState?.getBoolean("history_revision_mode") ?: false
         accountingSection = savedInstanceState?.getInt("accounting_section") ?: 0
         accountingYear = savedInstanceState?.getInt("accounting_year",LocalDate.now().year) ?: LocalDate.now().year
@@ -328,6 +328,7 @@ class MainActivity : Activity() {
         if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
         LedgerReminderJob.refresh(this)
         if (intent.getBooleanExtra("open_bookkeeping", false)) { intent.removeExtra("open_bookkeeping"); showTab(2) }
+        if (returningFromWaitingSettings) { returningFromWaitingSettings = false; showTab(3) }
         if (showingLedgerNotifications) ledgerNotificationSettings()
         refreshAppUpdateUi()
         if (appUpdateInstallAfterPermission &&
@@ -3900,6 +3901,7 @@ class MainActivity : Activity() {
             this.icon = icon
             iconColor = color
             contentDescription = title
+            setPadding(dp(7), dp(7), dp(7), dp(7))
             background = rounded(soften(color), 12)
         }
         addView(iconView, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
@@ -4086,6 +4088,7 @@ class MainActivity : Activity() {
     private fun settingsGrouped() {
         settingsSection = settingsSection.coerceIn(0, 2)
         val body = page("设置", "连接、显示与仪表功能")
+        startupAndWaitingSettings(body)
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -4207,7 +4210,29 @@ class MainActivity : Activity() {
         ))
     }
 
+    private var returningFromWaitingSettings = false
+    private val startupPages = arrayOf("车辆首页", "驾驶足迹", "用车记账", "设置")
+    private fun startupAndWaitingSettings(body: LinearLayout) {
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.DISPLAY, "默认启动页",
+                "下次打开 App 时进入；通知入口与页面恢复优先", bookkeepingStats,
+                value = startupPages[state.prefs.getInt("default_start_tab", 0).coerceIn(0, 3)], action = {
+                    AlertDialog.Builder(this).setTitle("默认启动页")
+                        .setSingleChoiceItems(startupPages, state.prefs.getInt("default_start_tab", 0).coerceIn(0, 3)) { dialog, which ->
+                            state.prefs.edit().putInt("default_start_tab", which).apply()
+                            dialog.dismiss(); showTab(3)
+                        }.setNegativeButton("取消", null).show()
+                }),
+            settingsListRow(SettingsIconView.Icon.AUTOSTART, "等待仪表上电通知",
+                "在系统中单独关闭等待通知，保留自动连接和低油量提醒", bookkeepingFuel,
+                value = if (WaitingNotification.enabled(this)) "显示" else "已关闭", action = {
+                    try { returningFromWaitingSettings = true; startActivity(WaitingNotification.settingsIntent(this)) }
+                    catch (_: RuntimeException) { returningFromWaitingSettings = false; toast("请在系统设置 → 通知 → BRZ Garage → 等待仪表上电中调整") }
+                })
+        ))
+    }
     private fun renderAppSettingsOverview(body: LinearLayout) {
+        startupAndWaitingSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val appDetail = when {
@@ -4338,6 +4363,7 @@ class MainActivity : Activity() {
 
     private fun settingsLegacy() {
         val body = page("设置", "连接、显示与仪表功能")
+        startupAndWaitingSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val style = card(body, "设置页样式")

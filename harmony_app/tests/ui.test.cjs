@@ -90,3 +90,13 @@ test('production trip detail keeps local date and exact time visible on separate
   assert.ok(attributes.maxLines>=value.split('\n').length);
  }
 });
+
+test('home current detail preserves extrema and falls back to epoch minus duration',()=>{
+ const ts=require((process.env.DEVECO_HOME||'C:/Program Files/Huawei/DevEco Studio')+'/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
+ const source=fs.readFileSync(path.join(__dirname,'../entry/src/main/ets/pages/Index.ets'),'utf8');
+ const method=source.slice(source.indexOf('  private showCurrent():'),source.indexOf('  private fuelPercent():'));
+ const vehicle={currentStart:0,epoch:1780000060,currentDuration:60,currentDistance:1000,currentFuel:100,maxSpeed:120,maxRpm:5000,maxAccel:120,maxDecel:-200};
+ const exports={};vm.runInNewContext(ts.transpileModule('export class Detail { '+method+' }',{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText,{exports,repository:{vehicle:()=>vehicle},Math});
+ const page=new exports.Detail();page.gauge=()=> 'AA:BB:CC:DD:EE:01';page.navigate=route=>page.route=route;
+ page.showCurrent();assert.equal(page.selected.start_epoch_s,1780000000);assert.equal(page.selected.max_speed_kmh,120);assert.equal(page.selected.max_rpm,5000);assert.equal(page.selected.max_decel_x100,-200);assert.equal(page.selectedTable,'trips');assert.equal(page.route,'trip');
+});
