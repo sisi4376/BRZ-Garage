@@ -179,7 +179,7 @@ class MainActivity : Activity() {
         navigation = LinearLayout(this).apply { setPadding(dp(12), dp(6), dp(12), dp(10)); elevation = dp(4).toFloat(); setBackgroundColor(Color.WHITE) }
         root.addView(navigation)
         setContentView(root)
-        tab = (savedInstanceState?.getInt("tab") ?: state.prefs.getInt("default_start_tab", 0)).coerceIn(0, 3)
+        tab = (savedInstanceState?.getInt("tab") ?: 0).coerceIn(0, 3)
         historyRevisionMode = savedInstanceState?.getBoolean("history_revision_mode") ?: false
         accountingSection = savedInstanceState?.getInt("accounting_section") ?: 0
         accountingYear = savedInstanceState?.getInt("accounting_year",LocalDate.now().year) ?: LocalDate.now().year
@@ -4088,7 +4088,7 @@ class MainActivity : Activity() {
     private fun settingsGrouped() {
         settingsSection = settingsSection.coerceIn(0, 2)
         val body = page("设置", "连接、显示与仪表功能")
-        startupAndWaitingSettings(body)
+        waitingNotificationSettings(body)
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -4203,7 +4203,7 @@ class MainActivity : Activity() {
                 bookkeepingDaily, action = { showCustomTripDetails() }),
         ))
         settingsListGroup(body, listOf(
-            settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "日间亮度与当前仪表参数",
+            settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "默认启动页、默认朝向与日间亮度",
                 bookkeepingMaintenance, action = { gaugeSettingsPage() }),
             settingsListRow(SettingsIconView.Icon.FUEL, "自动加油识别阈值", "在车辆设置中调整",
                 bookkeepingFuel, action = { vehicleSettingsPage() }),
@@ -4211,18 +4211,8 @@ class MainActivity : Activity() {
     }
 
     private var returningFromWaitingSettings = false
-    private val startupPages = arrayOf("车辆首页", "驾驶足迹", "用车记账", "设置")
-    private fun startupAndWaitingSettings(body: LinearLayout) {
+    private fun waitingNotificationSettings(body: LinearLayout) {
         settingsListGroup(body, listOf(
-            settingsListRow(SettingsIconView.Icon.DISPLAY, "默认启动页",
-                "下次打开 App 时进入；通知入口与页面恢复优先", bookkeepingStats,
-                value = startupPages[state.prefs.getInt("default_start_tab", 0).coerceIn(0, 3)], action = {
-                    AlertDialog.Builder(this).setTitle("默认启动页")
-                        .setSingleChoiceItems(startupPages, state.prefs.getInt("default_start_tab", 0).coerceIn(0, 3)) { dialog, which ->
-                            state.prefs.edit().putInt("default_start_tab", which).apply()
-                            dialog.dismiss(); showTab(3)
-                        }.setNegativeButton("取消", null).show()
-                }),
             settingsListRow(SettingsIconView.Icon.AUTOSTART, "等待仪表上电通知",
                 "在系统中单独关闭等待通知，保留自动连接和低油量提醒", bookkeepingFuel,
                 value = if (WaitingNotification.enabled(this)) "显示" else "已关闭", action = {
@@ -4232,7 +4222,7 @@ class MainActivity : Activity() {
         ))
     }
     private fun renderAppSettingsOverview(body: LinearLayout) {
-        startupAndWaitingSettings(body)
+        waitingNotificationSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val appDetail = when {
@@ -4363,7 +4353,7 @@ class MainActivity : Activity() {
 
     private fun settingsLegacy() {
         val body = page("设置", "连接、显示与仪表功能")
-        startupAndWaitingSettings(body)
+        waitingNotificationSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val style = card(body, "设置页样式")
@@ -4472,7 +4462,7 @@ class MainActivity : Activity() {
                 "已收到仪表设置 · ${date(settingsAt)}"
             else "尚未收到仪表设置",
             14f, ink, true), 10)
-        add(gaugeSettings, label("连接仪表后自动读取当前参数。目前可调整日间亮度，其余仪表参数保持冻结；车型与自动加油识别阈值已移至“我的车辆 → 车辆设置”。", 12f, muted), 8)
+        add(gaugeSettings, label("连接仪表后自动读取当前参数。可调整默认启动页、默认朝向和日间亮度，其余仪表参数保持只读；车型与自动加油识别阈值已移至“我的车辆 → 车辆设置”。", 12f, muted), 8)
         add(gaugeSettings, button("查看仪表设置") { gaugeSettingsPage() }, 10)
         val auto = card(body, "开机自启与自动连接")
         add(auto, Switch(this).apply {
@@ -5461,7 +5451,7 @@ class MainActivity : Activity() {
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("仪表设置", "亮度、显示参数与同步状态")
+        val body = page("仪表设置", "启动页、朝向、亮度与同步状态")
         settingsBackPill(body) { showTab(3) }
         settingsSubpageHero(
             body,
@@ -5472,7 +5462,7 @@ class MainActivity : Activity() {
             bookkeepingMaintenance,
         )
         val notice = card(body, "当前可调整")
-        add(notice, label("手机端可调整日间亮度；其余参数以整洁的只读行展示。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 13f, ink, true), 8)
+        add(notice, label("手机端可调整仪表默认启动页、默认朝向和日间亮度；启动页和朝向下次上电生效。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 13f, ink, true), 8)
         add(notice, label("车型与自动加油识别阈值已归入车辆设置。", 11f, muted), 7)
         val settings = state.gaugeSettings()
         val received = card(body, "同步状态")
@@ -5490,7 +5480,8 @@ class MainActivity : Activity() {
         frozenValue(basic, "ELM327 MAC", settings?.obdMac?.let(::formatMac))
         frozenChoice(basic, "主题", listOf("DEFAULT", "AMBER", "OCEAN"), settings?.theme)
         editableBrightness(basic, settings?.brightness)
-        frozenChoice(basic, "默认页面", gaugePageNames(), settings?.defaultPage)
+        editableGaugeBootChoice(basic, "默认启动页", gaugePageNames(), settings?.defaultPage, 2, settings)
+        editableGaugeBootChoice(basic, "默认朝向", listOf("0°（原安装方向）", "90°（顺时针）", "180°（倒置）", "270°（顺时针）"), settings?.defaultOrientation, 3, settings)
 
         val warning = card(body, "提醒设置")
         frozenValue(warning, "转速黄线", settings?.rpmWarning?.let { "$it rpm" })
@@ -5565,6 +5556,25 @@ class MainActivity : Activity() {
             else -> "未知值 ($selected)"
         }
         settingsReadOnlyRow(parent, name, value)
+    }
+    private fun editableGaugeBootChoice(parent: LinearLayout, title: String, names: List<String>, value: Int?, command: Int, settings: TripBleProtocol.GaugeSettings?) {
+        val supported = settings?.bootSettingsSupported == true
+        val canApply = supported && state.connected
+        add(parent, label(title, 12f, muted), 12)
+        add(parent, primaryBookkeepingAction(names.getOrNull(value ?: -1) ?: "等待仪表数据", bookkeepingMaintenance) {
+            AlertDialog.Builder(this).setTitle(title)
+                .setSingleChoiceItems(names.toTypedArray(), value ?: -1) { dialog, which ->
+                    dialog.dismiss()
+                    if (TripSyncService.setGaugeBootSetting(this, command, which)) toast("已提交，将在仪表下次上电时生效")
+                    else toast("设置未修改，请连接支持此功能的仪表固件")
+                }.setNegativeButton("取消", null).show()
+        }.apply { isEnabled = canApply }, 5)
+        add(parent, label(when {
+            settings == null -> "连接仪表后读取设置。"
+            !supported -> "请升级支持启动页和朝向设置的仪表固件。"
+            !state.connected -> "当前为上次读取值，连接仪表后可修改。"
+            else -> "保存在仪表中，下次上电生效。"
+        }, 11f, muted), 5)
     }
     private fun editableBrightness(parent: LinearLayout, value: Int?) {
         add(parent, label("日间亮度", 12f, muted), 12)

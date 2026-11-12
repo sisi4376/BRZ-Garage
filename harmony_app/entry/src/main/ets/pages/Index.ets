@@ -32,7 +32,7 @@ import { firmware, CatalogEntry } from '../platform/Firmware';
 import { Field, fields, applyEdit } from '../core/Editor';
 import { Metric, effectiveFuel, dayText, fuelAverage, pref, putPref, need, numeric, mileage, rangeKm, rangeConsumption, monthlyCosts, fuelAnalysis, drivingDays, today, removeRow, resetCustom, customStats, calibrate, plateText, expenseBreakdown, reconcileDeletedNode } from '../core/Garage';
 import { maintenance, maintenanceItems, MaintenanceItem, recommended, resolvedMaintenance, SERVICES, Service } from '../core/Maintenance';
-import { GaugeSettings, parseSettings, settingPacket, parseOdometer, odometerPacket, refuelPacket, parseRefuelMeta, parseFirmware } from '../core/Gauge';
+import { GaugeSettings, parseSettings, settingPacket, bootSettingPacket, parseOdometer, odometerPacket, refuelPacket, parseRefuelMeta, parseFirmware } from '../core/Gauge';
 import { utf8Decode } from '../core/Archive';
 import { recordDetails } from '../core/Presentation';
 import { common } from '@kit.AbilityKit';
@@ -136,7 +136,7 @@ struct Index {
   private recordTables: string[] = ['fuel', 'expenses', 'refuel', 'custom'];
   private recordNames: string[] = ['加油账本', '费用保养', '加油区间', '自定义行程'];
 
-  aboutToAppear(): void { this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE); try { this.getUIContext().getFont().registerFont({familyName:'GarageSans',familySrc:'file:///system/fonts/HarmonyOS_Sans_SC.ttf'}); } catch (_) {} this.run(async () => { await repository.open(this.context()); this.tab=Math.max(0,Math.min(3,Number(pref(repository.snapshot(),'default_start_tab',0)))); this.refresh(); this.ready = true; this.firmwareEntries = await firmware.catalog(this.context()); this.status = '本机数据已就绪'; }); this.refreshTimer = setInterval(() => { this.autoText = automatic.status; if (this.ready && !this.busy && !this.editKind) repository.reload().then(() => { if (!this.busy && !this.editKind) this.refresh(); }).catch(() => {}); }, 2000); }
+  aboutToAppear(): void { this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE); try { this.getUIContext().getFont().registerFont({familyName:'GarageSans',familySrc:'file:///system/fonts/HarmonyOS_Sans_SC.ttf'}); } catch (_) {} this.run(async () => { await repository.open(this.context()); this.refresh(); this.ready = true; this.firmwareEntries = await firmware.catalog(this.context()); this.status = '本机数据已就绪'; }); this.refreshTimer = setInterval(() => { this.autoText = automatic.status; if (this.ready && !this.busy && !this.editKind) repository.reload().then(() => { if (!this.busy && !this.editKind) this.refresh(); }).catch(() => {}); }, 2000); }
   aboutToDisappear(): void { clearInterval(this.refreshTimer); if (!automatic.running) bluetooth.close(); }
   private context(): common.UIAbilityContext { return this.getUIContext().getHostContext() as common.UIAbilityContext; }
   private async run(action: () => Promise<void>): Promise<void> {
@@ -256,7 +256,20 @@ struct Index {
   }); }
   private writeGauge(kind: string, value: number): void { this.run(async () => {
     await bluetooth.session(this.context(), this.bound, (text: string) => this.status = text, async () => {
-      if (kind === 'brightness' || kind === 'profile') {
+      if (kind === 'page' || kind === 'orientation') {
+        const current = parseSettings(await bluetooth.readSettingsCached(this.bound));
+        need(current.defaultOrientation !== null, '请先升级支持启动页和朝向设置的仪表固件');
+        await bluetooth.write(8, bootSettingPacket(kind === 'page' ? 2 : 3, value));
+        let verified = false;
+        for (let i = 0; i < 4; i++) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 300));
+          const settings = parseSettings(await bluetooth.readSettingsCached(this.bound));
+          if (settings.defaultOrientation !== null && (kind === 'page' ? settings.defaultPage : settings.defaultOrientation) === value) {
+            this.gaugeSettings = settings; verified = true; break;
+          }
+        }
+        need(verified, '设置尚未回读确认，请重新读取；未确认前不要断电');
+      } else if (kind === 'brightness' || kind === 'profile') {
         await bluetooth.write(kind === 'brightness' ? 8 : 9, settingPacket(value, kind === 'profile'));
         let verified = false;
         for (let i = 0; i < 4; i++) { await new Promise<void>((resolve) => setTimeout(resolve, 300)); const settings = parseSettings(await bluetooth.readSettingsCached(this.bound));
@@ -272,7 +285,7 @@ struct Index {
         need(kind === 'calibrate' ? Math.abs(odo.metres - mileage(this.snapshot, this.bound)) <= 50 : odo.enabled === (value === 1), '总里程回读不一致');
         if (kind !== 'calibrate') await repository.edit((s: Snapshot) => putPref(s, 'odometer_display_' + this.bound, value === 1));
       }
-    }); this.refresh(); this.status = '仪表设置已写入并回读确认';
+    }); this.refresh(); this.status = '仪表设置已写入并回读确认' + (kind === 'page' || kind === 'orientation' ? ' · 下次上电生效' : '');
   }); }
   private refuelAction(command: number, id: number = 0): void {
     const gauge = this.gauge();
@@ -725,13 +738,7 @@ struct Index {
   @Builder private ledgerNotificationPage(){
     this.back();this.title('到期通知','管理用车事项的系统通知');this.hero('accounting','到期提醒','保险 · 年审 · 保养','提前 30、7、3 天及当天',COLORS[1]);Column(){this.listRow('settings','系统通知权限',this.notificationEnabled?'已开启 · 点击管理':'未开启 · 点击授权',COLORS[3],()=>this.run(async()=>{await ledgerNotifications.permission(this.context());this.notificationEnabled=await ledgerNotifications.enabled();}));this.note('到期前30、7、3天及当天在通知栏提醒。记录续保或完成保养后，根据新周期更新提醒。');this.note('年审按车辆注册资料估计，并可用实际检验有效期校准。后台送达时间受系统通知与省电设置影响。')}.padding(20).width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:14})
   }
-  private startupPageName(): string { return ['车辆首页','驾驶足迹','用车记账','设置'][Math.max(0,Math.min(3,Number(pref(this.snapshot,'default_start_tab',0))))]; }
-  private chooseStartupPage(): void {
-    this.getUIContext().showActionSheet({title:'默认启动页',message:'下次打开 App 时进入；通知入口优先',sheets:['车辆首页','驾驶足迹','用车记账','设置'].map((name:string,index:number):SheetInfo=>({title:name,action:()=>this.run(async()=>{await repository.edit((s:Snapshot)=>putPref(s,'default_start_tab',index));this.refresh();})}))});
-  }
-  @Builder private startupPageSetting(){
-    Column(){this.listRow('display','默认启动页','下次打开 App 时进入；通知入口优先',COLORS[3],()=>this.chooseStartupPage(),this.startupPageName())}.width('100%').backgroundColor('#FFFFFF').borderRadius(22).margin({top:12})
-  }
+
   @Builder private settings(){
     this.title('设置','连接、显示与仪表功能')
     this.hero('vehicle',this.name(),'Subaru BRZ '+this.model()+' '+this.transmission()+' · '+(mileage(this.snapshot,this.gauge())/1000).toFixed(0)+' km',automatic.running?'●  正在连接 / 同步':'○  仪表未连接',COLORS[3],true)
@@ -749,9 +756,8 @@ struct Index {
       this.note('常用入口已经归入对应栏目，无需先经过“常用”中转。')
     }else if(this.settingsSection===1){
       Column(){this.switchRow('fuel','显示上次加油以来','首页行程卡片',COLORS[2],this.prefEnabled('show_since_refuel_'+this.gauge(),false),(v:boolean)=>this.togglePref('show_since_refuel_'+this.gauge(),v));this.divider();this.switchRow('trip','显示自定义行程','首页行程卡片',COLORS[2],this.prefEnabled('show_custom_trip_'+this.gauge(),false),(v:boolean)=>this.togglePref('show_custom_trip_'+this.gauge(),v));this.divider();this.listRow('trip','自定义行程名称',String(pref(this.snapshot,'custom_trip_name_'+this.gauge(),'自定义行程')),COLORS[2],()=>this.setting('custom_trip_name',String(pref(this.snapshot,'custom_trip_name_'+this.gauge(),''))));this.divider();this.listRow('trip','自定义行程与历史','查看、归档或重置当前区间',COLORS[2],()=>this.openRoute('custom'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
-      Column(){this.listRow('gauge','仪表设置','日间亮度与当前仪表参数',COLORS[1],()=>this.openRoute('gauge'));this.divider();this.listRow('fuel','自动加油识别阈值','在车辆设置中调整',COLORS[0],()=>this.openRoute('vehicle'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
+      Column(){this.listRow('gauge','仪表设置','默认启动页、默认朝向与日间亮度',COLORS[1],()=>this.openRoute('gauge'));this.divider();this.listRow('fuel','自动加油识别阈值','在车辆设置中调整',COLORS[0],()=>this.openRoute('vehicle'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
     }else{
-      this.startupPageSetting()
       Column(){this.listRow('accounting','到期通知','保险 · 年审 · 保养',COLORS[1],()=>this.openLedgerNotifications());this.divider();this.listRow('update','App 更新','当前 v' + APP_VERSION + ' · 查看版本与下载安装',COLORS[3],()=>this.openRoute('appUpdate'));this.divider();this.listRow('legacy','数据迁移','导出完整数据包，或导入并合并旧设备记录',COLORS[3],()=>this.openRoute('transfer'));this.divider();this.listRow('firmware','仪表固件更新','查看更新与回滚',COLORS[1],()=>this.openRoute('firmware'));this.divider();this.listRow('gauge','仪表设置','查看固件信息和显示参数',COLORS[1],()=>this.openRoute('gauge'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
       Column(){this.switchRow('autostart','开机自启 / 自动连接','打开 App 后恢复连接，连接期间保持后台同步',COLORS[0],this.automaticEnabled,(v:boolean)=>this.automaticToggle(v));this.divider();this.listRow('bluetooth','系统级 BLE 唤醒','查看鸿蒙后台连接状态',COLORS[0],()=>this.openRoute('background'));this.divider();this.listRow('feedback','问题反馈','报告异常、提出建议并附带脱敏诊断信息',COLORS[3],()=>this.openRoute('feedback'));this.divider();this.listRow('legal','使用须知与版权','安全边界、数据权限、开源许可与非官方声明',COLORS[3],()=>this.openRoute('legal'));this.divider();this.listRow('legacy','切换到经典设置页','完整保留原有设置界面与全部入口',MUTED,()=>this.openRoute('legacy'))}.width('100%').padding({top:3,bottom:3}).backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:12})
       this.note('新版与经典版共用同一份设置数据，切换界面不会重置车辆、行程或记账记录。')
@@ -800,13 +806,32 @@ struct Index {
     }.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
   }
   @Builder private gaugePage(){
-    this.back();this.title('仪表设置','亮度、显示参数与同步状态');this.hero('gauge','SkyGauge',this.gaugeText||'等待读取固件版本',automatic.running?'● 连接中':'○ 当前未连接',COLORS[1])
-    Column(){this.sectionTitle('当前可调整');Text('手机端可调整日间亮度；其余参数以整洁的只读行展示。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).lineHeight(20).margin({top:8});this.note('车型与自动加油识别阈值已归入车辆设置。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+    this.back();this.title('仪表设置','启动页、朝向、亮度与同步状态');this.hero('gauge','SkyGauge',this.gaugeText||'等待读取固件版本',automatic.running?'● 连接中':'○ 当前未连接',COLORS[1])
+    Column(){this.sectionTitle('当前可调整');Text('手机端可调整仪表默认启动页、默认朝向和日间亮度；启动页和朝向下次上电生效。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).lineHeight(20).margin({top:8});this.note('车型与自动加油识别阈值已归入车辆设置。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('同步状态');Text(this.gaugeText||'等待仪表设置数据。当前先显示完整参数结构；请保持仪表上电。').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(12).fontColor(MUTED).width('100%');this.action('连接并读取仪表信息',COLORS[1],()=>this.readGauge())}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    ForEach(['基本设置','提醒设置','页面显示','图表报警阈值','联动与启动'],(group:string)=>{Column(){this.sectionTitle(group);ForEach(this.gaugeRows(group),(row:Field)=>{this.readRow(row.label,row.value)});if(group==='基本设置'){Text('日间亮度 '+(this.draftBrightness??this.gaugeSettings?.brightness??'—')+'%').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).width('100%');Slider({value:this.draftBrightness??this.gaugeSettings?.brightness??100,min:10,max:100,step:1}).enabled(!!this.bound&&!!this.gaugeSettings&&!this.busy).onChange((v:number)=>{this.draftBrightness=v;});this.action('应用亮度到仪表',COLORS[1],()=>this.writeGauge('brightness',this.draftBrightness??this.gaugeSettings?.brightness??100),true,!!this.bound&&!!this.gaugeSettings)}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})})
+    ForEach(['基本设置','提醒设置','页面显示','图表报警阈值','联动与启动'],(group:string)=>{Column(){this.sectionTitle(group);ForEach(this.gaugeRows(group),(row:Field)=>{this.readRow(row.label,row.value)});if(group==='基本设置'){this.gaugeBootControls();Text('日间亮度 '+(this.draftBrightness??this.gaugeSettings?.brightness??'—')+'%').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(INK).width('100%');Slider({value:this.draftBrightness??this.gaugeSettings?.brightness??100,min:10,max:100,step:1}).enabled(!!this.bound&&!!this.gaugeSettings&&!this.busy).onChange((v:number)=>{this.draftBrightness=v;});this.action('应用亮度到仪表',COLORS[1],()=>this.writeGauge('brightness',this.draftBrightness??this.gaugeSettings?.brightness??100),true,!!this.bound&&!!this.gaugeSettings)}}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})})
+  }
+  private bootChoiceNames(kind: string): string[] {
+    return kind === 'page' ? ['温度','信息','图表','指针','挡位 + 转速','车速','油量','行程历史','行程总览'] : ['0°（原安装方向）','90°（顺时针）','180°（倒置）','270°（顺时针）'];
+  }
+  private bootChoiceValue(kind: string): string {
+    const value = kind === 'page' ? this.gaugeSettings?.defaultPage : this.gaugeSettings?.defaultOrientation;
+    return value === undefined || value === null ? '等待仪表数据' : this.bootChoiceNames(kind)[value];
+  }
+  private chooseGaugeBoot(kind: string): void {
+    if (this.busy || !this.bound || !this.gaugeSettings || this.gaugeSettings.defaultOrientation === null) { this.status = '请连接支持启动页和朝向设置的仪表固件'; return; }
+    this.getUIContext().showActionSheet({ title: kind === 'page' ? '默认启动页' : '默认朝向', message: '保存在仪表中，下次上电生效',
+      sheets: this.bootChoiceNames(kind).map((name: string, index: number): SheetInfo => ({title: name, action: () => this.writeGauge(kind, index)})) });
+  }
+  @Builder private gaugeBootControls() {
+    Column() {
+      this.listRow('display','默认启动页','保存在仪表中，下次上电生效',COLORS[3],()=>this.chooseGaugeBoot('page'),this.bootChoiceValue('page'))
+      this.listRow('display','默认朝向','四个方向；保存在仪表中，下次上电生效',COLORS[3],()=>this.chooseGaugeBoot('orientation'),this.bootChoiceValue('orientation'))
+      if (this.gaugeSettings && this.gaugeSettings.defaultOrientation === null) { Text('请升级支持启动页和朝向设置的仪表固件').fontSize(12).fontColor(MUTED) }
+    }.width('100%').enabled(!!this.bound && !!this.gaugeSettings && this.gaugeSettings.defaultOrientation !== null && !this.busy)
   }
   private gaugeRows(group:string):Field[]{
-    const names: string[] = group==='基本设置'?['OBD 协议','ELM327 名称','ELM327 MAC','主题','默认页面']:group==='提醒设置'?['转速黄线','转速闪烁','多表联动闪烁','刹车温度提醒','机油压力提醒']:group==='页面显示'?['温度页项目 1','温度页项目 2','温度页项目 3','信息页项目 1','信息页项目 2','信息页项目 3','信息页项目 4','信息页项目 5','指针页数据','图表页数据']:group==='图表报警阈值'?['CLT 水温','IAT 进气温度','OIL 机油温度','LOD 发动机负荷','TPS 节气门','RPM 转速','SPD 车速','BAT 电压','OIP 机油压力','BKT 刹车温度','BST 增压压力','AFR 空燃比']:['仪表角色','仪表位置','联动开机动画','启动画面','RaceChrono 服务','主表 MAC','行程合并间隔'];
+    const names: string[] = group==='基本设置'?['OBD 协议','ELM327 名称','ELM327 MAC','主题']:group==='提醒设置'?['转速黄线','转速闪烁','多表联动闪烁','刹车温度提醒','机油压力提醒']:group==='页面显示'?['温度页项目 1','温度页项目 2','温度页项目 3','信息页项目 1','信息页项目 2','信息页项目 3','信息页项目 4','信息页项目 5','指针页数据','图表页数据']:group==='图表报警阈值'?['CLT 水温','IAT 进气温度','OIL 机油温度','LOD 发动机负荷','TPS 节气门','RPM 转速','SPD 车速','BAT 电压','OIP 机油压力','BKT 刹车温度','BST 增压压力','AFR 空燃比']:['仪表角色','仪表位置','联动开机动画','启动画面','RaceChrono 服务','主表 MAC','行程合并间隔'];
     const v=this.gaugeSettings?.values;return names.map((name:string,i:number):Field=>({key:name,label:name,value:v?this.gaugeValue(group,i,v):''}));
   }
   private gaugeValue(group:string,i:number,v:Row):string{
@@ -916,7 +941,6 @@ struct Index {
   }
   @Builder private legacyPage(){
     this.title('设置','连接、显示与仪表功能')
-    this.startupPageSetting()
     Column({space:12}){this.sectionTitle('设置页样式');this.note('当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。');this.action('切换到新版分组设置页',COLORS[0],()=>this.run(async()=>{await repository.setGroupedSettings(true);this.refresh();this.navigate('',3);setTimeout(():void=>this.pageScroller.scrollTo({xOffset:0,yOffset:0}),50);}))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){this.sectionTitle('数据迁移');this.action('到期通知',COLORS[1],()=>this.openLedgerNotifications());this.action('导出完整数据包 / 导入并合并',COLORS[3],()=>this.openRoute('transfer'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('我的车辆');Text(this.name()).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(18).fontColor(INK).width('100%');Text(this.model()).fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(13).fontColor(MUTED).width('100%');this.action('车辆设置',COLORS[0],()=>this.openRoute('vehicle'));this.note('在车辆设置中修改首页名称、车型和自动加油识别阈值。');this.action('自定义车牌',COLORS[0],()=>this.openRoute('plate'));this.note('生成的蓝牌可安装在首页车辆示意图。')}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
@@ -925,7 +949,7 @@ struct Index {
     Column({space:10}){this.sectionTitle('我的仪表');Text(this.bound||'尚未绑定').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(18).fontColor(INK).width('100%');this.action(this.bound?'更换 / 重新绑定':'搜索并绑定仪表',COLORS[1],()=>this.openRoute('binding'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('App 更新');Text('当前版本 v' + APP_VERSION + '').fontFamily('GarageSans, HarmonyOS Sans SC, sans-serif').fontSize(14).fontColor(INK).width('100%');this.action('版本检查与安装',COLORS[3],()=>this.openRoute('appUpdate'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('仪表固件更新');this.note('版本检查、安全 OTA 与历史版本回滚');this.action('仪表固件更新',COLORS[1],()=>this.openRoute('firmware'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
-    Column({space:10}){this.sectionTitle('仪表设置');this.note('连接仪表后读取当前参数。目前可调整日间亮度，其余仪表参数保持冻结；车型与自动加油识别阈值位于车辆设置。');this.action('查看仪表设置',COLORS[1],()=>this.openRoute('gauge'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
+    Column({space:10}){this.sectionTitle('仪表设置');this.note('连接仪表后读取当前参数。可调整默认启动页、默认朝向和日间亮度，其余仪表参数保持只读；车型与自动加油识别阈值位于车辆设置。');this.action('查看仪表设置',COLORS[1],()=>this.openRoute('gauge'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column({space:10}){this.sectionTitle('开机自启与自动连接');this.switchRow('autostart','自动连接','连接时使用鸿蒙蓝牙长时任务',COLORS[0],this.automaticEnabled,(v:boolean)=>this.automaticToggle(v));this.note('鸿蒙被系统结束或手机重启后，需要打开 App 恢复连接。');this.action('查看后台运行状态',COLORS[0],()=>this.openRoute('background'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){this.sectionTitle('问题反馈');this.action('问题反馈',COLORS[3],()=>this.openRoute('feedback'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})
     Column(){this.sectionTitle('使用须知与版权');this.action('查看使用须知与版权',COLORS[3],()=>this.openRoute('legal'))}.padding({left:20,right:20,top:18,bottom:18}).width('100%').backgroundColor('#FFFFFF').borderRadius(22).shadow({radius:2,color:'#12000000',offsetY:1}).margin({top:14})

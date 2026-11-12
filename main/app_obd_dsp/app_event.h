@@ -34,6 +34,8 @@ typedef enum {
     APP_EVT_BLE_DISCONNECTED,       // no data
 
     // Phone companion → UI/config task
+    APP_EVT_PHONE_DEFAULT_PAGE,
+    APP_EVT_PHONE_DEFAULT_ORIENTATION,
     APP_EVT_PHONE_BRIGHTNESS,       // data.u8 = validated display brightness (10-100%)
     APP_EVT_PHONE_VEHICLE_PROFILE,  // data.u8 = validated supported BRZ profile index
     APP_EVT_PHONE_ODOMETER_DISPLAY, // data.u8 = show shared odometer on gauge/app home

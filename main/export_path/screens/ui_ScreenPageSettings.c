@@ -32,6 +32,7 @@ static uint8_t vehicle_profile_to_roller(uint8_t profile)
 
 // Local references for settings widgets
 static lv_obj_t *s_roller_page = NULL;
+static lv_obj_t *s_roller_orientation = NULL;
 static lv_obj_t *s_roller_vehicle = NULL;
 static lv_obj_t *s_roller_theme = NULL;
 static lv_obj_t *s_slider_bright = NULL;
@@ -48,9 +49,22 @@ static const uint16_t s_trip_gap_options[] = {5, 15, 30, 60, 120, 240, 480};
 // Callbacks
 static void on_page_roller_change(lv_event_t *e)
 {
-    nvs_user_cfg_t cfg = *nvs_cfg_get();
-    cfg.default_page = lv_roller_get_selected(s_roller_page);
-    nvs_cfg_set(&cfg);
+    nvs_boot_setting_set(2, lv_roller_get_selected(s_roller_page));
+    lv_roller_set_selected(s_roller_page, nvs_cfg_get()->default_page, LV_ANIM_OFF);
+}
+
+static void on_orientation_change(lv_event_t *e)
+{
+    (void)e;
+    nvs_boot_setting_set(3, lv_roller_get_selected(s_roller_orientation));
+    lv_roller_set_selected(s_roller_orientation, nvs_cfg_get()->default_orientation, LV_ANIM_OFF);
+}
+
+static void refresh_boot_settings(lv_event_t *e)
+{
+    (void)e;
+    lv_roller_set_selected(s_roller_page, nvs_cfg_get()->default_page, LV_ANIM_OFF);
+    lv_roller_set_selected(s_roller_orientation, nvs_cfg_get()->default_orientation, LV_ANIM_OFF);
 }
 
 static void on_bright_slider_change(lv_event_t *e)
@@ -151,7 +165,7 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_label_set_text(label_page, "BOOT PAGE");
     lv_obj_set_style_text_font(label_page, &ui_font_FontTypoderSize16, LV_PART_MAIN);
     lv_obj_set_style_text_color(label_page, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
-    lv_obj_align(label_page, LV_ALIGN_CENTER, 0, -110);
+    lv_obj_align(label_page, LV_ALIGN_CENTER, -60, -110);
 
     s_roller_page = lv_roller_create(ui_ScreenPageSettings);
     lv_obj_set_style_clip_corner(s_roller_page, true, 0);
@@ -162,8 +176,24 @@ void ui_ScreenPageSettings_screen_init(void)
     lv_obj_set_width(s_roller_page, 140);
     lv_obj_set_height(s_roller_page, 30);   // explicit: font is applied by style_dark_roller below
     ui_helpers_style_dark_roller(s_roller_page, &ui_font_FontTypoderSize20);
-    lv_obj_align(s_roller_page, LV_ALIGN_CENTER, 0, -84);
+    lv_obj_align(s_roller_page, LV_ALIGN_CENTER, -60, -84);
     lv_obj_add_event_cb(s_roller_page, on_page_roller_change, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *label_orientation = lv_label_create(ui_ScreenPageSettings);
+    lv_label_set_text(label_orientation, "ROTATION");
+    lv_obj_set_style_text_font(label_orientation, &ui_font_FontTypoderSize16, 0);
+    lv_obj_set_style_text_color(label_orientation, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_align(label_orientation, LV_ALIGN_CENTER, 85, -110);
+    s_roller_orientation = lv_roller_create(ui_ScreenPageSettings);
+    lv_obj_clear_flag(s_roller_orientation, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_roller_set_options(s_roller_orientation, "0\n90\n180\n270", LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(s_roller_orientation, 1);
+    ui_helpers_style_dark_roller(s_roller_orientation, &ui_font_FontTypoderSize20);
+    lv_obj_set_size(s_roller_orientation, 80, 30);
+    lv_obj_align(s_roller_orientation, LV_ALIGN_CENTER, 85, -84);
+    lv_roller_set_selected(s_roller_orientation, cfg->default_orientation, LV_ANIM_OFF);
+    lv_obj_add_event_cb(s_roller_orientation, on_orientation_change, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(ui_ScreenPageSettings, refresh_boot_settings, LV_EVENT_SCREEN_LOADED, NULL);
 
     // ====== Row 2: Vehicle ======
     lv_obj_t *label_vehicle = lv_label_create(ui_ScreenPageSettings);
@@ -294,7 +324,7 @@ void ui_ScreenPageSettings_screen_init(void)
 
     // ====== Hint ======
     lv_obj_t *hint = lv_label_create(ui_ScreenPageSettings);
-    lv_label_set_text(hint, "Swipe down: multi-gauge\nL/R: back");
+    lv_label_set_text(hint, "Boot / rotation: next power-on\nDown: multi-gauge | L/R: back");
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x555555), LV_PART_MAIN);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

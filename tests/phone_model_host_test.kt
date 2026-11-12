@@ -243,6 +243,30 @@ fun main() {
     check(TripBleProtocol.parseGaugeSettings(writable) == null)
     val badSettings = settingsWire.clone(); badSettings[20] = (badSettings[20].toInt() xor 1).toByte()
     check(TripBleProtocol.parseGaugeSettings(badSettings) == null)
+    check(!gauge.bootSettingsSupported && gauge.defaultOrientation == null)
+    fun bootSnapshot(page: Int, orientation: Int): ByteArray = settingsWire.copyOf(108).apply {
+        this[0] = 3; this[2] = 108; this[6] = page.toByte()
+        this[104] = orientation.toByte(); this[105] = 0
+        val crc = TripBleProtocol.crc16(this, 106)
+        this[106] = crc.toByte(); this[107] = (crc shr 8).toByte()
+    }
+    for (page in 0..8) for (orientation in 0..3) {
+        val current = checkNotNull(TripBleProtocol.parseGaugeSettings(bootSnapshot(page, orientation)))
+        check(current.bootSettingsSupported && current.defaultPage == page && current.defaultOrientation == orientation)
+        check(current.refuelThresholdMl == 10000 && current.brightness == 80)
+        for (command in 2..3) {
+            val setting = TripBleProtocol.DisplaySetting(command, if (command == 2) page else orientation)
+            check(setting.matches(current) && !setting.matches(gauge))
+            val bytes = setting.packet()
+            check(bytes.take(4) == listOf(1.toByte(), command.toByte(), setting.value.toByte(), 6.toByte()))
+            check((bytes[4].toInt() and 255) or ((bytes[5].toInt() and 255) shl 8) == TripBleProtocol.crc16(bytes, 4))
+        }
+    }
+    check(TripBleProtocol.DisplaySetting(1, 55).packet().contentEquals(brightness))
+    check(TripBleProtocol.parseGaugeSettings(bootSnapshot(9, 0)) == null)
+    check(TripBleProtocol.parseGaugeSettings(bootSnapshot(0, 4)) == null)
+    check(runCatching { TripBleProtocol.DisplaySetting(2, 9).packet() }.isFailure)
+    check(runCatching { TripBleProtocol.DisplaySetting(3, -1).packet() }.isFailure)
     println("PASS: read-only settings snapshot wire format, mappings and CRC rejection")
 
     val manifest = """{"device":{"board":"Waveshare ESP32-S3-Touch-AMOLED-1.75-B","variant":"obd_brz_gauge_amoled175","lcd":"CO5300","screen":{"w":466,"h":466,"bpp":16},"flash_mb":16,"ota_slots":2},"firmware":{"project":"obd_brz_gauge","version":"2.7.0","build_tag":"local"}}"""

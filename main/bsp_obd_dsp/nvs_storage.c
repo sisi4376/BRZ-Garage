@@ -36,7 +36,7 @@
 #define REFUEL_PROTOCOL_VERSION 2U
 #define CUSTOM_TRIP_STORE_VERSION 2U
 #define KEY_CFG_VERSION       "cfgver"    // config version (missing = v0)
-#define CFG_VERSION_CURRENT   12          // current version; bump on field add/semantic change (migration in nvs_storage_init)
+#define CFG_VERSION_CURRENT   13          // current version; bump on field add/semantic change (migration in nvs_storage_init)
 
 static nvs_user_cfg_t s_cfg =   {
                         .protocol = 0, // OBD protocol select: 0=auto, 1~9=fixed, default auto
@@ -620,6 +620,12 @@ esp_err_t nvs_storage_init(void)
                 s_cfg.refuel_detect_threshold_ml = NVS_REFUEL_THRESHOLD_DEFAULT_ML;
                 save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
             }
+            // v12 -> v13: keep the existing physical installation orientation.
+            // Explicit initialization also ignores any old trailing struct padding.
+            if (stored_ver < 13) {
+                s_cfg.default_orientation = 0;
+                save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+            }
             // Write the new version number
             if (nvs_open(NS_CFG, NVS_READWRITE, &h) == ESP_OK) {
                 nvs_set_u8(h, KEY_CFG_VERSION, CFG_VERSION_CURRENT);
@@ -632,6 +638,7 @@ esp_err_t nvs_storage_init(void)
 
     /* Default-value repair for new fields (old NVS data has rsv[x] all zero) */
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
+    if(s_cfg.default_orientation > 3) s_cfg.default_orientation = 0;
     if(s_cfg.default_page > 8) s_cfg.default_page = 6; // 0=Temp..4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
     if(s_cfg.needle_source_idx >= 11) s_cfg.needle_source_idx = 0; // DISP_ITEM_COUNT=11 (CLT..BOOST)
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
@@ -806,6 +813,19 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
     if(memcmp(&normalized,&s_cfg,sizeof(s_cfg))==0) return ESP_OK;
     s_cfg=normalized;
     return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+}
+
+esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value)
+{
+    if (!((command == 2 && value <= 8) || (command == 3 && value <= 3)))
+        return ESP_ERR_INVALID_ARG;
+    nvs_user_cfg_t cfg = s_cfg;
+    if (command == 2) cfg.default_page = value;
+    else cfg.default_orientation = value;
+    if (memcmp(&cfg, &s_cfg, sizeof(cfg)) == 0) return ESP_OK;
+    esp_err_t err = save_blob(NS_CFG, KEY_CFG, &cfg, sizeof(cfg));
+    if (err == ESP_OK) s_cfg = cfg;
+    return err;
 }
 
 /* Chart alarm thresholds */

@@ -85,7 +85,7 @@ internal object TransferSchema {
         "range_consumption_source" to "string", "range_correction_factor" to "string",
         "manual_fuel_percent" to "string", "manual_fuel_baseline_ml" to "long",
         "maintenance_severe_conditions" to "boolean",
-        "default_start_tab" to "int", "refined_accounting_ui" to "boolean", "refined_home_ui" to "boolean", "grouped_settings_ui" to "boolean",
+        "default_start_tab" to "int", /* Legacy v4.6.3 archive key; ignored by app navigation. */ "refined_accounting_ui" to "boolean", "refined_home_ui" to "boolean", "grouped_settings_ui" to "boolean",
         "appearance.ZD8_color" to "string", "appearance.ZD8_finish" to "string",
         "appearance.ZC6_color" to "string", "appearance.ZC6_finish" to "string",
     )

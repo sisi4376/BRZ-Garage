@@ -123,6 +123,10 @@ static esp_lcd_touch_handle_t s_touch_handle = NULL;
 #endif
 
 /* LVGL parameters */
+#include "bsp_obd_dsp/gauge_rotation.h"
+static lv_color_t *s_rotation_buffer;
+static uint8_t s_boot_orientation;
+
 #define LVGL_BUFF_SIZE              (LCD_H_RES * 20)
 #define LVGL_TICK_PERIOD_MS         2
 #define LVGL_TASK_MAX_DELAY_MS      500
@@ -188,8 +192,14 @@ static void perf_display_refresh(lv_disp_drv_t *drv, uint32_t time_ms, uint32_t 
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
     esp_lcd_panel_handle_t panel = (esp_lcd_panel_handle_t)drv->user_data;
-    esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1,
-                              area->x2 + 1, area->y2 + 1, color_map);
+    int x = area->x1, y = area->y1;
+    int w = area->x2 - x + 1, h = area->y2 - y + 1;
+    if (s_boot_orientation != 0) {
+        gauge_rotate_rgb565((const uint16_t *)color_map, (uint16_t *)s_rotation_buffer, w, h, s_boot_orientation);
+        gauge_rotate_area(&x, &y, &w, &h, LCD_H_RES, LCD_V_RES, s_boot_orientation);
+        color_map = s_rotation_buffer;
+    }
+    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, color_map));
 }
 
 /* Coordinate alignment (even boundaries) */
@@ -366,7 +376,12 @@ void app_main(void)
     size_t buf_px = 0;
     lv_color_t *buf1 = NULL, *buf2 = NULL;
     ESP_ERROR_CHECK(allocate_display_buffers(&buf1, &buf2, &buf_px) ? ESP_OK : ESP_ERR_NO_MEM);
-    lv_disp_draw_buf_init(&disp_buf, buf1, buf2, buf_px);
+    s_boot_orientation = nvs_cfg_get()->default_orientation;
+    /* Reuse the second DMA allocation for rotation: no increase to the
+     * validated 40 KiB display budget needed by the BLE controller. A single
+     * LVGL drawing buffer waits for DMA completion before the next flush. */
+    s_rotation_buffer = s_boot_orientation ? buf2 : NULL;
+    lv_disp_draw_buf_init(&disp_buf, buf1, s_boot_orientation ? NULL : buf2, buf_px);
 
     /* Register display driver */
     lv_disp_drv_init(&disp_drv);
@@ -378,6 +393,12 @@ void app_main(void)
 #endif
     disp_drv.rounder_cb = lvgl_rounder_cb;
     disp_drv.draw_buf = &disp_buf;
+    /* Rotate every LVGL frame (including boot artwork) and let LVGL apply
+     * the inverse transform to touch. Keep the board-specific base mapping.
+     * Boot defaults take effect on the next normal power-on; no forced restart. */
+    disp_drv.sw_rotate = 0; // flush callback rotates using the existing DMA allocation
+    // LVGL 8 rotation enums are counterclockwise; user selections are clockwise.
+    disp_drv.rotated = (4U - s_boot_orientation) % 4U;
     disp_drv.user_data = ACTIVE_PANEL_HANDLE;
     lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
 

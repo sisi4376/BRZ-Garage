@@ -55,6 +55,7 @@ typedef struct {
                                  // NOTE: new fields MUST be appended at the END of this struct;
                                  // see the load_blob grow logic comment in nvs_storage.c.
     uint16_t refuel_detect_threshold_ml; // automatic refuel threshold, 5000-20000 ml (default 10000)
+    uint8_t default_orientation; // clockwise quarter turns relative to the existing installation (0..3)
 } nvs_user_cfg_t;
 
 /*------------------ Runtime statistics (persisted periodically) ------------------*/
@@ -182,6 +183,8 @@ esp_err_t nvs_storage_init(void);
 
 /* User config accessors */
 const nvs_user_cfg_t * nvs_cfg_get(void);
+/* Save first; expose changed boot defaults to BLE only after flash succeeds. */
+esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value);
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg);
 
 // Per-item alarm threshold for the chart page (raw units; value>=threshold alarms; 32767=off). item = disp_item_t value.

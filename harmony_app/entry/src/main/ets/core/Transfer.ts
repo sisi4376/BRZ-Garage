@@ -43,7 +43,7 @@ const globalPrefs: Record<string, string> = {
   vehicle_display_name: 'string', custom_license_plate: 'string', show_custom_license_plate: 'boolean',
   show_3d_vehicle: 'boolean', selected_vehicle_profile: 'int', tank: 'string', range_consumption_source: 'string',
   range_correction_factor: 'string', manual_fuel_percent: 'string', manual_fuel_baseline_ml: 'long',
-  maintenance_severe_conditions: 'boolean', default_start_tab: 'int', refined_accounting_ui: 'boolean', refined_home_ui: 'boolean', grouped_settings_ui: 'boolean',
+  maintenance_severe_conditions: 'boolean', default_start_tab: 'int', /* Legacy v4.6.3 archive key; ignored by navigation. */ refined_accounting_ui: 'boolean', refined_home_ui: 'boolean', grouped_settings_ui: 'boolean',
   'appearance.ZD8_color': 'string', 'appearance.ZD8_finish': 'string',
   'appearance.ZC6_color': 'string', 'appearance.ZC6_finish': 'string'
 };

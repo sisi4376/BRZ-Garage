@@ -545,6 +545,13 @@ static void my_timerMain_impl(lv_timer_t * timer)
                     espnow_link_apply_synced_threshold((uint16_t)evt.data.u16);
                     ui_rpm_warn_refresh_from_nvs();
                     break;
+                case APP_EVT_PHONE_DEFAULT_PAGE:
+                case APP_EVT_PHONE_DEFAULT_ORIENTATION: {
+                    uint8_t command = evt.type == APP_EVT_PHONE_DEFAULT_PAGE ? 2 : 3;
+                    esp_err_t err = nvs_boot_setting_set(command, evt.data.u8);
+                    if (err != ESP_OK) ESP_LOGW(TAG, "Boot setting save failed: %s", esp_err_to_name(err));
+                    break;
+                }
                 case APP_EVT_PHONE_BRIGHTNESS: {
                     /* The BLE host only validates and enqueues this event. Apply
                      * it here, serialized with local settings UI changes, so no

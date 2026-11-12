@@ -66,7 +66,9 @@ object TripBleProtocol {
         val obdName: String,
         val chartAlarms: List<Int>,
         val refuelThresholdMl: Int?,
+        val defaultOrientation: Int? = null,
     ) {
+        val bootSettingsSupported: Boolean get() = version >= 3 && defaultOrientation != null
         val readOnly: Boolean get() = flags and 0x01 != 0
         val tripMergeLocked: Boolean get() = flags and 0x02 != 0
         val refuelDiscardOldestSupported: Boolean get() = flags and 0x04 != 0
@@ -124,6 +126,24 @@ object TripBleProtocol {
         .put(command)
         .putInt(tripId.toInt())
         .array()
+
+    data class DisplaySetting(val command: Int, val value: Int) {
+        val valid: Boolean get() = when (command) { 1 -> value in 10..100; 2 -> value in 0..8; 3 -> value in 0..3; else -> false }
+        val label: String get() = when (command) { 2 -> "仪表默认启动页"; 3 -> "仪表默认朝向"; else -> "亮度" }
+        fun matches(settings: GaugeSettings): Boolean = when (command) {
+            1 -> settings.brightness == value
+            2 -> settings.bootSettingsSupported && settings.defaultPage == value
+            3 -> settings.bootSettingsSupported && settings.defaultOrientation == value
+            else -> false
+        }
+        fun packet(): ByteArray {
+            require(valid)
+            val bytes = byteArrayOf(1, command.toByte(), value.toByte(), 6, 0, 0)
+            val crc = crc16(bytes, 4)
+            bytes[4] = crc.toByte(); bytes[5] = (crc shr 8).toByte()
+            return bytes
+        }
+    }
 
     /** Six-byte, versioned SET command for brightness. */
     fun brightnessPacket(percent: Int): ByteArray {
@@ -414,9 +434,10 @@ object TripBleProtocol {
     }
 
     fun parseGaugeSettings(value: ByteArray): GaugeSettings? {
-        if (value.size !in setOf(104, 106)) return null
+        if (value.size !in setOf(104, 106, 108)) return null
         val version = value[0].toInt() and 0xFF
-        if ((version == 1 && value.size != 104) || (version == 2 && value.size != 106)) return null
+        if (version !in 1..3 || value.size != 102 + version * 2) return null
+        if (version == 3 && ((value[104].toInt() and 0xff) > 3 || value[105].toInt() != 0 || (value[6].toInt() and 0xff) > 8)) return null
         val encodedSize = (value[2].toInt() and 0xFF) or ((value[3].toInt() and 0xFF) shl 8)
         val crcOffset = value.size - 2
         val expectedCrc = (value[crcOffset].toInt() and 0xFF) or
@@ -455,6 +476,7 @@ object TripBleProtocol {
             obdName = nameBytes.copyOf(nameEnd).toString(Charsets.UTF_8),
             chartAlarms = (0 until 12).map { s16(78 + it * 2) },
             refuelThresholdMl = if (version >= 2) u16(102) else null,
+            defaultOrientation = if (version >= 3) u8(104) else null,
         ).takeIf { it.readOnly }
     }
 

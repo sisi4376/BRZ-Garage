@@ -16,8 +16,8 @@ android {
         applicationId = "com.brz.gauge.trips"
         minSdk = 26
         targetSdk = 37
-        versionCode = 168
-        versionName = "4.6.3"
+        versionCode = 169
+        versionName = "4.6.4"
     }
 
     signingConfigs {

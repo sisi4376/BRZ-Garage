@@ -117,6 +117,20 @@ class TripSyncService : Service() {
                 false
             }
         }
+        fun setGaugeBootSetting(context: Context, command: Int, value: Int): Boolean {
+            val requested = TripBleProtocol.DisplaySetting(command, value)
+            val state = AppState(context)
+            if (command !in 2..3 || !requested.valid || state.gaugeSettings()?.bootSettingsSupported != true ||
+                !state.automatic || state.address.isEmpty() || !state.connected || !hasPermissions(context)) return false
+            return try {
+                context.startForegroundService(Intent(context, TripSyncService::class.java).apply {
+                    action = ACTION_SET_BRIGHTNESS
+                    putExtra(EXTRA_BRIGHTNESS, value)
+                    putExtra("display_setting_command", command)
+                })
+                true
+            } catch (_: RuntimeException) { false }
+        }
         fun setBrightness(context: Context, percent: Int): Boolean {
             if (percent !in 10..100) return false
             val state = AppState(context)
@@ -299,9 +313,9 @@ class TripSyncService : Service() {
      * Persisted AppState data may describe the previous firmware after an
      * update, so it is intentionally not used to satisfy a manual scan. */
     private var firmwareInfoForConnection: TripBleProtocol.FirmwareInfo? = null
-    private var pendingBrightness: Int? = null
-    private var brightnessWriteValue: Int? = null
-    private var brightnessVerificationValue: Int? = null
+    private val pendingDisplaySettings = linkedMapOf<Int, TripBleProtocol.DisplaySetting>()
+    private var brightnessWriteValue: TripBleProtocol.DisplaySetting? = null
+    private var brightnessVerificationValue: TripBleProtocol.DisplaySetting? = null
     private var pendingRefuelThresholdMl: Int? = null
     private var refuelThresholdWriteMl: Int? = null
     private var refuelThresholdVerificationMl: Int? = null
@@ -483,8 +497,9 @@ class TripSyncService : Service() {
             nextCycle()
         } else if (intent?.action == ACTION_SET_BRIGHTNESS) {
             val requested = intent.getIntExtra(EXTRA_BRIGHTNESS, -1)
-            if (connected && requested in 10..100) requestBrightness(requested)
-            else publish("亮度未修改 · 请先连接仪表")
+            val setting = TripBleProtocol.DisplaySetting(intent.getIntExtra("display_setting_command", 1), requested)
+            if (connected && setting.valid && (setting.command == 1 || state.gaugeSettings()?.bootSettingsSupported == true)) requestBrightness(setting)
+            else publish("仪表设置未修改 · 请先连接支持此功能的仪表固件")
         } else if (intent?.action == ACTION_SET_REFUEL_THRESHOLD) {
             val requested = intent.getIntExtra(EXTRA_REFUEL_THRESHOLD_ML, -1)
             if (connected && requested in 5_000..20_000 && requested % 1_000 == 0) {
@@ -1076,8 +1091,8 @@ class TripSyncService : Service() {
                     return
                 }
                 val expectedBrightness = brightnessVerificationValue
-                if (expectedBrightness != null && parsed.brightness != expectedBrightness) {
-                    retryBrightnessOperation("等待仪表应用亮度")
+                if (expectedBrightness != null && !expectedBrightness.matches(parsed)) {
+                    retryBrightnessOperation("等待仪表保存${expectedBrightness.label}")
                     return
                 }
                 val expectedVehicleProfile = vehicleProfileVerificationValue
@@ -1105,7 +1120,7 @@ class TripSyncService : Service() {
                     state.adoptVehicleProfileFromGauge(parsed.vehicleProfile)
                 }
                 if (expectedBrightness != null) {
-                    idle("亮度已调整为 $expectedBrightness% · 已由仪表回读确认")
+                    idle("${expectedBrightness.label}已保存 · 已由仪表回读确认" + if (expectedBrightness.command != 1) " · 下次上电生效" else "")
                 } else if (expectedVehicleProfile != null) {
                     val name = SupportedVehicleModel.fromProfileIndex(expectedVehicleProfile)?.title ?: "车型"
                     idle("$name 已同步到仪表 · 已回读确认")
@@ -1390,27 +1405,28 @@ class TripSyncService : Service() {
         lastHistoryMs = SystemClock.elapsedRealtime()
         if (legacy) idle() else read(TripBleProtocol.VEHICLE_STATE)
     }
-    private fun requestBrightness(percent: Int) {
-        pendingBrightness = percent // latest request wins; never interrupt an active sync chain
-        publish("亮度 $percent% 已排队 · 等待当前数据同步完成")
+    private fun requestBrightness(setting: TripBleProtocol.DisplaySetting) {
+        pendingDisplaySettings[setting.command] = setting // coalesce only the same setting, preserve different controls
+        publish("${setting.label}已排队 · 等待当前数据同步完成")
         if (!busy && operation == null) {
             handler.removeCallbacks(cycle)
             continueAfterGattIdle { startPendingBrightness() }
         }
     }
     private fun startPendingBrightness(): Boolean {
-        val requested = pendingBrightness ?: return false
-        val supported = info?.getCharacteristic(TripBleProtocol.BRIGHTNESS_CONTROL) != null
+        val requested = pendingDisplaySettings.values.firstOrNull() ?: return false
+        val supported = info?.getCharacteristic(TripBleProtocol.BRIGHTNESS_CONTROL) != null &&
+            (requested.command == 1 || state.gaugeSettings()?.bootSettingsSupported == true)
         if (!supported) {
-            pendingBrightness = null
-            publish("亮度未修改 · 仪表固件不支持手机亮度控制", true)
+            pendingDisplaySettings.remove(requested.command)
+            publish("${requested.label}未修改 · 请先升级仪表固件", true)
             handler.postDelayed(cycle, if (foregroundUi) FOREGROUND_CYCLE_MS else BACKGROUND_CYCLE_MS)
             return true
         }
-        pendingBrightness = null
+        pendingDisplaySettings.remove(requested.command)
         brightnessWriteValue = requested
-        publish("正在调整仪表亮度为 $requested%…")
-        write(TripBleProtocol.BRIGHTNESS_CONTROL, TripBleProtocol.brightnessPacket(requested))
+        publish("正在保存${requested.label}…")
+        write(TripBleProtocol.BRIGHTNESS_CONTROL, requested.packet())
         return true
     }
     private fun requestRefuelThreshold(thresholdMl: Int) {
@@ -2013,7 +2029,7 @@ class TripSyncService : Service() {
             continueAfterGattIdle { startPendingFirmwareScan() }
             return
         }
-        if (pendingBrightness != null) {
+        if (pendingDisplaySettings.isNotEmpty()) {
             continueAfterGattIdle { startPendingBrightness() }
             return
         }
@@ -2163,12 +2179,12 @@ class TripSyncService : Service() {
             completeOperation()
             brightnessWriteValue = null
             brightnessVerificationValue = null
-            idle("$message；亮度未确认，车辆数据同步继续")
+            idle("$message；仪表设置未确认，车辆数据同步继续")
             return
         }
         operationRetries++
         val delayMs = when (operationRetries) { 1 -> 800L; 2 -> 1500L; else -> 2500L }
-        publish("$message · 亮度操作重试 $operationRetries/$MAX_OPERATION_RETRIES")
+        publish("$message · 仪表设置操作重试 $operationRetries/$MAX_OPERATION_RETRIES")
         handler.postDelayed(operationRetry, delayMs)
     }
     private fun retryRefuelThresholdOperation(message: String) {
@@ -2359,7 +2375,7 @@ class TripSyncService : Service() {
         customTripReceiptSupported = false
         manifestReadForConnection = false
         firmwareInfoForConnection = null
-        pendingBrightness = null
+        pendingDisplaySettings.clear()
         brightnessWriteValue = null
         brightnessVerificationValue = null
         pendingRefuelThresholdMl = null

@@ -4,7 +4,7 @@ import { utf8Decode } from './Archive';
 import { need } from './Garage';
 import { GaugeTransport } from './Sync';
 export interface RefuelMeta { version: number; count: number; oldest: number; newest: number; revision: number; start: number; duration: number; distance: number; fuel: number; }
-export interface GaugeSettings { values: Row; brightness: number; profile: number; threshold: number | null; discardSupported: boolean; }
+export interface GaugeSettings { values: Row; brightness: number; profile: number; threshold: number | null; defaultPage: number; defaultOrientation: number | null; discardSupported: boolean; }
 export interface Odometer { enabled: boolean; calibrated: boolean; metres: number; }
 export interface FirmwareInfo { build?: string; version: string; project: string; board: string; variant: string; lcd: string; w: number; h: number; bpp: number; flash: number; slots: number; }
 export function view(b: Uint8Array): DataView { return new DataView(b.buffer, b.byteOffset, b.length); }
@@ -16,6 +16,10 @@ function finish(b: Uint8Array): Uint8Array { view(b).setUint16(b.length - 2, crc
 export function settingPacket(value: number, profile: boolean = false): Uint8Array {
   need(Number.isInteger(value) && (profile ? [1,4,16,17].includes(value) : value >= 10 && value <= 100), '仪表设置值无效');
   return finish(Uint8Array.of(1, 1, value, 6, 0, 0));
+}
+export function bootSettingPacket(command: number, value: number): Uint8Array {
+  need(Number.isInteger(value) && (command === 2 && value >= 0 && value <= 8 || command === 3 && value >= 0 && value <= 3), '仪表启动设置值无效');
+  return finish(Uint8Array.of(1, command, value, 6, 0, 0));
 }
 export function odometerPacket(enabled: boolean, metres: number | null = null): Uint8Array {
   need(metres === null || (Number.isFinite(metres) && metres >= 0 && metres <= 999999900), '总里程超出范围');
@@ -53,8 +57,9 @@ export async function readRefuel(gauge: string, t: GaugeTransport): Promise<Row[
   need(m.count === 0 || cursor === m.newest, '加油区间历史不完整'); return rows;
 }
 export function parseSettings(b: Uint8Array): GaugeSettings {
-  need(b[0] === 1 && b.length === 104 || b[0] === 2 && b.length === 106, '设置协议不支持');
+  need(b[0] === 1 && b.length === 104 || b[0] === 2 && b.length === 106 || b[0] === 3 && b.length === 108, '设置协议不支持');
   const d = checked(b, b.length); need((b[1] & 1) !== 0, '设置数据标识无效');
+  if (b[0] === 3) need(b[104] <= 3 && b[105] === 0 && b[6] <= 8, '仪表启动设置无效');
   const names = ['协议', '主题', '默认页面', '亮度', '车型', '设备角色', '开机动画', '设备位置', '转速报警动画', '联动报警', 'RaceChrono', '启动模式'];
   const values: Row = {}; names.forEach((n: string, i: number) => values[n] = b[4 + i]);
   ['刹车温度报警', '机油压力报警×10', '转速报警', '行程合并分钟'].forEach((n: string, i: number) => values[n] = d.getUint16(16 + 2 * i, true));
@@ -64,7 +69,7 @@ export function parseSettings(b: Uint8Array): GaugeSettings {
   values['主机地址'] = Array.from(b.slice(40, 46)).map((n: number) => n.toString(16).padStart(2, '0')).join(':');
   values['OBD 名称'] = utf8Decode(b.slice(46, 78)).split('\0')[0];
   values['图表报警值'] = Array.from({ length: 12 }, (_: unknown, i: number) => d.getInt16(78 + i * 2, true)).join(', ');
-  return { values, brightness: b[7], profile: b[8], threshold: b[0] === 2 ? d.getUint16(102, true) : null, discardSupported: (b[1] & 4) !== 0 };
+  return { values, brightness: b[7], profile: b[8], threshold: b[0] >= 2 ? d.getUint16(102, true) : null, defaultPage: b[6], defaultOrientation: b[0] >= 3 ? b[104] : null, discardSupported: (b[1] & 4) !== 0 };
 }
 export function parseOdometer(b: Uint8Array): Odometer {
   const d = checked(b, 12); need(b[0] === 1 && (b[1] & 252) === 0 && d.getUint16(8, true) === 0 && d.getUint32(4, true) <= 9999999, '总里程回读无效');

@@ -1,9 +1,9 @@
 {
-  "android": "4.6.3",
-  "harmony": "0.6.2",
-  "firmware": "4.1.2",
+  "android": "4.6.4",
+  "harmony": "0.6.3",
+  "firmware": "4.1.3",
   "files": {
-    "android_app/app/build.gradle.kts": "a2d59e69bd8798b877dfd754c39c98755d25d9e2b3917e60019eeea86130d452",
+    "android_app/app/build.gradle.kts": "ff09d9c59647fdf936d1d69be76f550aaa0287aac3e79e682a6160669aec31d6",
     "android_app/app/src/main/assets/firmware/latest.json": "c514aab14dafb6446902e7a3994fe060a7caa30aacaa380df8ad84ea05582b25",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt": "87b600871a94c95de24974d09396fbda026f10a89ab209dfb84804452ddead9a",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppUpdater.kt": "1c3c5ce4e6cd30ff51b65c794722512164c2234f7dca2ba8d6748ad71cdf6c09",
@@ -30,7 +30,7 @@
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlateGenerator.kt": "33362feb6f435ae372c92fb15e1f5b056436f93c3824520c413cfcc37893cb44",
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlateGeneratorActivity.kt": "2414f1b14e2f705162080a2c321b46ae74c577129e480a225e36fd4e70682d4f",
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlatePreviewView.kt": "327366518d54c6e482d4df5b134011f49624ed1f6780b12699da49cd0a3f75a1",
-    "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt": "fabab19fded39828ab1548db97f08731069e5d2770d8475711bd8ceba61c2664",
+    "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt": "77d8bfb128691da9e064fc3caa372ff4194e7baf3bd7e6e80b50e46be8fc33e6",
     "android_app/app/src/main/java/com/brz/gauge/trips/MaintenanceSchedule.kt": "3160ab6c656393f6d810738552bef5c643c790f72b7eafc15363ca5415db6ca0",
     "android_app/app/src/main/java/com/brz/gauge/trips/MileageEstimator.kt": "81f0c3d290026676a8ee57f6f4cef1538b93b44ba918de16d4165ee44778417b",
     "android_app/app/src/main/java/com/brz/gauge/trips/PollHealth.kt": "90956ab94df9a8cf8aaff6782b52997a71ada406c039e57694c7fa5838a9b786",
@@ -43,13 +43,13 @@
     "android_app/app/src/main/java/com/brz/gauge/trips/TransferArchive.kt": "bd854d47784d92cfc94b442dcad04ba9a506f4584bad1ac2ec341e37a874da68",
     "android_app/app/src/main/java/com/brz/gauge/trips/TransferMerge.kt": "52a4048f81cbcefce8ab34ad2633df4931eb47f5c526560a2df5001432e6b80a",
     "android_app/app/src/main/java/com/brz/gauge/trips/TransferMigrations.kt": "b9cef88c6567727e9b3e9a6514ac16bad7638bda0a796444a4cc858a7e8bbe41",
-    "android_app/app/src/main/java/com/brz/gauge/trips/TransferSchema.kt": "7cd310d571822dae093d7a5f3451692b7226cdef2cf6288467398378e8c0ead2",
+    "android_app/app/src/main/java/com/brz/gauge/trips/TransferSchema.kt": "46bab5c1d2cbcbc4abaa5de112405375479e06c8116f099da0db80524e786ec0",
     "android_app/app/src/main/java/com/brz/gauge/trips/TransferStore.kt": "8a87a136f2564d4796741a14de00d7fe47da74f905a180edfce8c075eabcc026",
     "android_app/app/src/main/java/com/brz/gauge/trips/TripAdapter.kt": "c400f23b2ffe5d29131740913161ee5828bceca86664f4b4c7047fe0d69f9e17",
-    "android_app/app/src/main/java/com/brz/gauge/trips/TripBleProtocol.kt": "bcaba15b2d599187732fdf0e7692d9d83a9ecfd8fb88273085a76ea7cf6cb00e",
+    "android_app/app/src/main/java/com/brz/gauge/trips/TripBleProtocol.kt": "6ac105e17a88b887d8c10e97634556adbe155c17ecb309cf4c0f97c2308e8e98",
     "android_app/app/src/main/java/com/brz/gauge/trips/TripDatabase.kt": "2b229e80c8bb75707c26b1f0fcb874985b088198e7ca3c436db2ab5f2c753bf4",
     "android_app/app/src/main/java/com/brz/gauge/trips/TripRecord.kt": "3081196e22f05d4fa4fc6ce30fe25d3c3bf52fd3ef6059c882c9ead139c5ec7d",
-    "android_app/app/src/main/java/com/brz/gauge/trips/TripSyncService.kt": "adb0013c354a58128ad7da6563d155f691c3178180e7e4ef912e9839fed07213",
+    "android_app/app/src/main/java/com/brz/gauge/trips/TripSyncService.kt": "81e64466e4e04b089a77df7841af3254a814dbb03d8aa7b6501592dbad0ab3a6",
     "android_app/app/src/main/java/com/brz/gauge/trips/UserNotice.kt": "c449ccf38f6fa88140496b0257dce23fc4f812fa51013f343387be869de14a1b",
     "android_app/app/src/main/java/com/brz/gauge/trips/Vehicle3DView.kt": "adf644ec282d765e598a04c99190c89fe8d9bf5df0b917ec6b5702e2ad6c429e",
     "android_app/app/src/main/java/com/brz/gauge/trips/VehicleDisplayName.kt": "edb2224e0c45506fc76b1d71ad097d0869f4d4e092cd2bb5c9c46ea5c9bfdbed",
@@ -79,6 +79,16 @@
       "Default startup page is portable via v7 int preference on both platforms",
       "Waiting-only Android notification channel is user-controlled through system settings; active connection/OTA and low fuel retain existing channels",
       "Harmony has no equivalent permanent waiting notification to hide; no background-running policy change"
+    ]
+  },
+  "sourceReview20261112": {
+    "scope": "Release 4.6.4 gauge boot defaults; source/protocol review only, device validation deferred",
+    "reviewed": [
+      "Removed App launch-tab selection in Android and Harmony; saved-instance/notification navigation remains intact",
+      "Both gauge settings pages expose the same nine boot pages and clockwise 0/90/180/270-degree orientation, only with a valid v3 snapshot",
+      "Both clients serialize writes and verify actual gauge readback; defaults apply on next gauge power-on; Android keeps requests for different setting kinds independently",
+      "Legacy v4.6.3 default_start_tab remains an ignored archive key so released v7 backups remain importable; other portable preferences retained",
+      "Independent Android waiting notification channel remains unchanged"
     ]
   }
 }

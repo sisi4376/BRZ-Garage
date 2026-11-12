@@ -52,7 +52,7 @@
 #define DEVICE_INFO_CHAR_CUSTOM_TRIP_CONTROL 0x000E
 #define DEVICE_INFO_CHAR_HARMONY_TIME_SYNC 0x000F
 #define VEHICLE_STATE_WIRE_SIZE 84
-#define GAUGE_SETTINGS_WIRE_SIZE 106
+#define GAUGE_SETTINGS_WIRE_SIZE 108
 #define BRIGHTNESS_CONTROL_WIRE_SIZE 6
 #define VEHICLE_PROFILE_CONTROL_WIRE_SIZE 6
 #define ODOMETER_CONFIG_WIRE_SIZE 12
@@ -398,7 +398,7 @@ static uint16_t build_gauge_settings_wire(void)
     nvs_user_cfg_t cfg = *nvs_cfg_get();
     uint8_t *b = s_gauge_settings_value;
     memset(b, 0, GAUGE_SETTINGS_WIRE_SIZE);
-    b[0] = 2;
+    b[0] = 3;
     b[1] = 0x01U; /* bit 0: this protocol revision is read-only */
     b[1] |= 0x04U; /* bit 2: discard data before the oldest refuel node */
 #if !TRIP_MERGE_TIMEOUT_EDITABLE
@@ -432,7 +432,8 @@ static uint16_t build_gauge_settings_wire(void)
         put_le16(b + 78 + item * 2U, (uint16_t)nvs_chart_alarm_get(item));
     }
     put_le16(b + 102, cfg.refuel_detect_threshold_ml);
-    put_le16(b + 104, trip_crc16(b, 104));
+    b[104] = cfg.default_orientation;
+    put_le16(b + 106, trip_crc16(b, 106));
     return GAUGE_SETTINGS_WIRE_SIZE;
 }
 
@@ -1337,7 +1338,8 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                                             param->write.trans_id, status, NULL);
             }
         } else if (param->write.handle == s_handle_brightness_control) {
-            /* Packet: version, SET command, percent, total length, CRC16-CCITT.
+            /* Packet: version, command (1 brightness / 2 boot page / 3 orientation),
+             * value, total length, CRC16-CCITT. Boot defaults apply next power-on.
              * Keep this callback constant-time: it never touches the display,
              * NVS, ELM327 client, fuel estimator, or trip records. */
             esp_gatt_status_t status = ESP_GATT_INVALID_ATTR_LEN;
@@ -1345,13 +1347,17 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 param->write.offset == 0) {
                 const uint8_t *value = param->write.value;
                 uint16_t expected_crc = get_le16(value + 4);
-                bool valid = value[0] == 1U && value[1] == 1U &&
-                             value[2] >= 10U && value[2] <= 100U &&
+                bool supported = (value[1] == 1U && value[2] >= 10U && value[2] <= 100U) ||
+                                 (value[1] == 2U && value[2] <= 8U) ||
+                                 (value[1] == 3U && value[2] <= 3U);
+                bool valid = value[0] == 1U && supported &&
                              value[3] == BRIGHTNESS_CONTROL_WIRE_SIZE &&
                              trip_crc16(value, 4) == expected_crc;
                 if (!valid) {
                     status = ESP_GATT_INVALID_PDU;
-                } else if (app_event_send(APP_EVT_PHONE_BRIGHTNESS, value[2])) {
+                } else if (app_event_send(value[1] == 2U ? APP_EVT_PHONE_DEFAULT_PAGE :
+                                          value[1] == 3U ? APP_EVT_PHONE_DEFAULT_ORIENTATION :
+                                          APP_EVT_PHONE_BRIGHTNESS, value[2])) {
                     status = ESP_GATT_OK;
                 } else {
                     status = ESP_GATT_ERROR; /* queue full: phone retries later */
