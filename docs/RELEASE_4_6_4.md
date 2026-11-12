@@ -1,3 +1,14 @@
+## 下载与部署
+
+- **Android 手机安装／升级：** [BRZ Garage 4.6.4 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-Garage-v4.6.4-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-Garage-v4.6.4-debug.apk.sha256)）。直接覆盖安装，勿先卸载；已有仪表再通过 App 升级内置固件至 4.1.3。
+- **首次烧录／USB 升级仪表：** [Windows x64 一键烧录包 4.1.3-r4](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-Garage-Flasher-v4.1.3-r4-Windows-x64.zip)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-Garage-Flasher-v4.1.3-r4-Windows-x64.zip.sha256)）。解压运行 `Start-Flasher.cmd`，按提示备份并烧录。
+- **独立 OTA 镜像（可选）：** [仪表固件 4.1.3 BIN](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/obd_brz_gauge.bin)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/obd_brz_gauge.bin.sha256)）。使用 App 内置固件更新时无需另下；此文件不是可写入地址 0 的整片镜像。
+- **采集／回放工具（可选）：** [Windows x64 OBD Studio 1.4](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-OBD-Studio-v1.4.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.4/BRZ-OBD-Studio-v1.4.exe.sha256)）。不属于仪表安装必需程序。
+
+鸿蒙 0.6.3 本次仅提供源码，没有公开 HAP 安装包。
+
+---
+
 # BRZ Garage 4.6.4 Beta · 仪表启动页与四向朝向
 
 对比范围：上一公开 Release `v4.6.3`（`45521843924d880217c75ef44b6f66b6a3b31db7`）至本次 `v4.6.4`。Android 4.6.3（168）→ 4.6.4（169）；仪表固件 4.1.2 → 4.1.3；鸿蒙源码 0.6.2（602）→ 0.6.3（603）；Windows 一键烧录包 4.1.2-r4 → 4.1.3-r4，烧录工具逻辑不变。包含上一 Release 后尚未发布的 OBD Studio 1.2、1.3、1.4 更新，提供最终 1.4 程序。
