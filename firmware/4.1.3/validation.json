@@ -1,0 +1,69 @@
+{
+  "release_tag": "v4.6.4",
+  "source_branch": "main",
+  "firmware_source_commit": "33eaf155f4ac731b084c694025153b81d9eae88b",
+  "android_version": "4.6.4",
+  "android_version_code": 169,
+  "harmony_source_version": "0.6.3",
+  "harmony_version_code": 603,
+  "firmware_version": "4.1.3",
+  "flasher_version": "4.1.3-r4",
+  "obd_studio_version": "1.4",
+  "signer_certificate_sha256": "08bab8a9c07f8e5b0efcfb39f6c9ee56bea08021c7e5b231be7efff0aaa43f50",
+  "verified": [
+    "ESP-IDF 5.5.3 build using firmware/sdkconfig.release (GNSS on; perf monitor and poll self-check off, matching previous release config)",
+    "Android assembleDebug and original APK signing certificate",
+    "Harmony ArkTS assembleHap",
+    "136 Harmony tests and Kotlin cross-platform archive roundtrip",
+    "33 Android production transfer/SQLite scenarios",
+    "27 OBD Studio production tests and PyInstaller build",
+    "3 gauge boot persistence/rotation/wire tests; 6 startup allocation tests; 7 BLE wire tests; 25 Kotlin production model scenarios",
+    "APK/HAP/OTA/flasher application bytes identical; all five flasher images and esptool hashes verified"
+  ],
+  "not_verified": [
+    "Phone installation and visual parity",
+    "Hardware BLE/OTA/background notification delivery",
+    "Gauge four-direction visual/touch behavior and rotation performance",
+    "Road tests and automatic transmission validation",
+    "G-board GNSS hardware",
+    "Windows multi-device high-DPI usability"
+  ],
+  "assets": {
+    "BRZ-Garage-Flasher-v4.1.3-r4-Windows-x64.zip": {
+      "sha256": "e991130925d8a39227fad120ec797413ec3f852a93a945da70e185e27f9e6bb6",
+      "size": 12011855
+    },
+    "BRZ-Garage-Flasher-v4.1.3-r4-Windows-x64.zip.sha256": {
+      "sha256": "42f1709bd166fb9134f30b6942e34b5d1f2b7aee38eca1d96544a4ac6d481e50",
+      "size": 112
+    },
+    "BRZ-Garage-v4.6.4-debug.apk": {
+      "sha256": "bf092cba99c2b6c5a07ce1a39c4a955790d2e15812407e218f903ecf28b50600",
+      "size": 35368217
+    },
+    "BRZ-Garage-v4.6.4-debug.apk.sha256": {
+      "sha256": "acd39ced41d2b40abda922fb31a49ff17df1de7e3fdf4492ad577f7ea2931cd3",
+      "size": 95
+    },
+    "BRZ-OBD-Studio-v1.4.exe": {
+      "sha256": "4ee0dc94a61b3c0b839991acad28fedf7d3c5e1dafb228ed340c2d4fcdef1be4",
+      "size": 48332828
+    },
+    "BRZ-OBD-Studio-v1.4.exe.sha256": {
+      "sha256": "d0549d2270fdf18ec04d579cd3d617a2f20691be37760669cf1d9f48cc78b671",
+      "size": 91
+    },
+    "latest.json": {
+      "sha256": "11862b0fb2dd0115626c6fdd8e48a27f27ceb3db9eb22b1e822e0316c0af80d3",
+      "size": 920
+    },
+    "obd_brz_gauge.bin": {
+      "sha256": "04b2ddd486422b58a57e034db3142232b2eceef196d3daad4cc92fd909937f24",
+      "size": 2122832
+    },
+    "obd_brz_gauge.bin.sha256": {
+      "sha256": "975059ed1e774dfcc66ca9d957284b06e5751a18aaec3ad81e29177d843435f6",
+      "size": 85
+    }
+  }
+}

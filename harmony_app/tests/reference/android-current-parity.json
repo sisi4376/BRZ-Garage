@@ -4,7 +4,7 @@
   "firmware": "4.1.3",
   "files": {
     "android_app/app/build.gradle.kts": "ff09d9c59647fdf936d1d69be76f550aaa0287aac3e79e682a6160669aec31d6",
-    "android_app/app/src/main/assets/firmware/latest.json": "c514aab14dafb6446902e7a3994fe060a7caa30aacaa380df8ad84ea05582b25",
+    "android_app/app/src/main/assets/firmware/latest.json": "11862b0fb2dd0115626c6fdd8e48a27f27ceb3db9eb22b1e822e0316c0af80d3",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt": "87b600871a94c95de24974d09396fbda026f10a89ab209dfb84804452ddead9a",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppUpdater.kt": "1c3c5ce4e6cd30ff51b65c794722512164c2234f7dca2ba8d6748ad71cdf6c09",
     "android_app/app/src/main/java/com/brz/gauge/trips/BackgroundBleWake.kt": "45b1800e4c1570ec0eaea00662055c8dff3bb844981e4e0d94e3e5c14483e7a3",
