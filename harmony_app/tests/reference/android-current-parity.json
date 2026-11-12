@@ -1,9 +1,9 @@
 {
-  "android": "4.6.4",
-  "harmony": "0.6.3",
+  "android": "4.6.5",
+  "harmony": "0.6.4",
   "firmware": "4.1.3",
   "files": {
-    "android_app/app/build.gradle.kts": "ff09d9c59647fdf936d1d69be76f550aaa0287aac3e79e682a6160669aec31d6",
+    "android_app/app/build.gradle.kts": "b8b1581420ed140fe556c5c04f8afeead65712c285b20970cef6c8cab7663712",
     "android_app/app/src/main/assets/firmware/latest.json": "11862b0fb2dd0115626c6fdd8e48a27f27ceb3db9eb22b1e822e0316c0af80d3",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppState.kt": "87b600871a94c95de24974d09396fbda026f10a89ab209dfb84804452ddead9a",
     "android_app/app/src/main/java/com/brz/gauge/trips/AppUpdater.kt": "1c3c5ce4e6cd30ff51b65c794722512164c2234f7dca2ba8d6748ad71cdf6c09",
@@ -30,7 +30,7 @@
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlateGenerator.kt": "33362feb6f435ae372c92fb15e1f5b056436f93c3824520c413cfcc37893cb44",
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlateGeneratorActivity.kt": "2414f1b14e2f705162080a2c321b46ae74c577129e480a225e36fd4e70682d4f",
     "android_app/app/src/main/java/com/brz/gauge/trips/LicensePlatePreviewView.kt": "327366518d54c6e482d4df5b134011f49624ed1f6780b12699da49cd0a3f75a1",
-    "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt": "77d8bfb128691da9e064fc3caa372ff4194e7baf3bd7e6e80b50e46be8fc33e6",
+    "android_app/app/src/main/java/com/brz/gauge/trips/MainActivity.kt": "a3c61a2c932e8e7ebcda1f78847b4bdc290e8158a9bf13306e83fa832715a3bc",
     "android_app/app/src/main/java/com/brz/gauge/trips/MaintenanceSchedule.kt": "3160ab6c656393f6d810738552bef5c643c790f72b7eafc15363ca5415db6ca0",
     "android_app/app/src/main/java/com/brz/gauge/trips/MileageEstimator.kt": "81f0c3d290026676a8ee57f6f4cef1538b93b44ba918de16d4165ee44778417b",
     "android_app/app/src/main/java/com/brz/gauge/trips/PollHealth.kt": "90956ab94df9a8cf8aaff6782b52997a71ada406c039e57694c7fa5838a9b786",
@@ -90,5 +90,10 @@
       "Legacy v4.6.3 default_start_tab remains an ignored archive key so released v7 backups remain importable; other portable preferences retained",
       "Independent Android waiting notification channel remains unchanged"
     ]
-  }
+  },
+  "settingsNavigationReview20261112": [
+    "Both driving settings sections remove gauge and refuel-threshold shortcuts; application/vehicle routes remain",
+    "Android waiting-notification row follows automatic-connection switch in grouped and classic settings; Harmony has no permanent waiting notification",
+    "Source review only; no device visual acceptance"
+  ]
 }

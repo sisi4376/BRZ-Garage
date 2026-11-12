@@ -1,8 +1,8 @@
 # Firmware Package
 
-## 当前完整发布：4.1.3（Android 4.6.4）
+## 当前完整发布：4.1.3（Android 4.6.5）
 
-[下载完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.4)。新增手机可修改的仪表默认启动页及四向默认朝向，保存后下次上电生效。APK、鸿蒙源码内置镜像、独立 OTA 镜像及 Windows r4 烧录包使用同一份 4.1.3 固件。详情与验证边界见 [4.6.4 发布说明](../docs/RELEASE_4_6_4.md)。下方为历史版本记录。
+[下载完整版本](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.5)。新增手机可修改的仪表默认启动页及四向默认朝向，保存后下次上电生效。APK、鸿蒙源码内置镜像、独立 OTA 镜像及 Windows r4 烧录包使用同一份 4.1.3 固件。详情与验证边界见 [4.6.5 发布说明](../docs/RELEASE_4_6_5.md)。下方为历史版本记录。
 
 ## 固件 4.0.8：首次初始化默认 OBD 名称
 
@@ -47,7 +47,7 @@ r4 已通过模拟短包恢复、重复短包、备份校验失败、设备切�
 
 ### Release 自动发布
 
-当前完整发布为 **App 4.6.4 / 固件 4.1.3**，见 [完整发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.4)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
+当前完整发布为 **App 4.6.5 / 固件 4.1.3**，见 [完整发布页](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.5)。`firmware/sdkconfig.release` 保存发布构建配置；复现构建使用 `idf.py -D SDKCONFIG_DEFAULTS=firmware/sdkconfig.release build`。
 
 若草稿中已上传本地验证的烧录 ZIP，发布事件跳过重复构建，保留 APK 与 ZIP 使用同一固件。自动构建优先使用标签内的 `firmware/sdkconfig.release`；上传不覆盖已有同名附件。
 

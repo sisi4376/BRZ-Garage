@@ -4088,7 +4088,6 @@ class MainActivity : Activity() {
     private fun settingsGrouped() {
         settingsSection = settingsSection.coerceIn(0, 2)
         val body = page("设置", "连接、显示与仪表功能")
-        waitingNotificationSettings(body)
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -4202,27 +4201,18 @@ class MainActivity : Activity() {
             settingsListRow(SettingsIconView.Icon.TRIP, "自定义行程与历史", "查看、归档或重置当前区间",
                 bookkeepingDaily, action = { showCustomTripDetails() }),
         ))
-        settingsListGroup(body, listOf(
-            settingsListRow(SettingsIconView.Icon.GAUGE, "仪表设置", "默认启动页、默认朝向与日间亮度",
-                bookkeepingMaintenance, action = { gaugeSettingsPage() }),
-            settingsListRow(SettingsIconView.Icon.FUEL, "自动加油识别阈值", "在车辆设置中调整",
-                bookkeepingFuel, action = { vehicleSettingsPage() }),
-        ))
+
     }
 
     private var returningFromWaitingSettings = false
-    private fun waitingNotificationSettings(body: LinearLayout) {
-        settingsListGroup(body, listOf(
-            settingsListRow(SettingsIconView.Icon.AUTOSTART, "等待仪表上电通知",
+    private fun waitingNotificationRow() = settingsListRow(SettingsIconView.Icon.AUTOSTART, "等待仪表上电通知",
                 "在系统中单独关闭等待通知，保留自动连接和低油量提醒", bookkeepingFuel,
                 value = if (WaitingNotification.enabled(this)) "显示" else "已关闭", action = {
                     try { returningFromWaitingSettings = true; startActivity(WaitingNotification.settingsIntent(this)) }
                     catch (_: RuntimeException) { returningFromWaitingSettings = false; toast("请在系统设置 → 通知 → BRZ Garage → 等待仪表上电中调整") }
                 })
-        ))
-    }
+
     private fun renderAppSettingsOverview(body: LinearLayout) {
-        waitingNotificationSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val appDetail = when {
@@ -4251,6 +4241,7 @@ class MainActivity : Activity() {
         settingsListGroup(body, listOf(
             settingsSwitchRow(SettingsIconView.Icon.AUTOSTART, "开机自启 / 自动连接", "恢复后台服务并等待仪表上电",
                 bookkeepingFuel, state.automatic) { updateAutomaticConnection(it) },
+            waitingNotificationRow(),
             settingsListRow(SettingsIconView.Icon.BLUETOOTH, "系统级 BLE 唤醒",
                 when {
                     state.address.isEmpty() -> "尚未绑定仪表"
@@ -4353,7 +4344,6 @@ class MainActivity : Activity() {
 
     private fun settingsLegacy() {
         val body = page("设置", "连接、显示与仪表功能")
-        waitingNotificationSettings(body)
         settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
             "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val style = card(body, "设置页样式")
@@ -4469,6 +4459,7 @@ class MainActivity : Activity() {
             text = "开机自启 / 自动连接"; textSize = 14f; isChecked = state.automatic
             setOnCheckedChangeListener { _, checked -> updateAutomaticConnection(checked) }
         }, 10)
+        add(auto, waitingNotificationRow(), 10)
         add(auto, label("开启后，手机重启并首次解锁时自动恢复后台服务；覆盖升级后也会恢复。不自动弹出首页，发现仪表后自动连接授时。首次安装须先打开一次并完成绑定、授权。", 12f, muted), 10)
         add(auto, button("重新注册开机与仪表唤醒") {
             state.automatic = true
