@@ -29,6 +29,7 @@
 /android_app/.kotlin/
 /android_app/build/
 /android_app/app/build/
+/android_app/obd_studio/build/
 /android_app/local.properties
 *.apk
 *.aab

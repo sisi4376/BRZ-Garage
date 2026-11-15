@@ -1,5 +1,9 @@
 # 本地 ELM327 蓝牙采集与仪表回放
 
+## Android 版
+
+安装本地 `BRZ-OBD-Studio-Android-v1.0.0-beta.1.apk`。独立包名，可与 BRZ Garage 同时安装，支持四车型轮询、全量保留采集、实时数据与曲线、JSONL/摘要导出、电脑版文件导入、倍速循环及 BLE 仪表回放；后台任务通过前台服务运行。功能对应、安装和手机限制见 [Android OBD Studio 使用说明](../android_app/obd_studio/README.md)。当前为 Beta，手机蓝牙与实车联调尚未完成。
+
 ## Windows 图形版（推荐）
 
 直接双击根目录 `BRZ-OBD-Studio-v1.4.exe`（支持 ZC6/ZD8 的 6MT、6AT 四车型仪表轮询），无需安装 Python 或联网下载依赖。旧版文件保留，已有录制文件兼容。

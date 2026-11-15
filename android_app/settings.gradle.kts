@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BRZTripSync"
 include(":app")
+include(":obd_studio")
