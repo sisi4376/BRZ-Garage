@@ -34,39 +34,28 @@ fun supported(reply: String, base: Int): Set<Int> {
 class GaugePoll(val mode: String) {
     val oil = if (mode.startsWith("zc6")) "2101" else "015C"
     var slot = 0
-    val last = mutableMapOf<String,Double>()
-    var status: Boolean? = null; var rate: Boolean? = null
-    var statusProbes=0; var rateProbes=0; var levelProbes=0; var level=false
-    val plan get() = listOf("010C","010F","010D","0105","0104","0111",oil,"0142","0103","0144","0110","012F","0140","015E")
-    fun due(key: String, t: Double, gap: Double): Boolean {
-        if (last[key]?.let { t-it < gap } == true) return false
-        last[key]=t; return true
-    }
+    var slowIndex = 0
+    var status: Boolean? = null
+    var statusProbes=0
+    val plan get() = listOf("010C","010F","010D","0105","0104","0111",oil,"0142","0103","0144","0110","012F","015E","0140")
     fun commands(t: Double): List<String> {
         val s=slot; val out=mutableListOf<String>()
         when(s) {
-            0 -> out.add("010C")
-            1,3,6,7 -> { val c=mapOf(1 to "010F",3 to "0105",6 to oil,7 to "0142").getValue(s); if(due(c,t,5.0))out.add(c) }
-            2 -> out.add("010D")
-            4,5,9,10 -> { val c=mapOf(4 to "0104",5 to "0111",9 to "0144",10 to "0110").getValue(s); if(due(c,t,.5))out.add(c) }
-            8 -> if(due("0103",t,.5) && status != false) { if(status==null && statusProbes>=3)status=false else {if(status==null)statusProbes++;out.add("0103")} }
-            12 -> if((level || levelProbes<3) && due("012F",t,30.0)) {if(!level)levelProbes++;out.add("012F")}
-            13 -> if(due("rate",t,.5)) {if(rate==null && rateProbes<3){rateProbes++;out.add("0140")} else if(rate==true)out.add("015E")}
+            5 -> { out.add(listOf("010F","0105",oil,"0142","012F","015E","0140")[slowIndex]); slowIndex=(slowIndex+1)%7 }
+            0,1,2,4 -> out.add(mapOf(0 to "0110",1 to "0104",2 to "0111",4 to "0144").getValue(s))
+            3 -> if(status != false) { if(status==null && statusProbes>=3)status=false else {if(status==null)statusProbes++;out.add("0103")} }
         }
-        if(s!=0)out.add(if(s%4==0)"010D" else "010C")
-        slot=(s+1)%14; return out
+        out.add(if(s%2!=0)"010D" else "010C")
+        slot=(s+1)%6; return out
     }
     fun observe(cmd: String, reply: String) {
         reply.replace(">", "").split('\r','\n').forEach { line ->
             val d=runCatching { unhex(line).map { it.toInt() and 255 } }.getOrNull() ?: return@forEach
             when {
                 cmd=="0100" && d.size>=6 && d.take(2)==listOf(65,0) -> status=d[2] and 32 != 0
-                cmd=="0140" && d.size>=6 && d.take(2)==listOf(65,64) -> rate=d[5] and 4 != 0
                 cmd=="0103" && d.size>=4 && d.take(2)==listOf(65,3) -> status=true
-                cmd=="012F" && d.size>=3 && d.take(2)==listOf(65,47) -> level=true
             }
         }
-        if(cmd=="0140" && rateProbes>=3 && rate==null)rate=false
     }
 }
 data class Value(val name: String, val value: Double, val unit: String)

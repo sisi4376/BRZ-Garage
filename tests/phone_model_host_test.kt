@@ -41,6 +41,26 @@ fun main() {
     check(estimateMileage(splitTrips, "AA:BB", 100_000_000L, 75).distanceM == 100_003_000L)
     println("PASS: local split records retain their parent sequence for mileage calculations")
 
+    val liveStart = 1794600000L
+    val liveMileage = VehicleState(2, liveStart + 600, 600, 0, 0,
+        1000, 600, 100, 4500, 1000, 500, 2000, 40, currentStartEpochS = liveStart)
+    check(estimateHomeMileage(mileageTrips, "AA:BB", null, 0, liveMileage).distanceM == 4500L)
+    check(estimateHomeMileage(mileageTrips, "AA:BB", null, 0,
+        liveMileage.copy(currentDistanceM = 1700)).distanceM == 5200L)
+    check(estimateHomeMileage(mileageTrips, "AA:BB", 100_000_000, 1, liveMileage).distanceM == 100_003_300L)
+    val archivedLive = checkNotNull(currentDrivingRecord("aa:bb", liveMileage)).copy(tripId = 3)
+    val withArchive = mileageTrips + archivedLive
+    check(estimateHomeMileage(withArchive, "AA:BB", null, 0, liveMileage).distanceM == 4500L)
+    check(estimateHomeMileage(withArchive, "AA:BB", null, 0,
+        liveMileage, snapshotArchived = true).distanceM == 4500L)
+    // An archived marker keeps an edited/deleted cached snapshot from returning as live mileage.
+    check(estimateHomeMileage(mileageTrips, "AA:BB", null, 0,
+        liveMileage, snapshotArchived = true).distanceM == 3500L)
+    check(estimateHomeMileage(mileageTrips, "AA:BB", null, 0, null).distanceM == 3500L)
+    check(estimateHomeMileage(mileageTrips, "", null, 0, liveMileage).distanceM == 13400L)
+    check(estimateHomeMileage(emptyList(), "AA:BB", Long.MAX_VALUE, 0, liveMileage).distanceM == Long.MAX_VALUE)
+    println("PASS: home mileage follows live snapshots without counting an archived trip twice")
+
     check(normalizeVehicleDisplayName("") == DEFAULT_VEHICLE_DISPLAY_NAME)
     check(normalizeVehicleDisplayName("  我的\n小跑车  ") == "我的 小跑车")
     check(normalizeVehicleDisplayName("1234567890") == "123456789")
@@ -319,4 +339,22 @@ fun main() {
     check(fuelRange.calculationLitresPer100Km == 10.0)
     check(estimateRangeKm(50.0, 50.0, fuelRange) == 250)
     println("PASS: selectable range sources, five-trip weighting and correction-factor scope")
+    val parked = ParkingSnapshot("A", MileageEstimate(12_345_000, true), 250)
+    check(parkingNotificationText(true, parked) == "12345km，剩余续航约 250km")
+    check(parkingNotificationText(false, parked) == "剩余续航约 250km")
+    check(parkingNotificationText(true, null) == "里程暂无数据，剩余续航暂无数据")
+    check(parkingNotificationText(false, null) == "剩余续航暂无数据")
+    check(parkingNotificationText(true, parked.copy(mileage = MileageEstimate(1000, false), rangeKm = 0)) == "1km · 未校准，剩余续航约 0km")
+    val connectedSummary = parked.copy(vehicleDistanceM = 100_000)
+    check(connectedNotificationText(true, connectedSummary, liveMileage.copy(totalDistanceM = 101_000)) ==
+        "12346km，剩余续航约 250km")
+    check(connectedNotificationText(false, connectedSummary, liveMileage.copy(totalDistanceM = 101_000)) ==
+        "剩余续航约 250km")
+    check(connectedNotificationText(true, connectedSummary, liveMileage.copy(totalDistanceM = 99_000)) ==
+        "12345km，剩余续航约 250km")
+    check(connectedNotificationText(true, null, liveMileage) == "里程暂无数据，剩余续航暂无数据")
+    check(connectedNotificationText(true, connectedSummary, null) == "12345km，剩余续航约 250km")
+    check(connectedNotificationText(true, connectedSummary.copy(mileage = MileageEstimate(Long.MAX_VALUE, true)),
+        liveMileage.copy(totalDistanceM = 101_000)).startsWith(homeMileageLabel(MileageEstimate(Long.MAX_VALUE, true))))
+    println("PASS: parking and connected summaries respect mileage visibility, live updates and counter resets")
 }

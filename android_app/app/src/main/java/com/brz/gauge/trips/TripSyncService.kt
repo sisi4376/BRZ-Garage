@@ -271,6 +271,8 @@ class TripSyncService : Service() {
     private var notificationVehicle: VehicleState? = null
     private var scanning = false
     private var connected = false
+    private var servicesReady = false
+    private var autoConnectPending = false
     private var address = ""
     private var meta: TripBleProtocol.Meta? = null
     private var cursor = 0L
@@ -328,6 +330,10 @@ class TripSyncService : Service() {
     private var linkGeneration = 0L
     private var bluetoothReceiverRegistered = false
     private val firmwareExecutor = Executors.newSingleThreadExecutor()
+    private val parkingExecutor = Executors.newSingleThreadExecutor()
+    private var parkingSnapshot: ParkingSnapshot? = null
+    private var parkingRefreshRunning = false
+    private var parkingRefreshAt = -30_000L
     private var pendingFirmwareScan = false
     private var pendingFirmwareUpdate = false
     private var pendingFirmwarePackageId = EmbeddedFirmware.LATEST_PACKAGE_ID
@@ -479,11 +485,13 @@ class TripSyncService : Service() {
         // During Wi-Fi upload the gauge deliberately releases Bluetooth. A
         // watchdog/service restart must not launch a competing BLE scan.
         if (!otaSessionActive) {
-            if (gaugeSignalWake && !connected) {
+            if (gaugeSignalWake && !connected && (gatt == null || autoConnectPending)) {
                 // A stale vendor autoConnect request is still represented by a
                 // non-null GATT object. The fresh system scan result proves the
                 // gauge is advertising now, so replace that request with an
                 // immediate direct connection instead of ignoring the signal.
+                // A direct connection already in flight owns its timeout; a
+                // duplicate presence/scan signal must not tear down its handshake.
                 if (gatt != null) closeConnection() else stopScan()
                 connectFromGaugeSignal()
             } else if (gatt == null) {
@@ -491,18 +499,18 @@ class TripSyncService : Service() {
                 beginReconnect()
             }
         }
-        if (gaugeSignalWake && connected && !busy) {
+        if (gaugeSignalWake && connected && servicesReady && !busy) {
             lastClockMs = 0
             handler.removeCallbacks(cycle)
             nextCycle()
         } else if (intent?.action == ACTION_SET_BRIGHTNESS) {
             val requested = intent.getIntExtra(EXTRA_BRIGHTNESS, -1)
             val setting = TripBleProtocol.DisplaySetting(intent.getIntExtra("display_setting_command", 1), requested)
-            if (connected && setting.valid && (setting.command == 1 || state.gaugeSettings()?.bootSettingsSupported == true)) requestBrightness(setting)
+            if (connected && servicesReady && setting.valid && (setting.command == 1 || state.gaugeSettings()?.bootSettingsSupported == true)) requestBrightness(setting)
             else publish("仪表设置未修改 · 请先连接支持此功能的仪表固件")
         } else if (intent?.action == ACTION_SET_REFUEL_THRESHOLD) {
             val requested = intent.getIntExtra(EXTRA_REFUEL_THRESHOLD_ML, -1)
-            if (connected && requested in 5_000..20_000 && requested % 1_000 == 0) {
+            if (connected && servicesReady && requested in 5_000..20_000 && requested % 1_000 == 0) {
                 requestRefuelThreshold(requested)
             } else {
                 publish("自动加油识别阈值未修改 · 请先连接仪表")
@@ -512,40 +520,40 @@ class TripSyncService : Service() {
             val model = SupportedVehicleModel.fromProfileIndex(requested)
             if (model == null) {
                 publish("车型未修改 · 不支持该车型")
-            } else if (connected) {
+            } else if (connected && servicesReady) {
                 requestVehicleProfile(model.profileIndex)
             } else {
                 publish("${model.title} 已保存在手机 · 连接仪表后自动同步")
             }
         } else if (intent?.action == ACTION_SET_ODOMETER_DISPLAY) {
             val enabled = intent.getBooleanExtra(EXTRA_ODOMETER_DISPLAY, state.odometerDisplayEnabled)
-            if (connected) requestOdometerConfig(if (enabled) "里程显示已排队" else "隐藏里程已排队")
+            if (connected && servicesReady) requestOdometerConfig(if (enabled) "里程显示已排队" else "隐藏里程已排队")
             else publish("里程显示设置已保存 · 连接仪表后自动同步")
         } else if (intent?.action == ACTION_CALIBRATE_ODOMETER) {
-            if (connected) requestOdometerConfig("里程校准已排队")
+            if (connected && servicesReady) requestOdometerConfig("里程校准已排队")
             else publish("里程校准已保存 · 连接仪表后自动同步")
         } else if (intent?.action == ACTION_RESET_REFUEL_TRIP) {
-            if (connected) requestRefuelReset()
+            if (connected && servicesReady) requestRefuelReset()
             else publish("手动重置已排队 · 连接仪表后执行")
         } else if (intent?.action == ACTION_DELETE_REFUEL_NODE) {
             val nodeId = intent.getLongExtra(EXTRA_REFUEL_NODE_ID, 0L)
             if (nodeId > 0L && state.pendingRefuelDeleteId != nodeId) {
                 state.requestRefuelDelete(nodeId)
             }
-            if (connected) requestRefuelDelete()
+            if (connected && servicesReady) requestRefuelDelete()
             else publish("删除加油节点已排队 · 连接仪表后执行")
         } else if (intent?.action == ACTION_DISCARD_REFUEL_BEFORE_FIRST) {
             val nodeId = intent.getLongExtra(EXTRA_REFUEL_NODE_ID, 0L)
             if (nodeId > 0L && state.pendingRefuelDiscardOldestId != nodeId) {
                 state.requestRefuelDiscardOldest(nodeId)
             }
-            if (connected) requestRefuelDiscardOldest()
+            if (connected && servicesReady) requestRefuelDiscardOldest()
             else publish("删除第一个节点以前的数据已排队 · 连接仪表后执行")
         } else if (intent?.action == ACTION_SYNC_CUSTOM_TRIP) {
             customTripDeferredForConnection = false
-            if (connected) requestCustomTripSync()
+            if (connected && servicesReady) requestCustomTripSync()
             else publish("自定义行程重置已保存 · 连接仪表后自动同步")
-        } else if (intent?.action == ACTION_SYNC_NOW && connected && !busy) {
+        } else if (intent?.action == ACTION_SYNC_NOW && connected && servicesReady && !busy) {
             lastClockMs = 0
             lastHistoryMs = 0
             handler.removeCallbacks(cycle)
@@ -556,12 +564,12 @@ class TripSyncService : Service() {
             handler.postDelayed(firmwareScanTimeout, FIRMWARE_SCAN_TIMEOUT_MS)
             state.firmwareUpdate("checking", "正在读取仪表固件与硬件信息…")
             publish("正在检查仪表固件更新…", true)
-            if (connected && !busy && operation == null) {
+            if (connected && servicesReady && !busy && operation == null) {
                 handler.removeCallbacks(cycle)
                 startPendingFirmwareScan()
             }
         } else if (intent?.action == ACTION_UPDATE_FIRMWARE) {
-            if (!connected) {
+            if (!connected || !servicesReady) {
                 state.firmwareUpdate("failed", "仪表未连接，未开始更新")
                 publish("固件未更新 · 请先连接仪表", true)
             } else {
@@ -591,6 +599,7 @@ class TripSyncService : Service() {
         otaWifiUploader?.cancel()
         otaWifiUploader = null
         firmwareExecutor.shutdownNow()
+        parkingExecutor.shutdownNow()
         if (state.firmwareUpdateStage == "checking") {
             state.firmwareUpdate("failed", "检查被中断，请重新扫描；正常数据未受影响")
         }
@@ -613,6 +622,47 @@ class TripSyncService : Service() {
         }
         super.onDestroy()
     }
+    private fun refreshParkingSnapshot() {
+        if (destroyed || !::state.isInitialized || parkingRefreshRunning) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - parkingRefreshAt < 30_000L && parkingSnapshot?.deviceId == state.dataDeviceId) return
+        parkingRefreshAt = now
+        parkingRefreshRunning = true
+        parkingExecutor.execute {
+            val snapshot = try {
+                val deviceId = state.dataDeviceId
+                val trips = TripDatabase(this).use { it.allTrips() }
+                    .filter { it.deviceId.equals(deviceId, true) }
+                val calibration = state.odometerCalibrationM(deviceId)
+                val vehicle = state.vehicle()
+                val mileage = if (calibration != null || trips.isNotEmpty() || vehicle != null)
+                    estimateHomeMileage(trips, deviceId, calibration, state.odometerAnchorTripId(deviceId),
+                        vehicle, state.currentTripSnapshotArchived()) else null
+                val source = state.rangeConsumptionSource
+                val fuelAverage = if (source == RangeConsumptionSource.FUEL_RECORDS)
+                    FuelDatabase(this).use { analyzeFuelRecords(it.allRecords()).historicalAverage } else null
+                val consumption = selectRangeConsumption(source, state.rangeCorrectionFactor,
+                    trips, vehicle?.average, fuelAverage)
+                ParkingSnapshot(deviceId, mileage,
+                    estimateRangeKm(state.tankLitres, state.effectiveFuelPercent(vehicle), consumption),
+                    vehicle?.totalDistanceM)
+            } catch (error: RuntimeException) {
+                Log.w(LOG_TAG, "Parking summary unavailable; connection continues", error)
+                null
+            }
+            handler.post {
+                parkingRefreshRunning = false
+                if (!destroyed && snapshot?.deviceId == state.dataDeviceId) {
+                    parkingSnapshot = snapshot
+                    if ((!connected || servicesReady) && !otaSessionActive && !pendingFirmwareUpdate && !pendingFirmwareScan) {
+                        try { getSystemService(NotificationManager::class.java)
+                            .notify(NOTIFICATION, notification(if (connected) "仪表已连接" else "等待仪表上电")) }
+                        catch (_: RuntimeException) { }
+                    }
+                }
+            }
+        }
+    }
     private fun notification(message: String): Notification {
         val vehicle = notificationVehicle
         val driving = vehicle?.takeIf {
@@ -624,14 +674,25 @@ class TripSyncService : Service() {
                 "驾驶中 %02d:%02d    已行驶 %.1f km",
                 hours, minutes, it.currentDistanceM / 1000.0)
         }
+        val parking = !connected && !otaSessionActive && !pendingFirmwareUpdate && !pendingFirmwareScan
+        val showMileage = if (::state.isInitialized) state.odometerDisplayEnabled else false
+        val snapshot = parkingSnapshot?.takeIf { ::state.isInitialized && it.deviceId == state.dataDeviceId }
+        val parkingText = parkingNotificationText(showMileage, snapshot)
+        val updating = otaSessionActive || pendingFirmwareUpdate || pendingFirmwareScan
+        if (!updating) refreshParkingSnapshot()
+        val connectedSummary = connected && servicesReady && !updating
+        val text = if (parking) parkingText else if (connectedSummary)
+            "${driving ?: message}\n${connectedNotificationText(showMileage, snapshot, vehicle)}"
+        else message
         val builder = Notification.Builder(this, WaitingNotification.channel(CHANNEL, connected, otaSessionActive || pendingFirmwareUpdate || pendingFirmwareScan))
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentTitle(if (driving != null) "BRZ Garage · 驾驶状态" else "BRZ Garage · 自动连接")
-            .setContentText(driving ?: message)
+            .setContentTitle(if (parking) "BRZ Garage · 停车中" else if (driving != null) "BRZ Garage · 驾驶状态" else if (connectedSummary) "BRZ Garage · 已连接" else "BRZ Garage · 自动连接")
+            .setContentText(text)
             .setOnlyAlertOnce(true).setOngoing(true)
             .setContentIntent(PendingIntent.getActivity(
                 this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
-        if (driving != null) builder.setStyle(Notification.BigTextStyle().bigText(driving))
+        if (parking) builder.setStyle(Notification.BigTextStyle().bigText("$parkingText\n仪表未连接 · 数据来自最近同步"))
+        else if (connectedSummary) builder.setStyle(Notification.BigTextStyle().bigText(text))
         return builder.build()
     }
     private fun lowFuelNotification(fuelPercent: Double): Notification {
@@ -680,15 +741,14 @@ class TripSyncService : Service() {
     }
     private fun publish(message: String, updated: Boolean = false) {
         try {
-            state.status(message, connected)
+            state.status(message, connected && servicesReady)
         } catch (error: RuntimeException) {
             Log.w(LOG_TAG, "Status cache rejected; BLE sync continues", error)
         }
         // Status delivery is auxiliary. A denied notification or a vendor
         // receiver race must not terminate the foreground BLE service.
         try {
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-                .notify(NOTIFICATION, notification(message))
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION, notification(message))
         } catch (_: RuntimeException) { }
         try {
             sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName)
@@ -738,9 +798,15 @@ class TripSyncService : Service() {
                 startScan(); return
             }
             publish("等待仪表上电 · 系统自动重连已开启 ($address)")
+            autoConnectPending = true
+            busy = true
             gatt = device.connectGatt(this, true, callback,
                 BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, handler)
-            if (gatt == null) startScan()
+            if (gatt == null) {
+                autoConnectPending = false
+                busy = false
+                startScan()
+            }
             else handler.postDelayed(autoConnectFallback, 30000)
         } catch (_: RuntimeException) {
             gatt = null
@@ -763,6 +829,7 @@ class TripSyncService : Service() {
         try {
             val device = adapter?.getRemoteDevice(address) ?: run { beginReconnect(); return }
             acquireSignalConnectWakeLock()
+            autoConnectPending = false
             busy = true
             publish("已收到仪表广播 · 直接连接并优先授时…")
             armConnectTimeout()
@@ -783,6 +850,7 @@ class TripSyncService : Service() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (!scanning || gatt != null || result.device.address != address) return
             stopScan()
+            autoConnectPending = false
             busy = true
             publish("已发现绑定仪表，连接中…")
             armConnectTimeout()
@@ -810,6 +878,9 @@ class TripSyncService : Service() {
                 handler.removeCallbacks(autoConnectFallback)
                 handler.removeCallbacks(scanFallback)
                 connected = true
+                autoConnectPending = false
+                servicesReady = false
+                busy = true // Service discovery owns the sync queue until it completes.
                 acquireConnectionWakeLock()
                 releaseSignalConnectWakeLock()
                 retryMs = 2000L
@@ -820,11 +891,17 @@ class TripSyncService : Service() {
         }
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             if (g !== gatt) return
+            if (servicesReady) return
             if (status != BluetoothGatt.GATT_SUCCESS) { fail("服务发现失败：$status"); return }
             info = g.getService(TripBleProtocol.INFO_SERVICE)
             if (info == null) { fail("仪表缺少授时服务，请升级固件"); return }
+            if (info?.getCharacteristic(TripBleProtocol.TIME_SYNC) == null) {
+                fail("仪表授时特征未发现，稍后重新连接")
+                return
+            }
             ota = g.getService(TripBleProtocol.OTA_SERVICE)
             legacy = info?.getCharacteristic(TripBleProtocol.VEHICLE_STATE) == null
+            servicesReady = true
             syncClock() // 8-byte time goes first, before MTU negotiation or history.
         }
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
@@ -2068,7 +2145,7 @@ class TripSyncService : Service() {
         handler.postDelayed(cycle, if (foregroundUi) FOREGROUND_CYCLE_MS else BACKGROUND_CYCLE_MS)
     }
     private fun nextCycle() {
-        if (!connected || busy || destroyed) return
+        if (!connected || !servicesReady || busy || destroyed) return
         busy = true
         val now = SystemClock.elapsedRealtime()
         if (lastClockMs == 0L || now - lastClockMs >= 600000) syncClock()
@@ -2081,7 +2158,7 @@ class TripSyncService : Service() {
         handler.postDelayed(timeout, CONNECT_TIMEOUT_MS)
     }
     private fun read(uuid: UUID) {
-        if (operation != null) return
+        if (!servicesReady || operation != null) return
         operation = uuid
         operationPayload = null
         operationRetries = 0
@@ -2089,7 +2166,7 @@ class TripSyncService : Service() {
         issueOperation()
     }
     private fun write(uuid: UUID, bytes: ByteArray) {
-        if (operation != null) return
+        if (!servicesReady || operation != null) return
         operation = uuid
         operationPayload = bytes.copyOf()
         operationRetries = 0
@@ -2342,6 +2419,8 @@ class TripSyncService : Service() {
         gatt = null
         linkGeneration++
         connected = false
+        servicesReady = false
+        autoConnectPending = false
         releaseSignalConnectWakeLock()
         releaseConnectionWakeLock()
         busy = false

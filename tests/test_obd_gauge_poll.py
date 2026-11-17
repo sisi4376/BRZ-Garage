@@ -12,12 +12,12 @@ class GaugePollTests(unittest.TestCase):
         for key in ('zd8-mt', 'zd8-at', 'zc6-mt', 'zc6-at'):
             with self.subTest(profile=key):
                 poll = GaugePoll(key)
-                slots = [poll.commands(10 + i * .1) for i in range(14)]
+                slots = [poll.commands(10 + i * .001) for i in range(42)]
                 oil = '2101' if key.startswith('zc6') else '015C'
-                self.assertEqual(slots[6], [oil, '010C'])
+                self.assertEqual(slots[17], [oil, '010D'])
                 self.assertEqual(poll.profile.automatic, key.endswith('-at'))
                 self.assertIn(oil, poll.COMMANDS)
-                slots[6] = ['OIL', '010C']
+                slots[17] = ['OIL', '010D']
                 if base is None:
                     base = slots
                 self.assertEqual(slots, base)
@@ -25,11 +25,12 @@ class GaugePollTests(unittest.TestCase):
     def test_first_round_production_order(self):
         poll = Zd8Poll()
         actual = []
-        for slot in range(14):
+        for slot in range(6):
             actual += poll.commands(10 + slot * .1)
-        self.assertEqual(actual, ['010C', '010F', '010C', '010D', '010C', '0105', '010C',
-            '0104', '010D', '0111', '010C', '015C', '010C', '0142', '010C',
-            '0103', '010D', '0144', '010C', '0110', '010C', '010C', '012F', '010D', '0140', '010C'])
+        self.assertEqual(actual, ['0110', '010C', '0104', '010D',
+            '0111', '010C', '0103', '010D', '0144', '010C', '010F', '010D'])
+        self.assertEqual(actual.count('010C'), 3)
+        self.assertEqual(actual.count('010D'), 3)
         self.assertNotIn('01A4', actual)
         self.assertNotIn('01A6', actual)
 
@@ -49,29 +50,41 @@ class GaugePollTests(unittest.TestCase):
             now += .001
         def gaps(cmd):
             return [b-a for a,b in zip(history[cmd], history[cmd][1:])]
-        self.assertEqual(len(history['0140']), 1)
-        self.assertNotIn('015E', history)
+        self.assertIn('0140', history)
+        self.assertIn('015E', history)
         self.assertLess(max(gaps('010D')), 3)
         self.assertLess(max(gaps('010C')), 3)
         self.assertLess(max(gaps('0110')), 5)
-        self.assertGreaterEqual(min(gaps('012F')), 30)
-        for cmd in ('010F','0105','015C','0142'):
-            self.assertGreaterEqual(min(gaps(cmd)), 4.999)
+        for cmd in ('010F','0105','015C','0142','012F','015E','0140'):
+            self.assertGreater(len(history[cmd]), 1)
 
-    def test_rate_present_and_failed_probe_limits(self):
+    def test_slow_rotation_continues_after_no_data_and_unsupported_capability(self):
         poll = Zd8Poll()
         poll.observe('0140', b'41 40 00 00 00 04\r>')
-        poll.slot = 13
-        self.assertEqual(poll.commands(1), ['015E', '010C'])
+        actual = [c for _ in range(42) for c in poll.commands(1)]
+        self.assertEqual(actual.count('015E'), 1)
+        self.assertEqual(actual.count('0140'), 1)
         poll = Zd8Poll()
         commands = []
-        for slot in range(14 * 100):
+        for slot in range(6 * 7 * 10):
             for cmd in poll.commands(slot):
                 commands.append(cmd)
-                poll.observe(cmd, b'NO DATA\r>')
+                poll.observe(cmd, b'41 40 FE DC A0 51\r>' if cmd == '0140' else b'NO DATA\r>')
         self.assertEqual(commands.count('0103'), 3)
-        self.assertEqual(commands.count('0140'), 3)
-        self.assertEqual(commands.count('012F'), 3)
+        for cmd in ('0140','015E','012F'):
+            self.assertEqual(commands.count(cmd), 10)
+
+    def test_fast_rounds_have_no_fuel_or_slow_time_gates(self):
+        poll = Zd8Poll()
+        poll.observe('0100', b'41 00 BE 3F A8 13\r>')
+        rounds = [sum((poll.commands(1 + (r * 6 + n) * .001)
+                       for n in range(6)), []) for r in range(14)]
+        for commands in rounds:
+            for cmd in ('0104', '0111', '0103', '0144', '0110'):
+                self.assertEqual(commands.count(cmd), 1)
+        slow = [next(c for c in commands if c in ('010F','0105','015C','0142','012F','015E','0140'))
+                for commands in rounds]
+        self.assertEqual(slow, ['010F','0105','015C','0142','012F','015E','0140'] * 2)
 
     def test_full_inspection_hold_has_no_age_limit(self):
         trip = TripMetrics(None)

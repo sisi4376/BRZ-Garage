@@ -91,7 +91,7 @@ class BleCapture(val context: Context,val journal: Journal,val cancelled: ()->Bo
         if(gauge){
             val poll=GaugePoll(mode)
             repeat(3){poll.observe("0100",query("0100","discovery"));Thread.sleep(150)}
-            journal.emit("poll_plan",mapOf("commands" to org.json.JSONArray(poll.plan),"schedule" to "brz-14slot-v2","vehicle" to mode,"automatic" to mode.endsWith("-at"),"oil_command" to poll.oil))
+            journal.emit("poll_plan",mapOf("commands" to org.json.JSONArray(poll.plan),"schedule" to "brz-6slot-v6","vehicle" to mode,"automatic" to mode.endsWith("-at"),"oil_command" to poll.oil))
             StudioState.message("正在录制 · $mode 仪表轮询")
             val started=journal.time()
             while(duration==0.0||journal.time()-started<duration){check();val slot=poll.slot;val commands=poll.commands(journal.time());journal.emit("poll_slot",mapOf("slot" to slot,"commands" to org.json.JSONArray(commands)))

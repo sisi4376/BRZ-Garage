@@ -593,7 +593,8 @@ class Window(QMainWindow):
             self.write_log(f"扫描完成，发现 {len(event['devices'])} 个 BLE 设备。")
         elif kind == 'poll_plan':
             self.badge.setText('●  正在录制')
-            self.state_detail.setText(f"{event.get('vehicle', 'ZD8 6MT')} 仪表 14 时隙轮询，等待响应后继续。" if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
+            slots = {'brz-6slot-v6': 6, 'brz-8slot-v5': 8, 'brz-9slot-v4': 9, 'brz-10slot-v3': 10}.get(event.get('schedule'), 14)
+            self.state_detail.setText(f"{event.get('vehicle', 'ZD8 6MT')} 仪表 {slots} 时隙轮询，等待响应后继续。" if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
         elif kind == 'ready':
             self.badge.setText('●  等待仪表')
             self.state_detail.setText('蓝牙广播已开启。在仪表 BLE SCAN 页面选择此电脑。')

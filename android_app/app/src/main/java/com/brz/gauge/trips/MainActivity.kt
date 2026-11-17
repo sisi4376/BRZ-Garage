@@ -328,7 +328,6 @@ class MainActivity : Activity() {
         if (!appInitialized || !state.hasAcceptedCurrentUserNotice) return
         LedgerReminderJob.refresh(this)
         if (intent.getBooleanExtra("open_bookkeeping", false)) { intent.removeExtra("open_bookkeeping"); showTab(2) }
-        if (returningFromWaitingSettings) { returningFromWaitingSettings = false; showTab(3) }
         if (showingLedgerNotifications) ledgerNotificationSettings()
         refreshAppUpdateUi()
         if (appUpdateInstallAfterPermission &&
@@ -968,7 +967,9 @@ class MainActivity : Activity() {
             state.customLicensePlate?.let { LicensePlateGenerator.parse(it).plate },
             state.showCustomLicensePlate,
         )
-        val mileage = currentMileageEstimate()
+        val mileage = estimateHomeMileage(trips, state.dataDeviceId,
+            state.odometerCalibrationM(), state.odometerAnchorTripId(), v,
+            state.currentTripSnapshotArchived())
         odometerText.text = homeMileageLabel(mileage)
         odometerText.visibility = if (state.odometerDisplayEnabled) View.VISIBLE else View.GONE
         val effectiveFuel = state.effectiveFuelPercent(v)
@@ -2901,9 +2902,9 @@ class MainActivity : Activity() {
                     if (isNotEmpty()) append("  ·  ")
                     append(record.note)
                 }
-                if (isEmpty()) append(if (record.category == ExpenseCategory.DAILY) "未填写详细" else "未填写备注")
             }
-            add(details, label(listOf(record.itemName, record.party, detailText).filter { it.isNotBlank() }.joinToString(" · "), 11f, muted), 4)
+            val subtitle = listOf(record.itemName, record.party, detailText).filter { it.isNotBlank() }.joinToString(" · ")
+            if (subtitle.isNotBlank()) add(details, label(subtitle, 11f, muted), 4)
             row.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
             val amount = column().apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
             add(amount, label((if (record.income) "+" else "") + fmt("¥%.2f", record.amount), 15f, color, true).apply {
@@ -3494,18 +3495,28 @@ class MainActivity : Activity() {
 
     private fun ledgerNotificationSettings() {
         content.removeAllViews(); showingLedgerNotifications=true
-        val body=page("到期通知","管理用车事项的系统通知")
+        val body=page("通知管理","管理系统通知权限与用车到期提醒")
         settingsBackPill(body) { showTab(3) }
-        settingsSubpageHero(body,SettingsIconView.Icon.ACCOUNTING,"到期提醒","保险 · 年审 · 保养",
-            "提前 30、7、3 天及当天",bookkeepingMaintenance)
+        settingsSubpageHero(body,SettingsIconView.Icon.ACCOUNTING,"通知管理","年审 · 保险 · 保养",
+            "按需开启，关闭后停止发送对应通知",bookkeepingMaintenance)
+        val options = NotificationPreferences.read(this)
+        fun toggle(key: String, title: String, detail: String, checked: Boolean) =
+            settingsSwitchRow(SettingsIconView.Icon.AUTOSTART, title, detail, bookkeepingStats, checked) {
+                NotificationPreferences.set(this, key, it)
+                ledgerNotificationSettings()
+            }
         val manager=getSystemService(android.app.NotificationManager::class.java)
-        val enabled=manager.areNotificationsEnabled() && manager.getNotificationChannel("ledger_deadlines")?.importance!=android.app.NotificationManager.IMPORTANCE_NONE
-        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.DISPLAY,"系统通知权限",
-            if(enabled) "已开启 · 点击管理" else "未开启 · 点击授权",bookkeepingStats,action={
-                if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),104)
-                else startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.DISPLAY,"系统通知设置",
+            if(manager.areNotificationsEnabled()) "已允许通知 · 管理通知权限、声音与显示方式" else "系统通知已关闭 · 点击前往开启",
+            bookkeepingStats,action={
+                startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))
             })))
+        settingsListGroup(body,listOf(
+            toggle("inspection","年审提醒","年审办理窗口及到期提醒",options.inspection),
+            toggle("insurance","保险提醒","保险续保及到期提醒",options.insurance),
+            toggle("maintenance","保养提醒","按保养记录计算的到期提醒",options.maintenance)))
+        add(body,label("分项开关控制对应提醒是否发送；接收通知还需在系统设置中允许通知。",12f,muted),8)
         val detail=card(body,"提醒规则")
         add(detail,label("到期前30、7、3天及当天在通知栏提醒。记录续保或完成保养后，根据新周期更新提醒。",13f,ink),10)
         add(detail,label("年审按车辆注册资料估计，并可用实际检验有效期校准。后台送达时间受系统通知与省电设置影响。",12f,muted),8)
@@ -4204,17 +4215,9 @@ class MainActivity : Activity() {
 
     }
 
-    private var returningFromWaitingSettings = false
-    private fun waitingNotificationRow() = settingsListRow(SettingsIconView.Icon.AUTOSTART, "等待仪表上电通知",
-                "在系统中单独关闭等待通知，保留自动连接和低油量提醒", bookkeepingFuel,
-                value = if (WaitingNotification.enabled(this)) "显示" else "已关闭", action = {
-                    try { returningFromWaitingSettings = true; startActivity(WaitingNotification.settingsIntent(this)) }
-                    catch (_: RuntimeException) { returningFromWaitingSettings = false; toast("请在系统设置 → 通知 → BRZ Garage → 等待仪表上电中调整") }
-                })
-
     private fun renderAppSettingsOverview(body: LinearLayout) {
-        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
-            "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"通知管理",
+            "系统通知设置与年审、保险、保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val appDetail = when {
             appUpdateChecking -> "正在检查最新版本…"
             appUpdateCheckError != null -> appUpdateCheckError!!
@@ -4241,7 +4244,6 @@ class MainActivity : Activity() {
         settingsListGroup(body, listOf(
             settingsSwitchRow(SettingsIconView.Icon.AUTOSTART, "开机自启 / 自动连接", "恢复后台服务并等待仪表上电",
                 bookkeepingFuel, state.automatic) { updateAutomaticConnection(it) },
-            waitingNotificationRow(),
             settingsListRow(SettingsIconView.Icon.BLUETOOTH, "系统级 BLE 唤醒",
                 when {
                     state.address.isEmpty() -> "尚未绑定仪表"
@@ -4344,8 +4346,8 @@ class MainActivity : Activity() {
 
     private fun settingsLegacy() {
         val body = page("设置", "连接、显示与仪表功能")
-        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"到期通知",
-            "保险、年审与保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
+        settingsListGroup(body,listOf(settingsListRow(SettingsIconView.Icon.ACCOUNTING,"通知管理",
+            "系统通知设置与年审、保险、保养提醒",bookkeepingMaintenance,action={ ledgerNotificationSettings() })))
         val style = card(body, "设置页样式")
         add(style, label("当前使用经典设置页。车辆、行程、记账和全部设置数据不会因切换界面而改变。",
             12f, muted), 8)
@@ -4459,7 +4461,6 @@ class MainActivity : Activity() {
             text = "开机自启 / 自动连接"; textSize = 14f; isChecked = state.automatic
             setOnCheckedChangeListener { _, checked -> updateAutomaticConnection(checked) }
         }, 10)
-        add(auto, waitingNotificationRow(), 10)
         add(auto, label("开启后，手机重启并首次解锁时自动恢复后台服务；覆盖升级后也会恢复。不自动弹出首页，发现仪表后自动连接授时。首次安装须先打开一次并完成绑定、授权。", 12f, muted), 10)
         add(auto, button("重新注册开机与仪表唤醒") {
             state.automatic = true

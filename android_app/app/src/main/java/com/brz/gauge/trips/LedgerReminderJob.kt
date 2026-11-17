@@ -55,7 +55,9 @@ class LedgerReminderJob : JobService() {
                 if (it.deviceId == "local" && state.dataDeviceId.isNotBlank()) it.copy(deviceId = state.dataDeviceId) else it
             }
             val today = LocalDate.now()
-            val reminders = ledgerReminders(records, today, state.vehicleRegistrations())
+            val allReminders = ledgerReminders(records, today, state.vehicleRegistrations())
+            val options = NotificationPreferences.read(context)
+            val reminders = allReminders.filter { options.allowsReminder(it.key) }
             val prefs = context.getSharedPreferences("ledger_reminder_delivery", Context.MODE_PRIVATE)
             val sent = prefs.getStringSet("sent", emptySet()).orEmpty().toMutableSet()
             val oldVisible = prefs.getStringSet("visible", emptySet()).orEmpty()
@@ -71,13 +73,14 @@ class LedgerReminderJob : JobService() {
             val intent = Intent(context, MainActivity::class.java).putExtra("open_bookkeeping", true)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             val pending = PendingIntent.getActivity(context, NOTICE, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            if (NotificationPreferences.read(context) != options) return
             manager.notify(NOTICE, Notification.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_expense_care).setContentTitle("用车到期提醒")
                 .setContentText(content).setStyle(Notification.BigTextStyle().bigText(content))
                 .setContentIntent(pending).setAutoCancel(true).setOnlyAlertOnce(fresh.isEmpty()).build())
             fresh.forEach { sent += it.deliveryKey(today) }
             // Drop obsolete cycles; switching modes and editing notes never create new delivery IDs.
-            val activePrefixes = reminders.map { it.key + "|" }
+            val activePrefixes = allReminders.map { it.key + "|" }
             sent.removeAll { key -> activePrefixes.none { key.startsWith(it) } }
             prefs.edit().putStringSet("sent", sent).putStringSet("visible", visible.map { it.key }.toSet())
                 .putString("content", content).apply()

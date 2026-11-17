@@ -88,7 +88,7 @@ class FuelEstimatorTests(unittest.TestCase):
         self.assertIn("#define MULTIGAUGE_LOCKED_POSITION 1U", header)
         self.assertIn("#define MULTIGAUGE_LOCKED_INTRO 2U", header)
         self.assertIn("normalized.device_role = MULTIGAUGE_LOCKED_ROLE", storage)
-        self.assertIn("#define CFG_VERSION_CURRENT   12", storage)
+        self.assertIn("#define CFG_VERSION_CURRENT   13", storage)
         self.assertIn("s_cfg.default_page = 6", storage)
         device_page = (ROOT / "main" / "export_path" / "screens" /
                        "ui_ScreenPageEasterEgg.c").read_text(encoding="utf-8")

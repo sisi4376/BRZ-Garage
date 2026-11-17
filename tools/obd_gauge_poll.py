@@ -1,4 +1,4 @@
-"""Four production BRZ 14-slot schedules from elm327_ble_client.c.
+"""Four BRZ 6-slot schedules from elm327_ble_client.c.
 
 This mirrors the request policy, not ESP32 task/radio timing or recovery logic.
 """
@@ -25,58 +25,31 @@ GAUGE_PROFILES['zd8'] = GAUGE_PROFILES['zd8-mt']  # v1.3 CLI compatibility
 
 class GaugePoll:
     COMMANDS = ('010C', '010F', '010D', '0105', '0104', '0111', '015C',
-                '0142', '0103', '0144', '0110', '012F', '0140', '015E')
+                '0142', '0103', '0144', '0110', '012F', '015E', '0140')
     def __init__(self, profile='zd8-mt'):
         self.profile = GAUGE_PROFILES[profile]
         self.COMMANDS = tuple(self.profile.oil_command if cmd == '015C' else cmd for cmd in self.COMMANDS)
         self.slot = 0
-        self.last = {}
-        self.status_supported = self.rate_supported = None
-        self.status_probes = self.rate_probes = self.level_probes = 0
-        self.level_supported = False
-
-    def due(self, key, now, interval):
-        previous = self.last.get(key)
-        if previous is not None and now - previous < interval:
-            return False
-        self.last[key] = now
-        return True
+        self.status_supported = None
+        self.slow_index = 0
+        self.status_probes = 0
 
     def commands(self, now):
         slot, commands = self.slot, []
-        if slot == 0:
-            commands.append('010C')
-        elif slot in (1, 3, 6, 7):
-            command = {1: '010F', 3: '0105', 6: self.profile.oil_command, 7: '0142'}[slot]
-            if self.due(command, now, 5):
-                commands.append(command)
-        elif slot == 2:
-            commands.append('010D')
-        elif slot in (4, 5, 9, 10):
-            command = {4: '0104', 5: '0111', 9: '0144', 10: '0110'}[slot]
-            if self.due(command, now, .5):
-                commands.append(command)
-        elif slot == 8 and self.due('0103', now, .5):
+        if slot == 5:
+            commands.append(('010F', '0105', self.profile.oil_command, '0142', '012F', '015E', '0140')[self.slow_index])
+            self.slow_index = (self.slow_index + 1) % 7
+        elif slot in (0, 1, 2, 4):
+            commands.append({0: '0110', 1: '0104', 2: '0111', 4: '0144'}[slot])
+        elif slot == 3:
             if self.status_supported is not False:
                 if self.status_supported is None and self.status_probes >= 3:
                     self.status_supported = False
                 else:
                     self.status_probes += self.status_supported is None
                     commands.append('0103')
-        # Slot 11 is empty in the production firmware (A4/A6 disabled).
-        elif slot == 12:
-            if (self.level_supported or self.level_probes < 3) and self.due('012F', now, 30):
-                self.level_probes += not self.level_supported
-                commands.append('012F')
-        elif slot == 13 and self.due('rate', now, .5):
-            if self.rate_supported is None and self.rate_probes < 3:
-                self.rate_probes += 1
-                commands.append('0140')
-            elif self.rate_supported:
-                commands.append('015E')
-        if slot != 0:
-            commands.append('010D' if slot % 4 == 0 else '010C')
-        self.slot = (slot + 1) % 14
+        commands.append('010D' if slot % 2 != 0 else '010C')
+        self.slot = (slot + 1) % 6
         return commands
 
     def observe(self, command, response):
@@ -87,14 +60,8 @@ class GaugePoll:
                 continue
             if command == '0100' and len(data) >= 6 and data[:2] == b'\x41\x00':
                 self.status_supported = bool(data[2] & 0x20)
-            elif command == '0140' and len(data) >= 6 and data[:2] == b'\x41\x40':
-                self.rate_supported = bool(data[5] & 4)
             elif command == '0103' and len(data) >= 4 and data[:2] == b'\x41\x03':
                 self.status_supported = True
-            elif command == '012F' and len(data) >= 3 and data[:2] == b'\x41\x2f':
-                self.level_supported = True
-        if command == '0140' and self.rate_probes >= 3 and self.rate_supported is None:
-            self.rate_supported = False
 
 
 class Zd8Poll(GaugePoll):
@@ -108,7 +75,7 @@ async def capture_gauge(elm, args, recording):
     for _ in range(3):
         poll.observe('0100', await elm.query('0100', 'discovery'))
         await asyncio.sleep(.15)
-    recording.emit('poll_plan', commands=list(poll.COMMANDS), schedule='brz-14slot-v2',
+    recording.emit('poll_plan', commands=list(poll.COMMANDS), schedule='brz-6slot-v6',
                    vehicle=poll.profile.label, automatic=poll.profile.automatic,
                    oil_command=poll.profile.oil_command)
     start = time.monotonic()
