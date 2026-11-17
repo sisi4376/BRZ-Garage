@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "device": {
+    "board": "Waveshare ESP32-S3-Touch-AMOLED-1.75-B",
+    "variant": "obd_brz_gauge_amoled175",
+    "lcd": "CO5300",
+    "screen": {
+      "w": 466,
+      "h": 466,
+      "bpp": 16
+    },
+    "flash_mb": 16,
+    "psram_mb": 8,
+    "ota_slots": 2,
+    "bootmedia_slots": 1,
+    "bootmedia_format": 1
+  },
+  "firmware": {
+    "project": "obd_brz_gauge",
+    "version": "4.1.4-beta.1",
+    "build_tag": "embedded-4.1.4-beta.1",
+    "idf": "v5.5.3"
+  },
+  "files": {
+    "firmware": {
+      "path": "obd_brz_gauge.bin",
+      "size": 2125776,
+      "sha256": "bd5dcc27cdfa23092cc0cc49c07cdbd6b5cf35ccb83c98c4b57f82971bcbaab7",
+      "ota_only": true
+    }
+  },
+  "factory_obd_target": {
+    "new_settings": "OBDBLE",
+    "legacy_empty_name": "OBDII",
+    "preserve_existing_settings": true
+  }
+}
