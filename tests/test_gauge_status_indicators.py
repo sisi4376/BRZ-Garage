@@ -8,9 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class GaugeStatusIndicatorsTest(unittest.TestCase):
     def test_obd_and_time_reuse_no_signal_footprint(self):
         source = (ROOT / "main/export_path/ui_ext.c").read_text(encoding="utf-8")
-        self.assertIn('status_indicator_create("OBD", -30)', source)
-        self.assertIn('status_indicator_create("TIME", 30)', source)
-        self.assertIn("LV_ALIGN_TOP_MID, x, 34", source)
+        self.assertIn('status_indicator_create(lv_layer_top(), "OBD", -30)', source)
+        self.assertIn('status_indicator_create(lv_layer_top(), "TIME", 30)', source)
+        widget = (ROOT / "main/export_path/ui_status_indicator.h").read_text(encoding="utf-8")
+        self.assertIn("LV_ALIGN_TOP_MID, x, 34", widget)
         self.assertNotIn('lv_label_set_text(s_no_signal_lbl, "NO SIGNAL")', source)
         self.assertIn("status_indicator_set(s_obd_status_lbl, active,", source)
         self.assertIn("!obd_connected ? 0xFF4D4D : (obd_data_valid ? 0x45D66F : 0xFFD43B)", source)

@@ -469,6 +469,37 @@ static void update_ui(void)
     ui_trip_history_refresh();
 }
 
+/* Check that changing the width of a live reading keeps it inside its column. */
+static bool check_three_slot_readouts(void)
+{
+    static const struct { disp_item_t item; int value; } samples[] = {
+        {DISP_ITEM_RPM, 8888}, {DISP_ITEM_RPM, 65535}, {DISP_ITEM_IGN, -127},
+        {DISP_ITEM_SPEED, 240}, {DISP_ITEM_OILP, 100}, {DISP_ITEM_CLT, 90}
+    };
+    sim_ui_show_page(SIM_PAGE_TEMP);
+    for (unsigned n = 0; n < sizeof(samples) / sizeof(samples[0]); ++n) {
+        for (int row = 0; row < 3; ++row) {
+            disp_item_t item = samples[n].item;
+            lv_label_set_text(ui_LabelTempName[row], ui_disp_item_name(item));
+            disp_item_set_text(ui_LabelTempValue[row], item, samples[n].value, true);
+            lv_label_set_text(ui_LabelTempUnit[row], ui_disp_item_unit(item));
+        }
+        lv_obj_update_layout(ui_ScreenPageTemp);
+        for (int row = 0; row < 3; ++row) {
+            lv_area_t name, value, unit;
+            lv_obj_get_coords(ui_LabelTempName[row], &name);
+            lv_obj_get_coords(ui_LabelTempValue[row], &value);
+            lv_obj_get_coords(ui_LabelTempUnit[row], &unit);
+            if (value.x1 < name.x2 + 3 || unit.x1 < value.x2 + 3 ||
+                (n == 0 && lv_obj_get_style_text_font(ui_LabelTempValue[row], 0) != &ui_font_FontTypoderSize56)) {
+                fprintf(stderr, "Three-slot overlap or unexpected font: row %d, %s\n", row, lv_label_get_text(ui_LabelTempValue[row]));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /* Export each data source with the production LVGL screen and font objects.
  * The last pass is a mixed layout used to check the phone's cell boundaries. */
 static int export_editor_frames(void)
@@ -499,7 +530,7 @@ static int export_editor_frames(void)
             if (!write_framebuffer(name)) return 1;
         }
     }
-    return 0;
+    return check_three_slot_readouts() ? 0 : 1;
 }
 
 int main(int argc, char **argv)

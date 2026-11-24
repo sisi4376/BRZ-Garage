@@ -1,5 +1,6 @@
 #include "lvgl.h"
 #include "sim_ui_port.h"
+#include "export_path/ui_status_indicator.h"
 #include "export_path/ui_page_items.h"
 #include "bsp_obd_dsp/gauge_layout.h"
 #include "export_path/ui.h"
@@ -230,7 +231,14 @@ void sim_ui_show_page(int page)
     lv_scr_load(screen);
 }
 
-void sim_ui_set_elm_connected(bool connected) { s_ble_connected = connected; }
+static lv_obj_t *temp_obd_indicator;
+
+void sim_ui_set_elm_connected(bool connected)
+{
+    s_ble_connected = connected;
+    if (temp_obd_indicator)
+        lv_obj_set_style_text_color(temp_obd_indicator, lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
+}
 
 void sim_ui_set_rpm_warn_threshold(uint16_t threshold)
 {
@@ -579,6 +587,10 @@ void sim_ui_create_pages(void)
     ui_ScreenPageRpm_screen_init();
     ui_ScreenPageSpeed_screen_init();
     ui_ScreenPageTemp_screen_init();
+    temp_obd_indicator = status_indicator_create(ui_ScreenPageTemp, "OBD", -30);
+    lv_obj_clear_flag(temp_obd_indicator, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *time_indicator = status_indicator_create(ui_ScreenPageTemp, "TIME", 30);
+    lv_obj_clear_flag(time_indicator, LV_OBJ_FLAG_HIDDEN);
     ui_ScreenPageTempCustom_screen_init();
     ui_ScreenPageInfo_screen_init();
     ui_ScreenPageInfoCustom_screen_init();

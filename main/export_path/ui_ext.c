@@ -14,6 +14,7 @@
 // ================================================================
 
 #include "ui_ext.h"
+#include "ui_status_indicator.h"
 #include "ui.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/espnow_link.h"
@@ -674,24 +675,6 @@ void ui_ext_intro_tick(bool is_slave)
     }
 }
 
-/* OBD/TIME indicators occupy the exact former "NO SIGNAL" footprint. */
-static lv_obj_t *status_indicator_create(const char *text, lv_coord_t x)
-{
-    lv_obj_t *label = lv_label_create(lv_layer_top());
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_font(label, &ui_font_FontTypoderSize16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFF4D4D), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(label, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(label, 160, LV_PART_MAIN);
-    lv_obj_set_style_pad_hor(label, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_ver(label, 4, LV_PART_MAIN);
-    lv_obj_set_style_radius(label, 6, LV_PART_MAIN);
-    lv_label_set_text(label, text);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, x, 34);
-    lv_obj_add_flag(label, LV_OBJ_FLAG_HIDDEN);
-    return label;
-}
-
 static void status_indicator_set(lv_obj_t *label, bool show, uint32_t color,
                                  bool *visible, uint32_t *last_color)
 {
@@ -725,8 +708,8 @@ void ui_ext_status_indicators_update(bool obd_connected, bool obd_data_valid, bo
                            act == ui_ScreenPageSpeed || act == ui_ScreenPageFuel ||
                            act == ui_ScreenPageTripHistory || act == ui_ScreenPageTripOverview ||
                            act == ui_ScreenPageTripIntervals);
-    if (!s_obd_status_lbl) s_obd_status_lbl = status_indicator_create("OBD", -30);
-    if (!s_time_status_lbl) s_time_status_lbl = status_indicator_create("TIME", 30);
+    if (!s_obd_status_lbl) s_obd_status_lbl = status_indicator_create(lv_layer_top(), "OBD", -30);
+    if (!s_time_status_lbl) s_time_status_lbl = status_indicator_create(lv_layer_top(), "TIME", 30);
     bool active = s_boot_done && on_gauge_page && !s_showroom_active;
     /* Red = disconnected; yellow = waiting/stale; green = recent decoded data. */
     status_indicator_set(s_obd_status_lbl, active,
