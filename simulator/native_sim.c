@@ -52,12 +52,10 @@ static void show_page(int page)
     sim_ui_show_page(page);
 }
 
-static void save_framebuffer(void)
+static bool write_framebuffer(const char *path)
 {
-    const char *temporary = "preview/lvgl_frame.tmp";
-    const char *final = "preview/lvgl_frame.bmp";
-    FILE *file = fopen(temporary, "wb");
-    if (!file) return;
+    FILE *file = fopen(path, "wb");
+    if (!file) return false;
 
     BITMAPFILEHEADER file_header = {0};
     file_header.bfType = 0x4D42;
@@ -66,8 +64,15 @@ static void save_framebuffer(void)
     fwrite(&file_header, sizeof(file_header), 1, file);
     fwrite(&g_bitmap_info.bmiHeader, sizeof(g_bitmap_info.bmiHeader), 1, file);
     fwrite(g_framebuffer, SIM_W * SIM_H * 4, 1, file);
-    fclose(file);
-    MoveFileExA(temporary, final, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    bool written = !ferror(file);
+    return fclose(file) == 0 && written;
+}
+
+static void save_framebuffer(void)
+{
+    if (write_framebuffer("preview/lvgl_frame.tmp"))
+        MoveFileExA("preview/lvgl_frame.tmp", "preview/lvgl_frame.bmp",
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
 }
 
 static void save_status(void)
@@ -444,7 +449,7 @@ static void update_ui(void)
     disp_item_set_text(ui_NeedleValueLabel, needle, raw[needle], true);
     lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, raw[needle] / ui_disp_item_scale(needle)->div);
     disp_item_set_text(ui_LabelOilPressureText, chart, raw[chart], true);
-    lv_chart_set_next_value(ui_ChartOilPressure, ui_OilPressureChartSeries, raw[chart] / ui_disp_item_scale(chart)->div);
+    lv_chart_set_next_value(ui_ChartOilPressure, ui_OilPressureChartSeries, raw[chart]);
 
     fuel_sample_t fuel_sample = {
         .maf_x100 = (uint16_t)g_data.maf_x100, .afr_x100 = 1470,
@@ -463,10 +468,45 @@ static void update_ui(void)
     ui_trip_history_refresh();
 }
 
+/* Export each data source with the production LVGL screen and font objects.
+ * The last pass is a mixed layout used to check the phone's cell boundaries. */
+static int export_editor_frames(void)
+{
+    const int pages[] = {SIM_PAGE_TEMP, SIM_PAGE_INFO, SIM_PAGE_CHART, SIM_PAGE_NEEDLE};
+    const uint8_t check_sources[] = {5, 2, 8, 7, 5, 11, 6, 12};
+    for (unsigned source = 0; source <= DISP_ITEM_COUNT; ++source) {
+        bool mixed = source == DISP_ITEM_COUNT;
+        nvs_user_cfg_t cfg = *nvs_cfg_get();
+        for (int i = 0; i < 3; ++i)
+            cfg.temp_display_map[i] = mixed ? check_sources[i] : source;
+        for (int i = 0; i < 5; ++i)
+            cfg.info_display_map[i] = mixed ? check_sources[3 + i] : source;
+        cfg.chart_source_idx = cfg.needle_source_idx = mixed ? DISP_ITEM_CLT : source;
+        nvs_cfg_set(&cfg);
+        ui_chart_apply_source();
+        ui_needle_apply_source();
+        /* Replay the same thirty samples for every signal and reference frame. */
+        for (int sample = 0; sample < 30; ++sample) {
+            update_demo(1000U * (sample + 1));
+            update_ui();
+        }
+        for (unsigned page = 0; page < (mixed ? 2U : 4U); ++page) {
+            sim_ui_show_page(pages[page]);
+            lv_refr_now(NULL);
+            char name[48];
+            snprintf(name, sizeof(name), "page-%u-%u.bmp", page, source);
+            if (!write_framebuffer(name)) return 1;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
+    bool export_frames = false;
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--headless") == 0) g_headless = true;
+        else if (strcmp(argv[i], "--export-editor-frames") == 0) { export_frames = true; g_headless = true; }
         else if (strcmp(argv[i], "--demo") == 0) g_force_demo = true;
         else if (strcmp(argv[i], "--elm-host") == 0 && i + 1 < argc) {
             strncpy(g_elm_host, argv[++i], sizeof(g_elm_host) - 1);
@@ -514,6 +554,7 @@ int main(int argc, char **argv)
     }
 
     sim_ui_create_pages();
+    if (export_frames) return export_editor_frames();
 
     DWORD previous = GetTickCount();
     DWORD last_data = 0;

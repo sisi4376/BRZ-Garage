@@ -2,8 +2,6 @@
 const $ = id => document.getElementById(id);
 const names = ["温度","信息","图表","指针","挡位 + 转速","车速","油量","行程历史","行程总览","自定义 A","自定义 B","自定义 C"];
 const signals = ["CLT 水温","IAT 进气温度","OIL 机油温度","LOD 发动机负荷","TPS 节气门","RPM 转速","SPD 车速","BAT 电压","OIP 机油压力","BKT 刹车温度","BST 增压压力","AFR 空燃比","IGN 点火提前角"];
-const units = ["°C","°C","°C","%","%","rpm","km/h","V","bar","°C","bar",":1","°"];
-const values = ["93","31","98","42","24","3250","86","14.2","4.2","142","0.2","14.7","18"];
 const slots = [[0,1,2],[3,4,5,6,7],[9],[8],[],[],[],[],[],[10,11,12],[13,14,15],[16,17,18]];
 const factory = "4,5,0,1,3,2,6,8,7/0,1,2,0,2,3,4,1,0,8,0,2,8,5,6,4,7,10,11";
 const phone = window.GaugePhone;
@@ -29,49 +27,64 @@ function save() {
   else { try { localStorage.setItem("gauge-layout", saved); } catch {} }
   render();
 }
-const canvas = document.querySelector("canvas"), img = document.querySelector("img");
+const canvas = document.querySelector("#dial canvas");
+const img = document.querySelector("#dial img");
 const ctx = canvas.getContext("2d");
-function text(str,x,y,size,color="#fff",align="center") {
-  ctx.fillStyle=color; ctx.font="600 "+size+"px system-ui,sans-serif"; ctx.textAlign=align;
-  ctx.fillText(str,x,y);
+const side = canvas.width;
+// These rectangles partition a full LVGL framebuffer. Every pixel, including
+// labels, units, scales and the bezel, comes directly from the native renderer.
+const fullFrame = [0, 0, side, side];
+const frameCells = [
+  [[0, 0, side, 203], [0, 203, side, 70], [0, 273, side, 193]],
+  [[0, 0, 233, 197], [233, 0, 233, 197], [0, 197, 233, 104],
+   [233, 197, 233, 104], [0, 301, side, 165]],
+  [fullFrame],
+  [fullFrame]
+];
+let drawRequest = 0;
+let atlasPage = -1;
+let atlasReady;
+
+function loadAtlas(page) {
+  if (page !== atlasPage) {
+    atlasPage = page;
+    const image = new Image();
+    atlasReady = new Promise((resolve, reject) => {
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+    });
+    image.src = "lvgl-" + page + ".png";
+  }
+  return atlasReady;
 }
-function line(x1,y1,x2,y2,color,width=2) {
-  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=width;ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-}
-function draw(id) {
-  const fixed=(id>=4 && id<=8) || id===12; img.hidden=!fixed; canvas.hidden=fixed;
-  if(fixed){ img.src="page-"+id+".png"; return; }
-  ctx.fillStyle="#000"; ctx.fillRect(0,0,466,466);
-  ctx.beginPath();ctx.arc(233,233,227,0,2*Math.PI);ctx.strokeStyle="#f4f4f4";ctx.lineWidth=9;ctx.stroke();
-  const fields=slots[id].map(slot=>items[slot]);
-  if(id===0 || id>=9) fields.forEach((v,i)=>{
-    const y=169+i*70, color=["#44aaff","#44ff88","#ff7722","#eabb63","#5fd0a2","#55cdfa","#5dbfec","#e2c65b","#ffd05b","#ed8c6d","#aa9bd5","#76cfd0","#b6be72"][v];
-    text(values[v],38,y+13,40,"#fff","left");
-    ctx.beginPath();ctx.arc(190,y,5,0,2*Math.PI);ctx.fillStyle=color;ctx.fill();
-    text(signals[v].split(" ")[0],200,y+7,21,color,"left");
-    text(units[v],396,y+7,19,"#888","right");
-    if(i<2) line(123,y+35,343,y+35,"#343434",1);
-  });
-  else if(id===1) fields.forEach((v,i)=>{
-    const x=[155,308,233,155,308][i], y=[151,151,246,338,338][i];
-    text(signals[v].split(" ")[0],x,y-23,16,"#75c9cb");text(values[v],x,y+13,34);text(units[v],x,y+34,15,"#99a9b1");
-  });
-  else {
-    const v=fields[0];
-    if(id===3){
-      for(let i=0;i<=32;i++){
-        const a=(140+i*260/32)*Math.PI/180, r=i%4===0?145:155;
-        line(233+r*Math.cos(a),238+r*Math.sin(a),233+166*Math.cos(a),238+166*Math.sin(a),i>25?"#e9985f":"#6e8c95",3);
-      }
-      line(233,238,310,139,"#fb9753",6);
-    }else{
-      for(let i=0;i<4;i++)line(67,164+i*30,399,164+i*30,"#233139");
-      for(let i=1;i<=60;i++){
-        const y=n=>213-18*Math.sin(n*.17)-9*Math.cos(n*.51)-n*.38;
-        line(67+(i-1)*5.5,y(i-1),67+i*5.5,y(i),"#60d4bd",3);
-      }
-    }
-    text(signals[v].split(" ")[0],233,301,21,"#71d7c7");text(values[v]+" "+units[v],233,353,45);
+
+async function draw(id) {
+  const request = ++drawRequest;
+  $("previewError").hidden = true;
+  const fixed = (id >= 4 && id <= 8) || id === 12;
+  img.hidden = !fixed;
+  canvas.hidden = fixed;
+  if (fixed) {
+    img.src = "page-" + id + ".png";
+    return;
+  }
+
+  const page = id >= 9 ? 0 : id;
+  const sources = slots[id].map(slot => items[slot]);
+  ctx.clearRect(0, 0, side, side);
+  try {
+    const atlas = await loadAtlas(page);
+    if (request !== drawRequest) return;
+    frameCells[page].forEach(([x, y, width, height], slot) => {
+      const source = sources[slot];
+      const left = source % 4 * side;
+      const top = Math.floor(source / 4) * side;
+      ctx.drawImage(atlas, left + x, top + y, width, height, x, y, width, height);
+    });
+  } catch {
+    if (request !== drawRequest) return;
+    atlasPage = -1;
+    $("previewError").hidden = false;
   }
 }
 function option(label,value){const el=document.createElement("option");el.textContent=label;el.value=value;return el;}

@@ -479,7 +479,10 @@ void ui_chart_apply_source(void)
     lv_label_set_text(ui_LabelChartUnit, ui_disp_item_unit(item));
     lv_obj_set_style_text_color(ui_LabelChartTitle, lv_color_hex(ui_disp_item_color(item)), LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_ChartDot, lv_color_hex(ui_disp_item_color(item)), LV_PART_MAIN);
-    lv_chart_set_range(ui_ChartOilPressure, LV_CHART_AXIS_PRIMARY_Y, low, high);
+    lv_color_t color = lv_color_hex(ui_disp_item_color(item));
+    lv_chart_set_series_color(ui_ChartOilPressure, ui_OilPressureChartSeries, color);
+    lv_chart_set_range(ui_ChartOilPressure, LV_CHART_AXIS_PRIMARY_Y, low * div, high * div);
+    lv_chart_set_all_value(ui_ChartOilPressure, ui_OilPressureChartSeries, LV_CHART_POINT_NONE);
 }
 void ui_needle_apply_source(void)
 {
