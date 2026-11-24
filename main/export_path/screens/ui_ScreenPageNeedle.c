@@ -59,6 +59,20 @@ static void on_needle_source_changed(lv_event_t *e)
     ui_needle_apply_source();
 }
 
+// Keep scale numbers in front of the moving needle. The five positions follow
+// the major ticks of the 270-degree scale and leave the status lights clear.
+static lv_obj_t *scale_labels[5];
+static const lv_point_t scale_label_centers[] = {
+    {-113, 102}, {-146, -59}, {0, -150}, {146, -59}, {113, 102}
+};
+
+void ui_needle_set_range(int32_t low, int32_t high)
+{
+    lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, low, high, 270, 135);
+    for (int i = 0; i < 5; ++i)
+        lv_label_set_text_fmt(scale_labels[i], "%d", (int)lv_map(i, 0, 4, low, high));
+}
+
 void ui_ScreenPageNeedle_screen_init(void)
 {
     ui_ScreenPageNeedle = lv_obj_create(NULL);
@@ -75,20 +89,19 @@ void ui_ScreenPageNeedle_screen_init(void)
 
     // ====== Needle dial ======
     ui_NeedleMeter = lv_meter_create(ui_ScreenPageNeedle);
-    lv_obj_set_size(ui_NeedleMeter, 320, 320);
+    lv_obj_set_size(ui_NeedleMeter, 432, 432);
+    lv_obj_set_style_pad_all(ui_NeedleMeter, 0, LV_PART_MAIN);
     lv_obj_center(ui_NeedleMeter);
     lv_obj_clear_flag(ui_NeedleMeter, LV_OBJ_FLAG_CLICKABLE);
     // Dial background transparent, blends into the black page
     lv_obj_set_style_bg_opa(ui_NeedleMeter, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(ui_NeedleMeter, 0, LV_PART_MAIN);
-    // Tick number font
-    lv_obj_set_style_text_font(ui_NeedleMeter, &ui_font_FontTypoderSize16, LV_PART_TICKS);
-    lv_obj_set_style_text_color(ui_NeedleMeter, lv_color_hex(0x666666), LV_PART_TICKS);
+    lv_obj_set_style_text_opa(ui_NeedleMeter, LV_OPA_TRANSP, LV_PART_TICKS);
 
     ui_NeedleScale = lv_meter_add_scale(ui_NeedleMeter);
     // Dim the ticks so the needle stands out
-    lv_meter_set_scale_ticks(ui_NeedleMeter, ui_NeedleScale, 21, 1, 6, ui_theme_color_lv(UI_COLOR_ARC_TRACK));
-    lv_meter_set_scale_major_ticks(ui_NeedleMeter, ui_NeedleScale, 5, 2, 10, lv_color_hex(0x555555), 14);
+    lv_meter_set_scale_ticks(ui_NeedleMeter, ui_NeedleScale, 21, 2, 12, ui_theme_color_lv(UI_COLOR_ARC_TRACK));
+    lv_meter_set_scale_major_ticks(ui_NeedleMeter, ui_NeedleScale, 5, 3, 20, lv_color_hex(0x999999), 42);
     lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, 0, 100, 270, 135); // placeholder, apply_source resets it
 
     // Needle: themed artwork if the active theme ships some, otherwise a drawn
@@ -105,34 +118,42 @@ void ui_ScreenPageNeedle_screen_init(void)
         }
         else {
             ui_NeedleIndic = lv_meter_add_needle_line(ui_NeedleMeter, ui_NeedleScale, 10,
-                                                      ui_theme_color_lv(UI_COLOR_NEEDLE), -10);
+                                                      ui_theme_color_lv(UI_COLOR_NEEDLE), -50);
         }
     }
 
-    // The three center labels are centered on themselves to avoid horizontal offset/overlap caused by different text lengths
-    // ====== Name label (top) ======
+    for (int i = 0; i < 5; ++i) {
+        lv_obj_t *label = scale_labels[i] = lv_label_create(ui_ScreenPageNeedle);
+        lv_obj_set_style_text_font(label, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(label, ui_theme_color_lv(UI_COLOR_BG), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(label, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_align(label, LV_ALIGN_CENTER, scale_label_centers[i].x, scale_label_centers[i].y);
+    }
+
+    // Name, value and unit occupy the open sector below the pivot.
     ui_NeedleNameLabel = lv_label_create(ui_ScreenPageNeedle);
     lv_label_set_text(ui_NeedleNameLabel, "");
-    lv_obj_set_style_text_font(ui_NeedleNameLabel, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ui_NeedleNameLabel, &ui_font_FontTypoderSize36, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleNameLabel, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleNameLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(ui_NeedleNameLabel, LV_ALIGN_CENTER, 0, -52);
+    lv_obj_align(ui_NeedleNameLabel, LV_ALIGN_CENTER, 0, 65);
 
     // ====== Value label (bottom, in the opening at the bottom of the 270° dial; the needle never sweeps here, so no overlap) ======
     ui_NeedleValueLabel = lv_label_create(ui_ScreenPageNeedle);
     lv_label_set_text(ui_NeedleValueLabel, "--");
-    lv_obj_set_style_text_font(ui_NeedleValueLabel, &ui_font_FontTypoderSize40, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ui_NeedleValueLabel, &ui_font_FontTypoderSize56, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleValueLabel, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleValueLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(ui_NeedleValueLabel, LV_ALIGN_CENTER, 0, 54);
+    lv_obj_align(ui_NeedleValueLabel, LV_ALIGN_CENTER, 0, 140);
 
     // ====== Unit label (below the value) ======
     ui_NeedleUnitLabel = lv_label_create(ui_ScreenPageNeedle);
     lv_label_set_text(ui_NeedleUnitLabel, "");
-    lv_obj_set_style_text_font(ui_NeedleUnitLabel, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ui_NeedleUnitLabel, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_NeedleUnitLabel, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_NeedleUnitLabel, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(ui_NeedleUnitLabel, LV_ALIGN_CENTER, 0, 94);
+    lv_obj_align(ui_NeedleUnitLabel, LV_ALIGN_CENTER, 0, 188);
 
     // Apply the current data source (set range/name/unit)
     ui_needle_apply_source();

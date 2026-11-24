@@ -231,9 +231,9 @@ void sim_ui_show_page(int page)
     lv_scr_load(screen);
 }
 
-static lv_obj_t *info_obd_indicators[2];
+static lv_obj_t *page_obd_indicators[4];
 
-static lv_obj_t *add_info_indicators(lv_obj_t *screen)
+static lv_obj_t *add_page_indicators(lv_obj_t *screen)
 {
     lv_obj_t *obd = status_indicator_create(screen, "OBD", -30);
     lv_obj_t *time = status_indicator_create(screen, "TIME", 30);
@@ -245,9 +245,9 @@ static lv_obj_t *add_info_indicators(lv_obj_t *screen)
 void sim_ui_set_elm_connected(bool connected)
 {
     s_ble_connected = connected;
-    for (int i = 0; i < 2; ++i) {
-        if (info_obd_indicators[i])
-            lv_obj_set_style_text_color(info_obd_indicators[i], lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
+    for (int i = 0; i < 4; ++i) {
+        if (page_obd_indicators[i])
+            lv_obj_set_style_text_color(page_obd_indicators[i], lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
     }
 }
 
@@ -502,7 +502,7 @@ void ui_chart_apply_source(void)
     int32_t low, high, div;
     ui_disp_item_range(item, &low, &high, &div);
     lv_label_set_text(ui_LabelChartTitle, ui_disp_item_name(item));
-    lv_label_set_text(ui_LabelChartUnit, ui_disp_item_unit(item));
+    lv_label_set_text(ui_LabelChartUnit, ui_info_slot_unit(item));
     lv_obj_set_style_text_color(ui_LabelChartTitle, lv_color_hex(ui_disp_item_color(item)), LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui_ChartDot, lv_color_hex(ui_disp_item_color(item)), LV_PART_MAIN);
     lv_color_t color = lv_color_hex(ui_disp_item_color(item));
@@ -515,9 +515,9 @@ void ui_needle_apply_source(void)
     if (!ui_NeedleMeter || !ui_NeedleScale) return;
     uint8_t item = ui_page_item(&s_sim_cfg, 3, 0);
     const needle_scale_meta_t *scale = ui_disp_item_scale((disp_item_t)item);
-    lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, scale->nmin, scale->nmax, 270, 135);
+    ui_needle_set_range(scale->nmin, scale->nmax);
     lv_label_set_text(ui_NeedleNameLabel, ui_disp_item_name(item));
-    lv_label_set_text(ui_NeedleUnitLabel, ui_disp_item_unit(item));
+    lv_label_set_text(ui_NeedleUnitLabel, ui_info_slot_unit(item));
 }
 
 void gauge_display_set_brightness(uint8_t percent) { (void)percent; }
@@ -598,13 +598,15 @@ void sim_ui_create_pages(void)
     ui_ScreenPageRpm_screen_init();
     ui_ScreenPageSpeed_screen_init();
     ui_ScreenPageTemp_screen_init();
-    info_obd_indicators[0] = add_info_indicators(ui_ScreenPageTemp);
+    page_obd_indicators[0] = add_page_indicators(ui_ScreenPageTemp);
     ui_ScreenPageTempCustom_screen_init();
     ui_ScreenPageInfo_screen_init();
-    info_obd_indicators[1] = add_info_indicators(ui_ScreenPageInfo);
+    page_obd_indicators[1] = add_page_indicators(ui_ScreenPageInfo);
     ui_ScreenPageInfoCustom_screen_init();
     ui_ScreenPageNeedle_screen_init();
+    page_obd_indicators[2] = add_page_indicators(ui_ScreenPageNeedle);
     ui_ScreenPageOilPressure_screen_init();
+    page_obd_indicators[3] = add_page_indicators(ui_ScreenPageOilPressure);
     ui_ScreenPageNeedleConfig_screen_init();
     ui_ScreenPageChartConfig_screen_init();
     ui_ScreenPageChartAlarm_screen_init();

@@ -21,54 +21,58 @@ void ui_ScreenPageOilPressure_screen_init(void)
 
     lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageOilPressure, 8);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
 
-    ui_LabelChartTitle = lv_label_create(ui_ScreenPageOilPressure);
-    lv_label_set_text(ui_LabelChartTitle, "");        // text/color set by ui_chart_apply_source()
-    lv_obj_set_style_text_font(ui_LabelChartTitle, &ui_font_FontTypoderSize20, LV_PART_MAIN);
-    lv_obj_align(ui_LabelChartTitle, LV_ALIGN_CENTER, 0, -122);
+    lv_obj_t *ear = lv_img_create(ui_ScreenPageOilPressure);
+    lv_img_set_src(ear, &ui_img_pngblackear_png);
+    lv_obj_set_width(ear, LV_SIZE_CONTENT);
+    lv_obj_set_height(ear, LV_SIZE_CONTENT);
+    lv_obj_set_align(ear, LV_ALIGN_CENTER);
+    lv_obj_set_pos(ear, 0, -142);
+    lv_obj_add_flag(ear, LV_OBJ_FLAG_ADV_HITTEST);
+    lv_obj_clear_flag(ear, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_ChartDot = lv_obj_create(ui_ScreenPageOilPressure);
+    lv_obj_t *heading = lv_obj_create(ui_ScreenPageOilPressure);
+    lv_obj_remove_style_all(heading);
+    lv_obj_set_size(heading, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(heading, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(heading, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(heading, 10, LV_PART_MAIN);
+    lv_obj_clear_flag(heading, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(heading, LV_ALIGN_CENTER, 0, -138);
+
+    ui_ChartDot = lv_obj_create(heading);
     lv_obj_remove_style_all(ui_ChartDot);
-    lv_obj_set_size(ui_ChartDot, 10, 10);
+    lv_obj_set_size(ui_ChartDot, 12, 12);
     lv_obj_set_style_radius(ui_ChartDot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui_ChartDot, 255, LV_PART_MAIN);   // color set by apply
-    lv_obj_align(ui_ChartDot, LV_ALIGN_CENTER, -106, -22);
+    lv_obj_set_style_bg_opa(ui_ChartDot, LV_OPA_COVER, LV_PART_MAIN);
 
-    // Layout unified with the brake temp page: value Size28 + unit on the same row, chart moved up to +62
+    ui_LabelChartTitle = lv_label_create(heading);
+    lv_label_set_text(ui_LabelChartTitle, "");
+    lv_obj_set_style_text_font(ui_LabelChartTitle, &ui_font_FontTypoderSize36, LV_PART_MAIN);
+
     ui_LabelOilPressureText = lv_label_create(ui_ScreenPageOilPressure);
     lv_label_set_text(ui_LabelOilPressureText, "--.-");
-    lv_obj_set_style_text_font(ui_LabelOilPressureText, &ui_font_FontTypoderSize36, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ui_LabelOilPressureText, &ui_font_FontTypoderSize56, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_LabelOilPressureText, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_width(ui_LabelOilPressureText, 172);
-    lv_obj_set_style_text_align(ui_LabelOilPressureText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(ui_LabelOilPressureText, LV_ALIGN_CENTER, -10, -24);
+    lv_obj_align(ui_LabelOilPressureText, LV_ALIGN_CENTER, 0, 140);
 
     ui_LabelChartUnit = lv_label_create(ui_ScreenPageOilPressure);
-    lv_label_set_text(ui_LabelChartUnit, "");         // text set by ui_chart_apply_source()
-    lv_obj_set_style_text_font(ui_LabelChartUnit, &ui_font_FontTypoderSize24, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_LabelChartUnit, lv_color_hex(0x999999), LV_PART_MAIN);
-    lv_obj_align(ui_LabelChartUnit, LV_ALIGN_CENTER, 88, -26);
+    lv_label_set_text(ui_LabelChartUnit, "");
+    lv_obj_set_style_text_font(ui_LabelChartUnit, &ui_font_FontTypoderSize28, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_LabelChartUnit, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+    lv_obj_align(ui_LabelChartUnit, LV_ALIGN_CENTER, 0, 188);
 
-    lv_obj_t *trend_panel = lv_obj_create(ui_ScreenPageOilPressure);
-    lv_obj_set_size(trend_panel, 272, 116);
-    lv_obj_align(trend_panel, LV_ALIGN_CENTER, 0, 62);
-    lv_obj_clear_flag(trend_panel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(trend_panel, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-    lv_obj_set_style_radius(trend_panel, 48, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(trend_panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(trend_panel, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(trend_panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(trend_panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(trend_panel, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    ui_ChartOilPressure = lv_chart_create(trend_panel);
-    lv_obj_set_size(ui_ChartOilPressure, 272, 116);
+    // Keep all four corners of the plot inside the round bezel, including the
+    // oldest and newest samples at either extreme of the signal range.
+    ui_ChartOilPressure = lv_chart_create(ui_ScreenPageOilPressure);
+    lv_obj_set_size(ui_ChartOilPressure, 384, 198);
     lv_obj_center(ui_ChartOilPressure);
     lv_obj_set_style_bg_opa(ui_ChartOilPressure, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(ui_ChartOilPressure, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_line_width(ui_ChartOilPressure, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_line_color(ui_ChartOilPressure, lv_color_hex(0x303030), LV_PART_MAIN);
+    lv_obj_set_style_line_width(ui_ChartOilPressure, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ui_ChartOilPressure, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_size(ui_ChartOilPressure, 0, LV_PART_INDICATOR | LV_STATE_DEFAULT);
-    lv_obj_set_style_line_width(ui_ChartOilPressure, 3, LV_PART_ITEMS | LV_STATE_DEFAULT);
+    lv_obj_set_style_line_width(ui_ChartOilPressure, 4, LV_PART_ITEMS | LV_STATE_DEFAULT);
     lv_obj_set_style_line_rounded(ui_ChartOilPressure, true, LV_PART_ITEMS | LV_STATE_DEFAULT);
     lv_obj_set_style_border_width(ui_ChartOilPressure, 0, LV_PART_ITEMS | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_ChartOilPressure, 0, LV_PART_ITEMS | LV_STATE_DEFAULT);
@@ -84,15 +88,6 @@ void ui_ScreenPageOilPressure_screen_init(void)
     lv_chart_set_axis_tick(ui_ChartOilPressure, LV_CHART_AXIS_PRIMARY_Y, 0, 0, 0, 0, true, 0);
     ui_OilPressureChartSeries = lv_chart_add_series(ui_ChartOilPressure, lv_color_hex(0xFFD166), LV_CHART_AXIS_PRIMARY_Y);
     lv_chart_set_all_value(ui_ChartOilPressure, ui_OilPressureChartSeries, 0);
-
-    lv_obj_t *ear = lv_img_create(ui_ScreenPageOilPressure);
-    lv_img_set_src(ear, &ui_img_pngblackear_png);
-    lv_obj_set_width(ear, LV_SIZE_CONTENT);
-    lv_obj_set_height(ear, LV_SIZE_CONTENT);
-    lv_obj_set_align(ear, LV_ALIGN_CENTER);
-    lv_obj_set_pos(ear, 0, -142);
-    lv_obj_add_flag(ear, LV_OBJ_FLAG_ADV_HITTEST);
-    lv_obj_clear_flag(ear, LV_OBJ_FLAG_SCROLLABLE);
 
     ui_chart_apply_source();   // sets title/dot/unit/color/Y range per the current data item
 

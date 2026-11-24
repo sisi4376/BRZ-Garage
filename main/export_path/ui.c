@@ -276,10 +276,10 @@ void ui_needle_apply_source(void)
     uint8_t src = needle_active_source();
     const needle_scale_meta_t *ns = &s_needle_scale_meta[src];
     // 270° sweep, start angle 135° (gap centered at the bottom), matching classic mechanical gauges
-    lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, ns->nmin, ns->nmax, 270, 135);
+    ui_needle_set_range(ns->nmin, ns->nmax);
     lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, ns->nmin);
     if (ui_NeedleNameLabel) lv_label_set_text(ui_NeedleNameLabel, s_disp_meta[src].name);
-    if (ui_NeedleUnitLabel) lv_label_set_text(ui_NeedleUnitLabel, s_disp_meta[src].unit);
+    if (ui_NeedleUnitLabel) lv_label_set_text(ui_NeedleUnitLabel, ui_info_slot_unit(src));
 }
 
 void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t oil,
@@ -396,7 +396,7 @@ void ui_chart_apply_source(void)
         lv_obj_set_style_text_color(ui_LabelChartTitle, lv_color_hex(m->color), LV_PART_MAIN);
     }
     if (ui_ChartDot) lv_obj_set_style_bg_color(ui_ChartDot, lv_color_hex(m->color), LV_PART_MAIN);
-    if (ui_LabelChartUnit) lv_label_set_text(ui_LabelChartUnit, m->unit);
+    if (ui_LabelChartUnit) lv_label_set_text(ui_LabelChartUnit, ui_info_slot_unit(src));
     if (ui_ChartOilPressure) {
         lv_obj_set_style_line_color(ui_ChartOilPressure, lv_color_hex(m->color), LV_PART_ITEMS);
         // the line actually uses the series' own color (overrides the ITEMS style); the series color must be changed directly for it to take effect

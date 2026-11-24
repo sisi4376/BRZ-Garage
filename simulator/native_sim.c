@@ -533,6 +533,44 @@ static bool check_five_slot_readouts(void)
     return true;
 }
 
+/* A bounding box inside the bezel also keeps its widest and tallest glyphs visible. */
+static bool inside_round_display(lv_obj_t *object)
+{
+    lv_area_t area;
+    lv_obj_get_coords(object, &area);
+    int dx = LV_MAX(abs(area.x1 - SIM_W / 2), abs(area.x2 - SIM_W / 2));
+    int dy = LV_MAX(abs(area.y1 - SIM_H / 2), abs(area.y2 - SIM_H / 2));
+    int radius = SIM_W / 2 - 13;  /* Five-pixel margin plus the eight-pixel bezel. */
+    return dx * dx + dy * dy <= radius * radius;
+}
+
+static bool check_single_signal_readouts(void)
+{
+    for (unsigned i = 0; i < sizeof(info_samples) / sizeof(info_samples[0]); ++i) {
+        disp_item_t item = info_samples[i].item;
+        nvs_user_cfg_t cfg = *nvs_cfg_get();
+        cfg.chart_source_idx = cfg.needle_source_idx = item;
+        nvs_cfg_set(&cfg);
+        ui_chart_apply_source();
+        ui_needle_apply_source();
+        for (int needle = 0; needle <= 1; ++needle) {
+            sim_ui_show_page(needle ? SIM_PAGE_NEEDLE : SIM_PAGE_CHART);
+            lv_obj_t *value = needle ? ui_NeedleValueLabel : ui_LabelOilPressureText;
+            lv_obj_t *unit = needle ? ui_NeedleUnitLabel : ui_LabelChartUnit;
+            disp_item_set_text(value, item, info_samples[i].value, true);
+            lv_obj_update_layout(value);
+            if (!inside_round_display(value) || !inside_round_display(unit) ||
+                (!needle && !inside_round_display(ui_ChartOilPressure)) ||
+                lv_obj_get_height(value) != ui_font_FontTypoderSize56.line_height) {
+                fprintf(stderr, "Readout exceeds round display: %s, %s\n",
+                        needle ? "needle" : "chart", lv_label_get_text(value));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /* Export each data source with the production LVGL screen and font objects.
  * The last pass is a mixed layout used to check the phone's cell boundaries. */
 static int export_editor_frames(void)
@@ -563,7 +601,7 @@ static int export_editor_frames(void)
             if (!write_framebuffer(name)) return 1;
         }
     }
-    return check_three_slot_readouts() && check_five_slot_readouts() ? 0 : 1;
+    return check_three_slot_readouts() && check_five_slot_readouts() && check_single_signal_readouts() ? 0 : 1;
 }
 
 int main(int argc, char **argv)
