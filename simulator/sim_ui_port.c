@@ -1,5 +1,6 @@
 #include "lvgl.h"
 #include "sim_ui_port.h"
+#include "export_path/ui_page_items.h"
 #include "bsp_obd_dsp/gauge_layout.h"
 #include "export_path/ui.h"
 #include "export_path/ui_theme.h"
@@ -255,38 +256,39 @@ void _ui_screen_change(lv_obj_t **target, lv_scr_load_anim_t animation, int spee
 }
 
 static uint8_t sim_order[GAUGE_PAGE_COUNT] = GAUGE_DEFAULT_ORDER;
-static uint8_t sim_extra_items[3][3] = {{0,2,8}, {5,6,4}, {7,10,11}};
-static int sim_three_row_page;
+static int sim_active_page;
+int ui_active_page(void) { return sim_active_page; }
 static const int sim_carousel[] = {
     SIM_PAGE_TEMP, SIM_PAGE_INFO, SIM_PAGE_CHART, SIM_PAGE_NEEDLE, SIM_PAGE_GEAR,
     SIM_PAGE_SPEED, SIM_PAGE_FUEL, SIM_PAGE_TRIP_HISTORY, SIM_PAGE_TRIP_OVERVIEW,
-    SIM_PAGE_TEMP, SIM_PAGE_TEMP, SIM_PAGE_TEMP, SIM_PAGE_DEVICE
+    SIM_PAGE_DEVICE
 };
 
 bool sim_ui_set_layout(const uint8_t *bytes)
 {
     gauge_layout_t layout;
     uint16_t crc = 0xffff;
-    for (int i = 0; i < 17; ++i) {
+    for (int i = 0; i < GAUGE_LAYOUT_WIRE_SIZE - 2; ++i) {
         crc ^= (uint16_t)bytes[i] << 8;
         for (int bit = 0; bit < 8; ++bit)
             crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
     }
-    if (crc != (bytes[17] | (bytes[18] << 8)) || !gauge_layout_unpack(bytes, &layout)) return false;
+    if (crc != (bytes[GAUGE_LAYOUT_WIRE_SIZE-2] | (bytes[GAUGE_LAYOUT_WIRE_SIZE-1] << 8)) || !gauge_layout_unpack(bytes, &layout)) return false;
     memcpy(sim_order, layout.pages, sizeof(sim_order));
     memcpy(s_sim_cfg.temp_display_map, layout.items, 3);
     memcpy(s_sim_cfg.info_display_map, layout.items + 3, 5);
-    memcpy(sim_extra_items, layout.items + 10, 9);
+    memcpy(s_sim_cfg.copy_items, layout.items + 10, sizeof(s_sim_cfg.copy_items));
     s_sim_cfg.needle_source_idx = layout.items[8];
     s_sim_cfg.chart_source_idx = layout.items[9];
+    if (sim_active_page != GAUGE_PAGE_SYSTEM && gauge_page_index(sim_order, sim_active_page) < 0 &&
+        s_page == sim_carousel[gauge_page_type(sim_active_page)]) {
+        sim_active_page = sim_order[0] == GAUGE_PAGE_UNUSED ? GAUGE_PAGE_SYSTEM : sim_order[0];
+        int type = gauge_page_type(sim_active_page);
+        sim_ui_show_page(sim_carousel[type == GAUGE_PAGE_SYSTEM ? 9 : type]);
+    }
     ui_needle_apply_source();
     ui_chart_apply_source();
     return true;
-}
-
-const uint8_t *sim_temp_items(void)
-{
-    return sim_three_row_page >= 9 ? sim_extra_items[sim_three_row_page - 9] : s_sim_cfg.temp_display_map;
 }
 
 static bool is_dir(const char *direction, const char *expected)
@@ -300,11 +302,16 @@ void sim_ui_handle_gesture(const char *direction)
     bool up = is_dir(direction, "up"), down = is_dir(direction, "down");
     int next = s_page;
     if (left || right) {
-        for (int i = 0; i <= GAUGE_PAGE_SYSTEM; ++i) {
+        for (int i = 0; i <= 9; ++i) {
             if (sim_carousel[i] != s_page) continue;
-            int page = gauge_page_step(sim_order, i == 0 ? sim_three_row_page : i, left);
-            sim_three_row_page = page >= 9 && page < GAUGE_PAGE_COUNT ? page : 0;
-            sim_ui_show_page(sim_carousel[page]);
+            int current = i == 9 ? GAUGE_PAGE_SYSTEM : i;
+            if (gauge_page_type(sim_active_page) == current) current = sim_active_page;
+            sim_active_page = gauge_page_step(sim_order, current, left);
+            int type = gauge_page_type(sim_active_page);
+            if (type == 2) ui_chart_apply_source();
+            if (type == 3) ui_needle_apply_source();
+            int screen = sim_carousel[type == GAUGE_PAGE_SYSTEM ? 9 : type];
+            if (screen != s_page) sim_ui_show_page(screen);
             return;
         }
     }
@@ -472,7 +479,7 @@ void ui_helpers_style_dark_roller(lv_obj_t *roller, const lv_font_t *font)
 
 void ui_chart_apply_source(void)
 {
-    uint8_t item = s_sim_cfg.chart_source_idx;
+    uint8_t item = ui_page_item(&s_sim_cfg, 2, 0);
     int32_t low, high, div;
     ui_disp_item_range(item, &low, &high, &div);
     lv_label_set_text(ui_LabelChartTitle, ui_disp_item_name(item));
@@ -487,7 +494,7 @@ void ui_chart_apply_source(void)
 void ui_needle_apply_source(void)
 {
     if (!ui_NeedleMeter || !ui_NeedleScale) return;
-    uint8_t item = s_sim_cfg.needle_source_idx;
+    uint8_t item = ui_page_item(&s_sim_cfg, 3, 0);
     const needle_scale_meta_t *scale = ui_disp_item_scale((disp_item_t)item);
     lv_meter_set_scale_range(ui_NeedleMeter, ui_NeedleScale, scale->nmin, scale->nmax, 270, 135);
     lv_label_set_text(ui_NeedleNameLabel, ui_disp_item_name(item));

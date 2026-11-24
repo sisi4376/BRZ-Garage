@@ -50,6 +50,13 @@ OBJECTS := $(addprefix simulator/build/obj/,$(SOURCES:.c=.o))
 
 all: $(TARGET)
 
+$(addprefix simulator/build/obj/,$(APP_SRCS:.c=.o)): main/bsp_obd_dsp/gauge_layout.h simulator/stubs/bsp_obd_dsp/nvs_storage.h main/export_path/ui_page_items.h
+
+ifdef PREVIEW_FW_VERSION
+simulator/build/obj/main/export_path/screens/ui_ScreenPageEasterEgg.o: CFLAGS += -DOBD_GAUGE_FIRMWARE_VERSION=\"$(PREVIEW_FW_VERSION)\"
+simulator/build/obj/main/export_path/screens/ui_ScreenPageEasterEgg.o: CMakeLists.txt simulator/Makefile
+endif
+
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(dir $@)
 	$(CC) -B$(TOOLBIN)/ $(OBJECTS) $(LDLIBS) -o $@

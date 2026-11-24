@@ -57,8 +57,10 @@ typedef struct {
                                  // see the load_blob grow logic comment in nvs_storage.c.
     uint16_t refuel_detect_threshold_ml; // automatic refuel threshold, 5000-20000 ml (default 10000)
     uint8_t default_orientation; // clockwise quarter turns relative to the existing installation (0..3)
+    uint8_t legacy_page_order[12];
+    uint8_t custom_items[3][3]; /* previous layout revision */
     uint8_t page_order[GAUGE_PAGE_COUNT];
-    uint8_t custom_items[3][3];
+    uint8_t copy_items[GAUGE_COPY_SLOTS][GAUGE_COPY_FIELDS];
 } nvs_user_cfg_t;
 esp_err_t nvs_gauge_layout_set(const gauge_layout_t *layout);
 

@@ -5488,8 +5488,8 @@ class MainActivity : Activity() {
 
         val display = card(body, "页面显示")
         val itemNames = displayItemNames()
-        repeat(3) { index -> frozenChoice(display, "温度页项目 ${index + 1}", itemNames, settings?.tempDisplayItems?.getOrNull(index)) }
-        repeat(5) { index -> frozenChoice(display, "信息页项目 ${index + 1}", itemNames, settings?.infoDisplayItems?.getOrNull(index)) }
+        repeat(3) { index -> frozenChoice(display, "三槽位信息项目 ${index + 1}", itemNames, settings?.tempDisplayItems?.getOrNull(index)) }
+        repeat(5) { index -> frozenChoice(display, "五槽位信息项目 ${index + 1}", itemNames, settings?.infoDisplayItems?.getOrNull(index)) }
         frozenChoice(display, "指针页数据", itemNames, settings?.needleItem)
         frozenChoice(display, "图表页数据", itemNames, settings?.chartItem)
 
@@ -5670,7 +5670,7 @@ class MainActivity : Activity() {
             else -> raw.toString()
         }
     }
-    private fun gaugePageNames() = listOf("温度", "信息", "图表", "指针", "挡位 + 转速", "车速", "油量", "行程历史", "行程总览")
+    private fun gaugePageNames() = listOf("三槽位信息", "五槽位信息", "图表", "指针", "挡位 + 转速", "车速", "油量", "行程历史", "行程总览")
     private fun obdProtocolNames() = listOf("自动", "SAE J1850 PWM", "SAE J1850 VPW", "ISO 9141-2", "ISO 14230-4 KWP（慢）", "ISO 14230-4 KWP（快）", "CAN 11bit / 500k", "CAN 29bit / 500k", "CAN 11bit / 250k", "CAN 29bit / 250k")
     private fun permissions(bind: Boolean) {
         bindAfterPermission = bind

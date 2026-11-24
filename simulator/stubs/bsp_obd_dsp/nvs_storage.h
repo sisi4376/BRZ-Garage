@@ -40,6 +40,7 @@ typedef struct {
     uint8_t rc_enabled;
     uint16_t trip_merge_timeout_min;
     uint8_t default_orientation;
+    uint8_t copy_items[19][5];
 } nvs_user_cfg_t;
 esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value);
 

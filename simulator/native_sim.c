@@ -13,6 +13,7 @@
 #include "export_path/ui.h"
 #include "export_path/ui_ext.h"
 #include "sim_ui_port.h"
+#include "export_path/ui_page_items.h"
 #include "export_path/ui_disp_item.h"
 #include "bsp_obd_dsp/gauge_layout.h"
 #include "bsp_obd_dsp/nvs_storage.h"
@@ -98,7 +99,7 @@ static void read_page_command(void)
 {
     FILE *file = fopen("preview/lvgl_command.txt", "rb");
     if (!file) return;
-    char command[64] = {0};
+    char command[2 * GAUGE_LAYOUT_WIRE_SIZE + 16] = {0};
     fgets(command, sizeof(command), file);
     fclose(file);
     DeleteFileA("preview/lvgl_command.txt");
@@ -436,7 +437,7 @@ static void update_ui(void)
     for (int i = 0; i < 8; ++i) {
         bool temp = i < 3;
         int slot = temp ? i : i - 3;
-        uint8_t item = temp ? sim_temp_items()[slot] : cfg->info_display_map[slot];
+        uint8_t item = ui_page_item(cfg, temp ? 0 : 1, slot);
         lv_obj_t *name = temp ? ui_LabelTempName[slot] : ui_LabelInfoName[slot];
         lv_obj_t *unit = temp ? ui_LabelTempUnit[slot] : ui_LabelInfoUnit[slot];
         if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(ui_disp_item_color(item)), 0);
@@ -445,7 +446,7 @@ static void update_ui(void)
         lv_obj_set_style_text_color(name, lv_color_hex(ui_disp_item_color(item)), 0);
         disp_item_set_text(temp ? ui_LabelTempValue[slot] : ui_LabelInfoValue[slot], item, raw[item], true);
     }
-    uint8_t needle = cfg->needle_source_idx, chart = cfg->chart_source_idx;
+    uint8_t needle = ui_page_item(cfg, 3, 0), chart = ui_page_item(cfg, 2, 0);
     disp_item_set_text(ui_NeedleValueLabel, needle, raw[needle], true);
     lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, raw[needle] / ui_disp_item_scale(needle)->div);
     disp_item_set_text(ui_LabelOilPressureText, chart, raw[chart], true);

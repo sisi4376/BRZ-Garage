@@ -3,6 +3,7 @@
 // LVGL version: 8.3.11
 // Project name: OBD_PRJ
 // The UI theme is named PINK_CAT (pink cat): main color pink, secondary color purple
+#include "ui_page_items.h"
 #include "ui.h"
 #include "ui_helpers.h"
 #include "ui_ext.h"
@@ -250,16 +251,21 @@ static int32_t s_chart_ymax = 100;
 
 // The disp_item system has moved to ui_disp_item.c/h
 
-static int s_three_row_page;
+static void refresh_gauge_layout(void);
+static int s_active_page;
+int ui_active_page(void) { return s_active_page; }
 
-void ui_select_three_row_page(int page)
+void ui_select_gauge_page(int id)
 {
-    s_three_row_page = page >= 9 && page < GAUGE_PAGE_COUNT ? page : 0;
+    s_active_page = id;
+    int type = gauge_page_type(id);
+    if (type == 2) ui_chart_apply_source();
+    if (type == 3) ui_needle_apply_source();
 }
 
 static uint8_t needle_active_source(void)
 {
-    uint8_t src = nvs_cfg_get()->needle_source_idx;
+    uint8_t src = ui_page_item(nvs_cfg_get(), 3, 0);
     if (src >= DISP_ITEM_COUNT) src = DISP_ITEM_CLT;
     return src;
 }
@@ -379,7 +385,7 @@ static void oil_pressure_chart_refresh(void)
 // Apply the chart page title/dot/unit/color/Y-range per chart_source_idx (call after the data source changes)
 void ui_chart_apply_source(void)
 {
-    uint8_t src = nvs_cfg_get()->chart_source_idx;
+    uint8_t src = ui_page_item(nvs_cfg_get(), 2, 0);
     if (src >= DISP_ITEM_COUNT) src = DISP_ITEM_OILP;
     const disp_item_meta_t *m = &s_disp_meta[src];
     const needle_scale_meta_t *ns = &s_needle_scale_meta[src];
@@ -555,7 +561,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
                 case APP_EVT_PHONE_LAYOUT:
                     if (nvs_gauge_layout_set(&evt.data.layout) != ESP_OK)
                         ESP_LOGW(TAG, "Page layout save failed");
-                    else ui_needle_apply_source();
+                    else refresh_gauge_layout();
                     break;
                 case APP_EVT_PHONE_DEFAULT_PAGE:
                 case APP_EVT_PHONE_DEFAULT_ORIENTATION: {
@@ -855,8 +861,6 @@ static void my_timerMain_impl(lv_timer_t * timer)
 
     /*Temp page*/
     if (scr == ui_ScreenPageTemp && ui_LabelTempValue[0]) {
-        const uint8_t *items = s_three_row_page >= 9 ?
-            user_cfg->custom_items[s_three_row_page - 9] : user_cfg->temp_display_map;
         static int32_t s_disp_temp[3] = {0};
         static uint8_t s_last_temp_map[3] = {0xFF, 0xFF, 0xFF};
 
@@ -867,7 +871,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             else r = 1.0f;   // hold at max (hold phase)
 
             for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = items[i];
+                uint8_t map_idx = ui_page_item(user_cfg, 0, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_temp_map[i] != map_idx) {
@@ -882,7 +886,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             }
         } else {
             for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = items[i];
+                uint8_t map_idx = ui_page_item(user_cfg, 0, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_temp_map[i] != map_idx) {
@@ -902,9 +906,9 @@ static void my_timerMain_impl(lv_timer_t * timer)
     if (scr == ui_ScreenPageOilPressure && ui_LabelOilPressureText) {
         static int32_t s_disp_chart = 0;
         static uint8_t s_last_chart_src = 0xFF;
-        disp_item_t citem = (disp_item_t)(user_cfg->chart_source_idx % DISP_ITEM_COUNT);
-        if (s_last_chart_src != user_cfg->chart_source_idx) {
-            s_last_chart_src = user_cfg->chart_source_idx;
+        disp_item_t citem = (disp_item_t)(ui_page_item(user_cfg, 2, 0) % DISP_ITEM_COUNT);
+        if (s_last_chart_src != ui_page_item(user_cfg, 2, 0)) {
+            s_last_chart_src = ui_page_item(user_cfg, 2, 0);
             s_disp_chart = 0;  // reset on source switch, avoiding a ramp from the old source's value
         }
         int32_t cval = 0;
@@ -955,7 +959,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             else r = 1.0f;   // hold at max (hold phase)
 
             for (int i = 0; i < 5; ++i) {
-                uint8_t map_idx = user_cfg->info_display_map[i];
+                uint8_t map_idx = ui_page_item(user_cfg, 1, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_info_map[i] != map_idx) {
@@ -970,7 +974,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             }
         } else {
             for (int i = 0; i < 5; ++i) {
-                uint8_t map_idx = user_cfg->info_display_map[i];
+                uint8_t map_idx = ui_page_item(user_cfg, 1, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_info_map[i] != map_idx) {
@@ -1129,33 +1133,47 @@ void ui_event_logo_background(lv_event_t * e)
     }   
 }
 
+static const struct {
+    lv_obj_t **screen;
+    void (*init)(void);
+} gauge_screens[] = {
+    {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
+    {&ui_ScreenPageInfo, ui_ScreenPageInfo_screen_init},
+    {&ui_ScreenPageOilPressure, ui_ScreenPageOilPressure_screen_init},
+    {&ui_ScreenPageNeedle, ui_ScreenPageNeedle_screen_init},
+    {&ui_ScreenPageGear, ui_ScreenPageGear_screen_init},
+    {&ui_ScreenPageSpeed, ui_ScreenPageSpeed_screen_init},
+    {&ui_ScreenPageFuel, ui_ScreenPageFuel_screen_init},
+    {&ui_ScreenPageTripHistory, ui_ScreenPageTripHistory_screen_init},
+    {&ui_ScreenPageTripOverview, ui_ScreenPageTripOverview_screen_init},
+    {&ui_ScreenPageEasterEgg, ui_ScreenPageEasterEgg_screen_init},
+};
+
+static void gauge_show_page(int page)
+{
+    ui_select_gauge_page(page);
+    int screen = page == GAUGE_PAGE_SYSTEM ? 9 : gauge_page_type(page);
+    if (*gauge_screens[screen].screen != lv_scr_act())
+        _ui_screen_change(gauge_screens[screen].screen, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, gauge_screens[screen].init);
+}
+
+static void refresh_gauge_layout(void)
+{
+    const uint8_t *order = nvs_cfg_get()->page_order;
+    if (s_active_page != GAUGE_PAGE_SYSTEM && gauge_page_index(order, s_active_page) < 0 &&
+        *gauge_screens[gauge_page_type(s_active_page)].screen == lv_scr_act()) {
+        gauge_show_page(order[0] == GAUGE_PAGE_UNUSED ? GAUGE_PAGE_SYSTEM : order[0]);
+    } else {
+        ui_select_gauge_page(s_active_page);
+    }
+}
+
 static bool gauge_swipe(int page, lv_dir_t dir)
 {
     if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return false;
-    static const struct {
-        lv_obj_t **screen;
-        void (*init)(void);
-    } screens[] = {
-        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
-        {&ui_ScreenPageInfo, ui_ScreenPageInfo_screen_init},
-        {&ui_ScreenPageOilPressure, ui_ScreenPageOilPressure_screen_init},
-        {&ui_ScreenPageNeedle, ui_ScreenPageNeedle_screen_init},
-        {&ui_ScreenPageGear, ui_ScreenPageGear_screen_init},
-        {&ui_ScreenPageSpeed, ui_ScreenPageSpeed_screen_init},
-        {&ui_ScreenPageFuel, ui_ScreenPageFuel_screen_init},
-        {&ui_ScreenPageTripHistory, ui_ScreenPageTripHistory_screen_init},
-        {&ui_ScreenPageTripOverview, ui_ScreenPageTripOverview_screen_init},
-        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
-        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
-        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
-        {&ui_ScreenPageEasterEgg, ui_ScreenPageEasterEgg_screen_init},
-    };
-    if (page == 0) page = s_three_row_page;
-    int next = gauge_page_step(nvs_cfg_get()->page_order, page, dir == LV_DIR_LEFT);
+    if (page == gauge_page_type(s_active_page)) page = s_active_page;
     lv_indev_wait_release(lv_indev_get_act());
-    ui_select_three_row_page(next);
-    if (*screens[next].screen == lv_scr_act()) return true;
-    _ui_screen_change(screens[next].screen, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, screens[next].init);
+    gauge_show_page(gauge_page_step(nvs_cfg_get()->page_order, page, dir == LV_DIR_LEFT));
     return true;
 }
 
@@ -1207,8 +1225,9 @@ void ui_event_temp_background(lv_event_t * e)
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         if (gauge_swipe(0, dir)) return;
-        else if(dir == LV_DIR_BOTTOM && s_three_row_page == 0) {
+        else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
+            if (ui_ScreenPageTempCustom) { lv_obj_del(ui_ScreenPageTempCustom); ui_ScreenPageTempCustom = NULL; }
             _ui_screen_change(&ui_ScreenPageTempCustom, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTempCustom_screen_init);
         }
     }
@@ -1343,6 +1362,7 @@ void ui_event_needle_background(lv_event_t * e)
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         if(dir == LV_DIR_BOTTOM){
             lv_indev_wait_release(lv_indev_get_act());
+            if (ui_ScreenPageNeedleConfig) { lv_obj_del(ui_ScreenPageNeedleConfig); ui_ScreenPageNeedleConfig = NULL; }
             _ui_screen_change(&ui_ScreenPageNeedleConfig, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedleConfig_screen_init);
         }
         else gauge_swipe(3, dir);
@@ -1367,6 +1387,7 @@ void ui_event_info_background(lv_event_t * e)
         if (gauge_swipe(1, dir)) return;
         else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
+            if (ui_ScreenPageInfoCustom) { lv_obj_del(ui_ScreenPageInfoCustom); ui_ScreenPageInfoCustom = NULL; }
             _ui_screen_change(&ui_ScreenPageInfoCustom, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfoCustom_screen_init);
         }
     }

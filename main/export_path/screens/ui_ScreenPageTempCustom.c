@@ -1,3 +1,4 @@
+#include "../ui_page_items.h"
 #include "../ui.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
@@ -25,7 +26,7 @@ static void on_temp_map_changed(lv_event_t *e)
     if (idx >= 3) return;
 
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    cfg.temp_display_map[idx] = (uint8_t)lv_roller_get_selected(s_temp_rollers[idx]);
+    ui_set_page_item(&cfg, 0, idx, (uint8_t)lv_roller_get_selected(s_temp_rollers[idx]));
     nvs_cfg_set(&cfg);
 }
 
@@ -72,9 +73,9 @@ void ui_ScreenPageTempCustom_screen_init(void)
     create_row(ui_ScreenPageTempCustom, 1, "ROW 2", -18);
     create_row(ui_ScreenPageTempCustom, 2, "ROW 3", 36);
 
-    lv_roller_set_selected(s_temp_rollers[0], cfg->temp_display_map[0], LV_ANIM_OFF);
-    lv_roller_set_selected(s_temp_rollers[1], cfg->temp_display_map[1], LV_ANIM_OFF);
-    lv_roller_set_selected(s_temp_rollers[2], cfg->temp_display_map[2], LV_ANIM_OFF);
+    lv_roller_set_selected(s_temp_rollers[0], ui_page_item(cfg, 0, 0), LV_ANIM_OFF);
+    lv_roller_set_selected(s_temp_rollers[1], ui_page_item(cfg, 0, 1), LV_ANIM_OFF);
+    lv_roller_set_selected(s_temp_rollers[2], ui_page_item(cfg, 0, 2), LV_ANIM_OFF);
 
     lv_obj_t *hint = lv_label_create(ui_ScreenPageTempCustom);
     lv_label_set_text(hint, "Swipe up/left/right to return");

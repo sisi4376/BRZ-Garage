@@ -270,8 +270,10 @@ static void boot_enter_default_page(void)
     // Default page: 0=Temp,1=Info,2=Chart,3=Needle,4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
     int page = gauge_page_index(pg_cfg->page_order, pg_cfg->default_page) >= 0 ?
                pg_cfg->default_page : pg_cfg->page_order[0];
-    ui_select_three_row_page(page);
-    switch(page) {
+    if (page == GAUGE_PAGE_UNUSED) page = GAUGE_PAGE_SYSTEM;
+    ui_select_gauge_page(page);
+    switch(gauge_page_type(page)) {
+        case GAUGE_PAGE_SYSTEM: target_scr = &ui_ScreenPageEasterEgg; target_init = ui_ScreenPageEasterEgg_screen_init; break;
         case 0: target_scr = &ui_ScreenPageTemp;  target_init = ui_ScreenPageTemp_screen_init;  break;
         case 1: target_scr = &ui_ScreenPageInfo;  target_init = ui_ScreenPageInfo_screen_init;  break;
         case 2: target_scr = &ui_ScreenPageOilPressure; target_init = ui_ScreenPageOilPressure_screen_init;  break;

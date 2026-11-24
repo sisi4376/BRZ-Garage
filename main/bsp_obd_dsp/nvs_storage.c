@@ -36,7 +36,7 @@
 #define REFUEL_PROTOCOL_VERSION 2U
 #define CUSTOM_TRIP_STORE_VERSION 2U
 #define KEY_CFG_VERSION       "cfgver"    // config version (missing = v0)
-#define CFG_VERSION_CURRENT   14          // current version; bump on field add/semantic change (migration in nvs_storage_init)
+#define CFG_VERSION_CURRENT   15          // current version; bump on field add/semantic change (migration in nvs_storage_init)
 
 static nvs_user_cfg_t s_cfg =   {
                         .protocol = 0, // OBD protocol select: 0=auto, 1~9=fixed, default auto
@@ -640,6 +640,16 @@ esp_err_t nvs_storage_init(void)
                 reset_page_layout();
                 save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
             }
+            if (stored_ver < 15) {
+                if (stored_ver == 14) {
+                    memset(s_cfg.page_order, GAUGE_PAGE_UNUSED, sizeof(s_cfg.page_order));
+                    memcpy(s_cfg.page_order, s_cfg.legacy_page_order, sizeof(s_cfg.legacy_page_order));
+                }
+                memset(s_cfg.copy_items, 0, sizeof(s_cfg.copy_items));
+                for (int i = 0; i < 3; ++i)
+                    memcpy(s_cfg.copy_items[i], s_cfg.custom_items[i], 3);
+                save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+            }
             // Write the new version number
             if (nvs_open(NS_CFG, NVS_READWRITE, &h) == ESP_OK) {
                 nvs_set_u8(h, KEY_CFG_VERSION, CFG_VERSION_CURRENT);
@@ -653,7 +663,7 @@ esp_err_t nvs_storage_init(void)
     /* Default-value repair for new fields (old NVS data has rsv[x] all zero) */
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
     if(s_cfg.default_orientation > 3) s_cfg.default_orientation = 0;
-    if (!gauge_page_count(s_cfg.page_order)) reset_page_layout();
+    if (gauge_page_count(s_cfg.page_order) < 0) reset_page_layout();
     if(s_cfg.default_page > 8) s_cfg.default_page = 6; // 0=Temp..4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
     if(s_cfg.needle_source_idx >= CHART_ALARM_N) s_cfg.needle_source_idx = 0;
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
@@ -832,14 +842,14 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
 
 esp_err_t nvs_gauge_layout_set(const gauge_layout_t *layout)
 {
-    if (!layout || !gauge_page_count(layout->pages)) return ESP_ERR_INVALID_ARG;
+    if (!layout || gauge_page_count(layout->pages) < 0) return ESP_ERR_INVALID_ARG;
     for (int i = 0; i < GAUGE_ITEM_SLOTS; ++i)
         if (layout->items[i] >= CHART_ALARM_N) return ESP_ERR_INVALID_ARG;
     nvs_user_cfg_t cfg = s_cfg;
     memcpy(cfg.page_order, layout->pages, sizeof(cfg.page_order));
     memcpy(cfg.temp_display_map, layout->items, 3);
     memcpy(cfg.info_display_map, layout->items + 3, 5);
-    memcpy(cfg.custom_items, layout->items + 10, sizeof(cfg.custom_items));
+    memcpy(cfg.copy_items, layout->items + 10, sizeof(cfg.copy_items));
     cfg.needle_source_idx = layout->items[8];
     cfg.chart_source_idx = layout->items[9];
     if (!memcmp(&cfg, &s_cfg, sizeof(cfg))) return ESP_OK;

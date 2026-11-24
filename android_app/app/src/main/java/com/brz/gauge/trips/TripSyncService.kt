@@ -307,6 +307,10 @@ class TripSyncService : Service() {
     private var firmwareInfoForConnection: TripBleProtocol.FirmwareInfo? = null
     private val displayDeferred = mutableSetOf<Int>()
     private var layoutWritten: GaugeLayout? = null
+    private var layoutChunk = 0
+    private var layoutPendingValue: String? = null
+    private fun layoutCharacteristic() = listOf(TripBleProtocol.PAGE_LAYOUT, TripBleProtocol.LEGACY_LAYOUT)
+        .firstOrNull { info?.getCharacteristic(it) != null }
     private var layoutRead = false
     private var brightnessWriteValue: TripBleProtocol.DisplaySetting? = null
     private var brightnessVerificationValue: TripBleProtocol.DisplaySetting? = null
@@ -926,9 +930,13 @@ class TripSyncService : Service() {
                         if (control == 1) read(TripBleProtocol.TRIP_DATA) else finishHistory()
                     }
                 }
-                TripBleProtocol.PAGE_LAYOUT -> {
+                TripBleProtocol.PAGE_LAYOUT, TripBleProtocol.LEGACY_LAYOUT -> {
                     completeOperation()
-                    continueAfterGattIdle { read(TripBleProtocol.PAGE_LAYOUT) }
+                    val layout = layoutWritten
+                    if (c.uuid == TripBleProtocol.PAGE_LAYOUT && layout != null && layoutChunk < 7) {
+                        layoutChunk++
+                        continueAfterGattIdle { write(c.uuid, layout.chunk(layoutChunk)) }
+                    } else continueAfterGattIdle { read(c.uuid) }
                 }
                 TripBleProtocol.BRIGHTNESS_CONTROL -> {
                     completeOperation()
@@ -1154,16 +1162,18 @@ class TripSyncService : Service() {
                     continueAfterGattIdle { read(TripBleProtocol.REFUEL_META) }
                 }
             }
-            TripBleProtocol.PAGE_LAYOUT -> {
+            TripBleProtocol.PAGE_LAYOUT, TripBleProtocol.LEGACY_LAYOUT -> {
                 val layout = GaugeLayout.parse(bytes)
                 val expected = layoutWritten
-                if (layout == null || (expected != null && expected != layout)) {
+                val matches = expected == null || expected == layout ||
+                    (uuid == TripBleProtocol.LEGACY_LAYOUT && expected.legacyPacket()?.contentEquals(bytes) == true)
+                if (layout == null || !matches) {
                     retryBrightnessOperation("等待仪表确认页面编排")
                     return
                 }
                 completeOperation()
                 state.cacheLayout(layout, address)
-                if (expected != null) state.confirmDisplay(4, expected.encode(), address)
+                if (expected != null) layoutPendingValue?.let { state.confirmDisplay(4, it, address) }
                 layoutWritten = null
                 readOdometerOrManifest("仪表页面已回读确认")
             }
@@ -1211,9 +1221,10 @@ class TripSyncService : Service() {
                 } else if (expectedRefuelThreshold != null) {
                     idle("自动加油识别阈值已调整为 ${expectedRefuelThreshold / 1000} L · 已由仪表回读确认")
                 } else {
-                    if (!layoutRead && info?.getCharacteristic(TripBleProtocol.PAGE_LAYOUT) != null) {
+                    val layoutId = layoutCharacteristic()
+                    if (!layoutRead && layoutId != null) {
                         layoutRead = true
-                        continueAfterGattIdle { read(TripBleProtocol.PAGE_LAYOUT) }
+                        continueAfterGattIdle { read(layoutId) }
                     } else readOdometerOrManifest("已连接 · 仪表设置与固件版本已同步")
                 }
             }
@@ -1500,10 +1511,14 @@ class TripSyncService : Service() {
             val value = state.pendingDisplay(command, address) ?: continue
             if (command == 4) {
                 val layout = GaugeLayout.decode(value) ?: continue
-                if (info?.getCharacteristic(TripBleProtocol.PAGE_LAYOUT) == null) continue
+                val layoutId = layoutCharacteristic() ?: continue
+                val first = if (layoutId == TripBleProtocol.PAGE_LAYOUT) layout.chunk(0)
+                    else layout.legacyPacket() ?: continue
+                layoutChunk = 0
+                layoutPendingValue = value
                 layoutWritten = layout
                 busy = true
-                continueAfterGattIdle { write(TripBleProtocol.PAGE_LAYOUT, layout.packet()) }
+                continueAfterGattIdle { write(layoutId, first) }
             } else {
                 val setting = TripBleProtocol.DisplaySetting(command, value.toIntOrNull() ?: continue)
                 if (!setting.valid || info?.getCharacteristic(TripBleProtocol.BRIGHTNESS_CONTROL) == null ||
@@ -2221,7 +2236,7 @@ class TripSyncService : Service() {
         when {
             operationIsOta || otaSessionActive -> retryFirmwareOperation(message)
             operation == TripBleProtocol.MANIFEST -> retryManifestOperation(message)
-            operation == TripBleProtocol.PAGE_LAYOUT || operation == TripBleProtocol.BRIGHTNESS_CONTROL || brightnessVerificationValue != null ->
+            operation == TripBleProtocol.PAGE_LAYOUT || operation == TripBleProtocol.LEGACY_LAYOUT || operation == TripBleProtocol.BRIGHTNESS_CONTROL || brightnessVerificationValue != null ->
                 retryBrightnessOperation(message)
             (operation == TripBleProtocol.REFUEL_CONTROL && refuelControl == 4) ||
                 refuelThresholdVerificationMl != null -> retryRefuelThresholdOperation(message)
@@ -2261,7 +2276,7 @@ class TripSyncService : Service() {
         if (!connected || operation == null) return
         if (operationRetries >= MAX_OPERATION_RETRIES) {
             (brightnessWriteValue ?: brightnessVerificationValue)?.let { displayDeferred.add(it.command) }
-            if (operation == TripBleProtocol.PAGE_LAYOUT) displayDeferred.add(4)
+            if (operation == TripBleProtocol.PAGE_LAYOUT || operation == TripBleProtocol.LEGACY_LAYOUT) displayDeferred.add(4)
             layoutWritten = null
             completeOperation()
             brightnessWriteValue = null

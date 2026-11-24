@@ -210,9 +210,13 @@ static uint16_t s_handle_vehicle_state;
 static uint8_t s_vehicle_state_value[VEHICLE_STATE_WIRE_SIZE];
 static uint16_t s_char_uuid_gauge_settings = DEVICE_INFO_CHAR_GAUGE_SETTINGS;
 static uint16_t s_handle_gauge_settings;
-static uint16_t s_uuid_layout = 0x0010;
+static uint16_t s_uuid_layout = 0x0011;
 static uint16_t s_handle_layout;
 static uint8_t s_layout_wire[GAUGE_LAYOUT_WIRE_SIZE];
+static uint8_t s_layout_stage[GAUGE_LAYOUT_WIRE_SIZE];
+static int s_layout_next;
+static uint16_t s_layout_owner;
+
 static uint8_t s_gauge_settings_value[GAUGE_SETTINGS_WIRE_SIZE];
 static uint16_t s_char_uuid_brightness_control = DEVICE_INFO_CHAR_BRIGHTNESS_CONTROL;
 static uint16_t s_handle_brightness_control;
@@ -1273,6 +1277,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         break;
 
     case ESP_GATTS_DISCONNECT_EVT:
+        if (param->disconnect.conn_id == s_layout_owner) s_layout_next = 0;
         if (s_connected && param->disconnect.conn_id == s_conn_id) {
             s_connected = false;
             s_conn_id = 0xFFFF;
@@ -1354,10 +1359,25 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
         } else if (param->write.handle == s_handle_layout) {
             esp_gatt_status_t status = ESP_GATT_INVALID_PDU;
             const uint8_t *b = param->write.value;
-            if (!param->write.is_prep && param->write.offset == 0 && param->write.len == sizeof(s_layout_wire) &&
-                b[0] == 1 && trip_crc16(b, 17) == get_le16(b + 17)) {
-                gauge_layout_t layout;
-                if (gauge_layout_unpack(b, &layout)) status = app_event_send_layout(&layout) ? ESP_GATT_OK : ESP_GATT_ERROR;
+            if (!param->write.is_prep && param->write.offset == 0 &&
+                param->write.len == GAUGE_CHUNK_SIZE + 2 && b[0] == 2 && b[1] < GAUGE_CHUNKS) {
+                unsigned index = b[1];
+                if (index == 0) {
+                    s_layout_next = 0;
+                    s_layout_owner = param->write.conn_id;
+                }
+                if (s_layout_owner == param->write.conn_id && index <= s_layout_next) {
+                    memcpy(s_layout_stage + index * GAUGE_CHUNK_SIZE, b + 2, GAUGE_CHUNK_SIZE);
+                    s_layout_next = index + 1;
+                    status = ESP_GATT_OK;
+                    if (s_layout_next == GAUGE_CHUNKS) {
+                        const int end = GAUGE_LAYOUT_WIRE_SIZE - 2;
+                        gauge_layout_t layout;
+                        if (trip_crc16(s_layout_stage, end) != get_le16(s_layout_stage + end) ||
+                            !gauge_layout_unpack(s_layout_stage, &layout)) status = ESP_GATT_INVALID_PDU;
+                        else if (!app_event_send_layout(&layout)) status = ESP_GATT_ERROR;
+                    }
+                }
             }
             if (param->write.need_rsp)
                 esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, status, NULL);
@@ -1573,16 +1593,18 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 source = s_vehicle_state_value;
                 source_len = sizeof(s_vehicle_state_value);
             } else if (param->read.handle == s_handle_layout) {
-                nvs_user_cfg_t cfg = *nvs_cfg_get();
-                gauge_layout_t layout;
-                memcpy(layout.pages, cfg.page_order, sizeof(layout.pages));
-                memcpy(layout.items, cfg.temp_display_map, 3);
-                memcpy(layout.items + 3, cfg.info_display_map, 5);
-                layout.items[8] = cfg.needle_source_idx;
-                layout.items[9] = cfg.chart_source_idx;
-                memcpy(layout.items + 10, cfg.custom_items, sizeof(cfg.custom_items));
-                gauge_layout_pack(s_layout_wire, &layout);
-                put_le16(s_layout_wire + 17, trip_crc16(s_layout_wire, 17));
+                if (param->read.offset == 0) {
+                    nvs_user_cfg_t cfg = *nvs_cfg_get();
+                    gauge_layout_t layout;
+                    memcpy(layout.pages, cfg.page_order, sizeof(layout.pages));
+                    memcpy(layout.items, cfg.temp_display_map, 3);
+                    memcpy(layout.items + 3, cfg.info_display_map, 5);
+                    layout.items[8] = cfg.needle_source_idx;
+                    layout.items[9] = cfg.chart_source_idx;
+                    memcpy(layout.items + 10, cfg.copy_items, sizeof(cfg.copy_items));
+                    gauge_layout_pack(s_layout_wire, &layout);
+                    put_le16(s_layout_wire + GAUGE_LAYOUT_WIRE_SIZE - 2, trip_crc16(s_layout_wire, GAUGE_LAYOUT_WIRE_SIZE - 2));
+                }
                 source = s_layout_wire;
                 source_len = sizeof(s_layout_wire);
             } else if (param->read.handle == s_handle_gauge_settings) {

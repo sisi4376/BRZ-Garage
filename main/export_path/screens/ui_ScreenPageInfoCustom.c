@@ -1,3 +1,4 @@
+#include "../ui_page_items.h"
 #include "../ui.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
@@ -25,7 +26,7 @@ static void on_info_map_changed(lv_event_t *e)
     if (idx >= 5) return;
 
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    cfg.info_display_map[idx] = (uint8_t)lv_roller_get_selected(s_info_rollers[idx]);
+    ui_set_page_item(&cfg, 1, idx, (uint8_t)lv_roller_get_selected(s_info_rollers[idx]));
     nvs_cfg_set(&cfg);
 }
 
@@ -75,7 +76,7 @@ void ui_ScreenPageInfoCustom_screen_init(void)
     create_row(ui_ScreenPageInfoCustom, 4, "SLOT 5", 94);
 
     for (int i = 0; i < 5; ++i) {
-        lv_roller_set_selected(s_info_rollers[i], cfg->info_display_map[i], LV_ANIM_OFF);
+        lv_roller_set_selected(s_info_rollers[i], ui_page_item(cfg, 1, i), LV_ANIM_OFF);
     }
 
     lv_obj_t *hint = lv_label_create(ui_ScreenPageInfoCustom);

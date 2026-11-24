@@ -4,6 +4,7 @@
 //  - When value >= threshold, that item's value turns red on all pages (see disp_item_set_value_color)
 //  - A gesture in any direction returns to the chart page (see ui_event_chart_alarm_background)
 
+#include "../ui_page_items.h"
 #include "../ui.h"
 #include "../ui_rounding.h"
 #include "bsp_obd_dsp/nvs_storage.h"
@@ -36,7 +37,7 @@ static void on_alarm_slider_change(lv_event_t *e)
 
 void ui_ScreenPageChartAlarm_screen_init(void)
 {
-    s_alarm_item = nvs_cfg_get()->chart_source_idx;
+    s_alarm_item = ui_page_item(nvs_cfg_get(), 2, 0);
     ui_disp_item_range(s_alarm_item, &s_alarm_nmin, &s_alarm_nmax, &s_alarm_div);
     if (s_alarm_div < 1) s_alarm_div = 1;
 

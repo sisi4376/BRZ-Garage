@@ -3,6 +3,7 @@
 //  - Selecting writes NVS chart_source_idx and applies to the chart page immediately
 //  - A gesture in any direction returns to the chart page (see ui_event_chart_config_background)
 
+#include "../ui_page_items.h"
 #include "../ui.h"
 #include "../ui_disp_item.h"
 #include <string.h>
@@ -46,7 +47,7 @@ static void on_chart_source_changed(lv_event_t *e)
     if (pos >= s_chart_source_count) pos = 0;
 
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    cfg.chart_source_idx = s_chart_sources[pos];
+    ui_set_page_item(&cfg, 2, 0, s_chart_sources[pos]);
     nvs_cfg_set(&cfg);
 
     ui_chart_apply_source();   // apply to the chart page immediately (title/color/unit/range)
@@ -85,7 +86,7 @@ void ui_ScreenPageChartConfig_screen_init(void)
     lv_obj_clear_flag(s_roller_chart_src, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_roller_set_options(s_roller_chart_src, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_roller_chart_src, 3);
-    lv_roller_set_selected(s_roller_chart_src, chart_source_to_pos(cfg->chart_source_idx), LV_ANIM_OFF);
+    lv_roller_set_selected(s_roller_chart_src, chart_source_to_pos(ui_page_item(cfg, 2, 0)), LV_ANIM_OFF);
     lv_obj_set_width(s_roller_chart_src, 160);
     ui_helpers_style_dark_roller(s_roller_chart_src, &ui_font_FontTypoderSize24);
     lv_obj_align(s_roller_chart_src, LV_ALIGN_CENTER, 0, 8);

@@ -36,7 +36,7 @@ int main(void) {
     gauge_layout_t layout = {.pages = GAUGE_DEFAULT_ORDER}, parsed;
     memset(layout.pages, 255, sizeof(layout.pages));
     layout.pages[0] = 10; layout.pages[1] = 5; layout.pages[2] = 9;
-    for (int i = 0; i < 19; ++i) layout.items[i] = i % 13;
+    for (int i = 0; i < GAUGE_ITEM_SLOTS; ++i) layout.items[i] = i % 13;
     uint8_t bytes[GAUGE_LAYOUT_WIRE_SIZE];
     gauge_layout_pack(bytes, &layout);
     assert(gauge_layout_unpack(bytes, &parsed));
@@ -55,13 +55,33 @@ int main(void) {
     assert(nvs_gauge_layout_set(&parsed) == ESP_OK && writes == 2);
     s_cfg = flash;
     assert(s_cfg.page_order[0] == 10 && s_cfg.default_orientation == 2);
-    assert(!memcmp(s_cfg.custom_items, parsed.items + 10, 9));
-    bytes[1] = 0x55;
+    assert(!memcmp(s_cfg.copy_items, parsed.items + 10, sizeof(s_cfg.copy_items)));
+    bytes[1] = bytes[2];
     assert(!gauge_layout_unpack(bytes, &parsed));
     gauge_layout_pack(bytes, &layout);
-    bytes[7] = 0xee;
+    bytes[1 + GAUGE_PAGE_COUNT] = 0xee;
     assert(!gauge_layout_unpack(bytes, &parsed));
     memset(layout.pages, 255, sizeof(layout.pages));
+    assert(nvs_gauge_layout_set(&layout) == ESP_OK);
+    s_cfg = flash;
+    assert(gauge_page_count(s_cfg.page_order) == 0);
+    assert(gauge_page_step(s_cfg.page_order, GAUGE_PAGE_SYSTEM, true) == GAUGE_PAGE_SYSTEM);
+    for (int type = 0; type < 4; ++type) {
+        layout.pages[0] = type;
+        for (int slot = 0; slot < GAUGE_COPY_SLOTS; ++slot) {
+            int id = 9 + type * GAUGE_COPY_SLOTS + slot;
+            layout.pages[slot + 1] = id;
+            assert(gauge_page_type(id) == type && gauge_copy_slot(id) == slot);
+        }
+        assert(nvs_gauge_layout_set(&layout) == ESP_OK);
+        assert(gauge_page_step(layout.pages, GAUGE_PAGE_SYSTEM, true) == type);
+        assert(gauge_page_step(layout.pages, GAUGE_PAGE_SYSTEM, false) == layout.pages[GAUGE_PAGE_COUNT - 1]);
+    }
+    layout.pages[1] = 4;
+    layout.pages[2] = 4;
+    assert(nvs_gauge_layout_set(&layout) == ESP_ERR_INVALID_ARG);
+    layout.pages[1] = 9;
+    layout.pages[2] = 9 + GAUGE_COPY_SLOTS; /* different templates cannot share configuration storage */
     assert(nvs_gauge_layout_set(&layout) == ESP_ERR_INVALID_ARG);
     return 0;
 }

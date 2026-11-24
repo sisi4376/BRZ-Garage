@@ -4,6 +4,7 @@
 //  - Entered only via the "default boot page" on the settings page; gestures in other directions return to the main page
 //  Data reading/range/refresh logic reuses the disp_item system in ui.c (ui_needle_* interfaces)
 
+#include "../ui_page_items.h"
 #include "../ui.h"
 #include "../ui_disp_item.h"
 #include <string.h>
@@ -51,7 +52,7 @@ static void on_needle_source_changed(lv_event_t *e)
     if (pos >= s_needle_source_count) pos = 0;
 
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    cfg.needle_source_idx = s_needle_sources[pos];
+    ui_set_page_item(&cfg, 3, 0, s_needle_sources[pos]);
     nvs_cfg_set(&cfg);
 
     // Immediately rebuild the needle page range/name/unit (the page object already exists; takes effect on next display)
@@ -175,7 +176,7 @@ void ui_ScreenPageNeedleConfig_screen_init(void)
     lv_obj_clear_flag(s_roller_source, LV_OBJ_FLAG_GESTURE_BUBBLE); // scrolling the selection must not trigger the page gesture (back)
     lv_roller_set_options(s_roller_source, options, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_roller_source, 3);
-    lv_roller_set_selected(s_roller_source, source_to_roller_pos(cfg->needle_source_idx), LV_ANIM_OFF);
+    lv_roller_set_selected(s_roller_source, source_to_roller_pos(ui_page_item(cfg, 3, 0)), LV_ANIM_OFF);
     lv_obj_set_width(s_roller_source, 160);
     ui_helpers_style_dark_roller(s_roller_source, &ui_font_FontTypoderSize24);
     lv_obj_align(s_roller_source, LV_ALIGN_CENTER, 0, 8);

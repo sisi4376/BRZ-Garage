@@ -42,7 +42,8 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
     lv_label_set_text(lbl_val, "--");
     lv_obj_set_style_text_font(lbl_val, &ui_font_FontTypoderSize40, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_val, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_width(lbl_val, 120);
+    lv_label_set_long_mode(lbl_val, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(lbl_val, 158);
     lv_obj_set_style_text_align(lbl_val, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_align(lbl_val, LV_ALIGN_CENTER, cx, cy + 2);
 

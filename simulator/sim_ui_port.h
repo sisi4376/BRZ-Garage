@@ -31,7 +31,6 @@ typedef enum {
 } sim_page_id_t;
 
 bool sim_ui_set_layout(const uint8_t *bytes);
-const uint8_t *sim_temp_items(void);
 void sim_ui_create_pages(void);
 void sim_ui_show_page(int page);
 void sim_ui_handle_gesture(const char *direction);

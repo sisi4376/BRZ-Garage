@@ -13,7 +13,7 @@
 // Page names for the boot-page roller. Order must match the default-page
 // switch in ui.c. (Brake temp moved into the CHART page.)
 // 0=TEMP 1=INFO 2=CHART 3=NEEDLE 4=GEAR+RPM 5=SPEED 6=FUEL 7=TRIP HISTORY 8=TRIP OVERVIEW
-static const char *page_names = "TEMP\nINFO\nCHART\nNEEDLE\nGEAR + RPM\nSPEED\nFUEL\nTRIP HISTORY\nTRIP OVERVIEW";
+static const char *page_names = "3-SLOT INFO\n5-SLOT INFO\nCHART\nNEEDLE\nGEAR + RPM\nSPEED\nFUEL\nTRIP HISTORY\nTRIP OVERVIEW";
 #define BOOT_PAGE_COUNT 9
 static const char *vehicle_names = "ZC6 6MT\nZD8 6MT\nZC6 6AT\nZD8 6AT";
 static const uint8_t s_vehicle_profile_indices[VEHICLE_PROFILE_SELECTABLE_COUNT] = {
