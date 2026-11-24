@@ -247,6 +247,12 @@ const char *ui_disp_item_unit(uint8_t item)
     return s_disp_meta[item].unit;
 }
 
+const char *ui_three_slot_unit(uint8_t item)
+{
+    const char *unit = ui_disp_item_unit(item);
+    return strcmp(unit, "'C") == 0 ? "°C" : unit;
+}
+
 uint32_t ui_disp_item_color(uint8_t item)
 {
     if (item >= DISP_ITEM_COUNT) item = 0;

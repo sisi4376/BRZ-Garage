@@ -61,7 +61,7 @@ const side = canvas.width;
 // labels, units, scales and the bezel, comes directly from the native renderer.
 const fullFrame = [0, 0, side, side];
 const frameCells = [
-  [[0, 0, side, 194], [0, 194, side, 91], [0, 285, side, 181]],
+  [[0, 0, side, 192], [0, 192, side, 86], [0, 278, side, 188]],
   [[0, 0, 233, 197], [233, 0, 233, 197], [0, 197, 233, 104],
    [233, 197, 233, 104], [0, 301, side, 165]],
   [fullFrame],

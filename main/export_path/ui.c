@@ -424,7 +424,7 @@ static void ui_update_metric_header(lv_obj_t *name_label,
         lv_obj_set_style_text_color(name_label, color, LV_PART_MAIN);
     }
     if (unit_label) {
-        lv_label_set_text(unit_label, s_disp_meta[item].unit);
+        lv_label_set_text(unit_label, dot_label ? ui_three_slot_unit(item) : ui_disp_item_unit(item));
     }
     if (dot_label) {
         lv_obj_set_style_bg_color(dot_label, color, LV_PART_MAIN);

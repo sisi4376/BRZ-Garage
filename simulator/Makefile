@@ -52,6 +52,8 @@ all: $(TARGET)
 
 $(addprefix simulator/build/obj/,$(APP_SRCS:.c=.o)): main/bsp_obd_dsp/gauge_layout.h simulator/stubs/bsp_obd_dsp/nvs_storage.h main/export_path/ui_page_items.h
 
+$(OBJECTS): simulator/lv_conf.h
+
 simulator/build/obj/simulator/sim_ui_port.o: main/export_path/ui_status_indicator.h
 
 ifdef PREVIEW_FW_VERSION

@@ -10,7 +10,7 @@ ASSETS = ROOT / "android_app/app/src/main/assets/gauge-pages"
 SIDE = 466
 SOURCES = 13
 # Cuts lie between LVGL cells. Validate mixed frames against native renders before saving.
-TEMP_CELLS = [(0, 0, 466, 194), (0, 194, 466, 285), (0, 285, 466, 466)]
+TEMP_CELLS = [(0, 0, 466, 192), (0, 192, 466, 278), (0, 278, 466, 466)]
 INFO_CELLS = [(0, 0, 233, 197), (233, 0, 466, 197), (0, 197, 233, 301),
               (233, 197, 466, 301), (0, 301, 466, 466)]
 

@@ -81,6 +81,7 @@ void disp_item_update(int32_t *state, lv_obj_t *label, disp_item_t item,
 // Accessors (out-of-range falls back to CLT; name returns "" when out of range)
 const char *ui_disp_item_name(uint8_t item);
 const char *ui_disp_item_unit(uint8_t item);
+const char *ui_three_slot_unit(uint8_t item);
 uint32_t ui_disp_item_color(uint8_t item);
 void ui_disp_item_range(uint8_t item, int32_t *nmin, int32_t *nmax, int32_t *div);
 

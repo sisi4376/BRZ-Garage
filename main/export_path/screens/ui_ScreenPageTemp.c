@@ -34,36 +34,37 @@ static void fit_value(lv_event_t *event)
     const char *text = lv_label_get_text(value);
     const lv_font_t *font = &ui_font_FontTypoderSize56;
     lv_coord_t spacing = lv_obj_get_style_text_letter_space(value, LV_PART_MAIN);
-    if (lv_txt_get_width(text, strlen(text), font, spacing, LV_TEXT_FLAG_NONE) > 212)
+    if (lv_txt_get_width(text, strlen(text), font, spacing, LV_TEXT_FLAG_NONE) > 202)
         font = &ui_font_FontTypoderSize40;
     if (lv_obj_get_style_text_font(value, LV_PART_MAIN) != font)
         lv_obj_set_style_text_font(value, font, LV_PART_MAIN);
 }
 
-static void make_row(unsigned slot, lv_coord_t y, lv_color_t color, const char *name)
+static void make_row(unsigned slot, lv_coord_t y, lv_coord_t inset, lv_color_t color, const char *name)
 {
     lv_obj_t *parent = ui_ScreenPageTemp;
-    ui_LabelTempDot[slot] = create_color_dot(parent, color, 53, y);
+    ui_LabelTempDot[slot] = create_color_dot(parent, color, inset, y);
 
     lv_obj_t *label = ui_LabelTempName[slot] = lv_label_create(parent);
     lv_label_set_text(label, name);
-    lv_obj_set_style_text_font(label, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_32, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 69, y);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, inset + 14, y);
 
     lv_obj_t *value = ui_LabelTempValue[slot] = lv_label_create(parent);
     lv_label_set_text(value, "--");
     lv_obj_set_style_text_font(value, &ui_font_FontTypoderSize56, LV_PART_MAIN);
     lv_obj_set_style_text_color(value, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
-    lv_obj_align(value, LV_ALIGN_CENTER, 14, y);
+    lv_obj_set_style_text_letter_space(value, -2, LV_PART_MAIN);
+    lv_obj_align(value, LV_ALIGN_CENTER, 5, y);
     lv_obj_add_event_cb(value, fit_value, LV_EVENT_SIZE_CHANGED, NULL);
 
     lv_obj_t *unit = ui_LabelTempUnit[slot] = lv_label_create(parent);
-    lv_label_set_text(unit, "'C");
-    lv_obj_set_style_text_font(unit, &ui_font_FontTypoderSize20, LV_PART_MAIN);
-    lv_obj_set_style_text_color(unit, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
-    lv_obj_align(unit, LV_ALIGN_LEFT_MID, 355, y);
+    lv_label_set_text(unit, "°C");
+    lv_obj_set_style_text_font(unit, &lv_font_montserrat_32, LV_PART_MAIN);
+    lv_obj_set_style_text_color(unit, lv_color_hex(0xD6D6D6), LV_PART_MAIN);
+    lv_obj_align(unit, LV_ALIGN_LEFT_MID, 341, y);
 }
 
 // Helper: horizontal divider line
@@ -89,11 +90,12 @@ void ui_ScreenPageTemp_screen_init(void)
     lv_obj_t *spinner_ring = ui_helpers_create_ring(ui_ScreenPageTemp, 10);
 
     // OBD and TIME occupy the top band. The first row starts below the badge.
-    make_row(0, -84, lv_color_hex(0x44AAFF), "CLT");
-    make_hdiv(ui_ScreenPageTemp, -39, 346);
-    make_row(1, 7, lv_color_hex(0x44FF88), "IAT");
-    make_hdiv(ui_ScreenPageTemp, 52, 346);
-    make_row(2, 98, lv_color_hex(0xFF7722), "OIL");
+    // Row insets follow the inner circle at each row height.
+    make_row(0, -84, 43, lv_color_hex(0x44AAFF), "CLT");
+    make_hdiv(ui_ScreenPageTemp, -41, 346);
+    make_row(1, 2, 25, lv_color_hex(0x44FF88), "IAT");
+    make_hdiv(ui_ScreenPageTemp, 45, 346);
+    make_row(2, 88, 45, lv_color_hex(0xFF7722), "OIL");
 
     // Backward compatibility for existing update code
     ui_LabelCoolantTempText = ui_LabelTempValue[0];

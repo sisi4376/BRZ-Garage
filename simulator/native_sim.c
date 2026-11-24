@@ -442,7 +442,7 @@ static void update_ui(void)
         lv_obj_t *unit = temp ? ui_LabelTempUnit[slot] : ui_LabelInfoUnit[slot];
         if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(ui_disp_item_color(item)), 0);
         lv_label_set_text(name, ui_disp_item_name(item));
-        lv_label_set_text(unit, ui_disp_item_unit(item));
+        lv_label_set_text(unit, temp ? ui_three_slot_unit(item) : ui_disp_item_unit(item));
         lv_obj_set_style_text_color(name, lv_color_hex(ui_disp_item_color(item)), 0);
         disp_item_set_text(temp ? ui_LabelTempValue[slot] : ui_LabelInfoValue[slot], item, raw[item], true);
     }
@@ -474,7 +474,10 @@ static bool check_three_slot_readouts(void)
 {
     static const struct { disp_item_t item; int value; } samples[] = {
         {DISP_ITEM_RPM, 8888}, {DISP_ITEM_RPM, 65535}, {DISP_ITEM_IGN, -127},
-        {DISP_ITEM_SPEED, 240}, {DISP_ITEM_OILP, 100}, {DISP_ITEM_CLT, 90}
+        {DISP_ITEM_SPEED, 255}, {DISP_ITEM_OILP, 100}, {DISP_ITEM_CLT, 90},
+        {DISP_ITEM_IAT, -39}, {DISP_ITEM_OIL, 160}, {DISP_ITEM_LOAD, 100},
+        {DISP_ITEM_TPS, 100}, {DISP_ITEM_BAT, 14400}, {DISP_ITEM_BKT, 8000},
+        {DISP_ITEM_BOOST, -10}, {DISP_ITEM_AFR, 2200}
     };
     sim_ui_show_page(SIM_PAGE_TEMP);
     for (unsigned n = 0; n < sizeof(samples) / sizeof(samples[0]); ++n) {
@@ -482,17 +485,20 @@ static bool check_three_slot_readouts(void)
             disp_item_t item = samples[n].item;
             lv_label_set_text(ui_LabelTempName[row], ui_disp_item_name(item));
             disp_item_set_text(ui_LabelTempValue[row], item, samples[n].value, true);
-            lv_label_set_text(ui_LabelTempUnit[row], ui_disp_item_unit(item));
+            lv_label_set_text(ui_LabelTempUnit[row], ui_three_slot_unit(item));
         }
         lv_obj_update_layout(ui_ScreenPageTemp);
+        lv_coord_t unit_column = lv_obj_get_x(ui_LabelTempUnit[0]);
         for (int row = 0; row < 3; ++row) {
             lv_area_t name, value, unit;
             lv_obj_get_coords(ui_LabelTempName[row], &name);
             lv_obj_get_coords(ui_LabelTempValue[row], &value);
             lv_obj_get_coords(ui_LabelTempUnit[row], &unit);
-            if (value.x1 < name.x2 + 3 || unit.x1 < value.x2 + 3 ||
+            if (lv_obj_get_x(ui_LabelTempUnit[row]) != unit_column ||
+                value.x1 < name.x2 + 3 || unit.x1 < value.x2 + 3 ||
                 (n == 0 && lv_obj_get_style_text_font(ui_LabelTempValue[row], 0) != &ui_font_FontTypoderSize56)) {
-                fprintf(stderr, "Three-slot overlap or unexpected font: row %d, %s\n", row, lv_label_get_text(ui_LabelTempValue[row]));
+                fprintf(stderr, "Three-slot overlap or unexpected font: row %d, %s (name ends %d, value %d..%d, unit starts %d)\n",
+                        row, lv_label_get_text(ui_LabelTempValue[row]), name.x2, value.x1, value.x2, unit.x1);
                 return false;
             }
         }
