@@ -174,6 +174,8 @@ enum {
     IDX_INFO_CHAR_VAL_CUSTOM_TRIP_CONTROL,
     IDX_INFO_CHAR_HARMONY_TIME_SYNC,
     IDX_INFO_CHAR_VAL_HARMONY_TIME_SYNC,
+    IDX_INFO_CHAR_LAYOUT,
+    IDX_INFO_CHAR_VAL_LAYOUT,
     IDX_INFO_NB,
 };
 
@@ -208,6 +210,9 @@ static uint16_t s_handle_vehicle_state;
 static uint8_t s_vehicle_state_value[VEHICLE_STATE_WIRE_SIZE];
 static uint16_t s_char_uuid_gauge_settings = DEVICE_INFO_CHAR_GAUGE_SETTINGS;
 static uint16_t s_handle_gauge_settings;
+static uint16_t s_uuid_layout = 0x0010;
+static uint16_t s_handle_layout;
+static uint8_t s_layout_wire[GAUGE_LAYOUT_WIRE_SIZE];
 static uint8_t s_gauge_settings_value[GAUGE_SETTINGS_WIRE_SIZE];
 static uint16_t s_char_uuid_brightness_control = DEVICE_INFO_CHAR_BRIGHTNESS_CONTROL;
 static uint16_t s_handle_brightness_control;
@@ -750,6 +755,14 @@ static const esp_gatts_attr_db_t s_gatt_db_info[IDX_INFO_NB] = {
     {{ESP_GATT_RSP_BY_APP},
      {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_vehicle_state, ESP_GATT_PERM_READ,
       sizeof(s_vehicle_state_value), 0, s_vehicle_state_value}},
+    [IDX_INFO_CHAR_LAYOUT] =
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_attr_uuid_char_declare, ESP_GATT_PERM_READ,
+      1, 1, (uint8_t *)&s_char_prop_read_write}},
+    [IDX_INFO_CHAR_VAL_LAYOUT] =
+    {{ESP_GATT_RSP_BY_APP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_uuid_layout, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+      sizeof(s_layout_wire), 0, s_layout_wire}},
     [IDX_INFO_CHAR_GAUGE_SETTINGS] =
     {{ESP_GATT_AUTO_RSP},
      {ESP_UUID_LEN_16, (uint8_t *)&s_attr_uuid_char_declare, ESP_GATT_PERM_READ,
@@ -1223,6 +1236,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             s_handle_trip_control = h[IDX_INFO_CHAR_VAL_TRIP_CONTROL];
             s_handle_trip_data = h[IDX_INFO_CHAR_VAL_TRIP_DATA];
             s_handle_vehicle_state = h[IDX_INFO_CHAR_VAL_VEHICLE_STATE];
+            s_handle_layout = h[IDX_INFO_CHAR_VAL_LAYOUT];
             s_handle_gauge_settings = h[IDX_INFO_CHAR_VAL_GAUGE_SETTINGS];
             s_handle_brightness_control = h[IDX_INFO_CHAR_VAL_BRIGHTNESS_CONTROL];
             s_handle_vehicle_profile_control = h[IDX_INFO_CHAR_VAL_VEHICLE_PROFILE_CONTROL];
@@ -1337,6 +1351,16 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 esp_ble_gatts_send_response(gatts_if, param->write.conn_id,
                                             param->write.trans_id, status, NULL);
             }
+        } else if (param->write.handle == s_handle_layout) {
+            esp_gatt_status_t status = ESP_GATT_INVALID_PDU;
+            const uint8_t *b = param->write.value;
+            if (!param->write.is_prep && param->write.offset == 0 && param->write.len == sizeof(s_layout_wire) &&
+                b[0] == 1 && trip_crc16(b, 17) == get_le16(b + 17)) {
+                gauge_layout_t layout;
+                if (gauge_layout_unpack(b, &layout)) status = app_event_send_layout(&layout) ? ESP_GATT_OK : ESP_GATT_ERROR;
+            }
+            if (param->write.need_rsp)
+                esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, status, NULL);
         } else if (param->write.handle == s_handle_brightness_control) {
             /* Packet: version, command (1 brightness / 2 boot page / 3 orientation),
              * value, total length, CRC16-CCITT. Boot defaults apply next power-on.
@@ -1507,6 +1531,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             param->read.handle == s_handle_custom_trip_control ||
             param->read.handle == s_handle_time_sync ||
             param->read.handle == s_handle_vehicle_state ||
+            param->read.handle == s_handle_layout ||
             param->read.handle == s_handle_gauge_settings ||
             param->read.handle == s_handle_odometer_config ||
             param->read.handle == s_handle_refuel_meta ||
@@ -1547,6 +1572,19 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 if (param->read.offset == 0) build_vehicle_state_wire();
                 source = s_vehicle_state_value;
                 source_len = sizeof(s_vehicle_state_value);
+            } else if (param->read.handle == s_handle_layout) {
+                nvs_user_cfg_t cfg = *nvs_cfg_get();
+                gauge_layout_t layout;
+                memcpy(layout.pages, cfg.page_order, sizeof(layout.pages));
+                memcpy(layout.items, cfg.temp_display_map, 3);
+                memcpy(layout.items + 3, cfg.info_display_map, 5);
+                layout.items[8] = cfg.needle_source_idx;
+                layout.items[9] = cfg.chart_source_idx;
+                memcpy(layout.items + 10, cfg.custom_items, sizeof(cfg.custom_items));
+                gauge_layout_pack(s_layout_wire, &layout);
+                put_le16(s_layout_wire + 17, trip_crc16(s_layout_wire, 17));
+                source = s_layout_wire;
+                source_len = sizeof(s_layout_wire);
             } else if (param->read.handle == s_handle_gauge_settings) {
                 // Freeze one RAM-only snapshot across all ATT Read Blob fragments.
                 if (param->read.offset == 0) build_gauge_settings_wire();

@@ -4454,7 +4454,7 @@ class MainActivity : Activity() {
                 "已收到仪表设置 · ${date(settingsAt)}"
             else "尚未收到仪表设置",
             14f, ink, true), 10)
-        add(gaugeSettings, label("连接仪表后自动读取当前参数。可调整默认启动页、默认朝向和日间亮度，其余仪表参数保持只读；车型与自动加油识别阈值已移至“我的车辆 → 车辆设置”。", 12f, muted), 8)
+        add(gaugeSettings, label("支持离线保存默认启动页、默认朝向、日间亮度和页面编排。车型与自动加油识别阈值已移至“我的车辆 → 车辆设置”。", 12f, muted), 8)
         add(gaugeSettings, button("查看仪表设置") { gaugeSettingsPage() }, 10)
         val auto = card(body, "开机自启与自动连接")
         add(auto, Switch(this).apply {
@@ -5453,8 +5453,12 @@ class MainActivity : Activity() {
             if (state.connected) "● 当前已连接" else "○ 当前未连接",
             bookkeepingMaintenance,
         )
+        val pages = card(body, "页面预览与编排")
+        add(pages, button("仪表页面设置") {
+            startActivity(Intent(this, GaugePagesActivity::class.java))
+        }, 6)
         val notice = card(body, "当前可调整")
-        add(notice, label("手机端可调整仪表默认启动页、默认朝向和日间亮度；启动页和朝向下次上电生效。命令会等待车辆与行程同步空闲后发送，并由仪表回读确认。", 13f, ink, true), 8)
+        add(notice, label("可离线修改启动页、朝向、亮度和页面编排。重连并完成数据同步后，仪表会回读确认。启动页和朝向下次上电生效。", 13f, ink, true), 8)
         add(notice, label("车型与自动加油识别阈值已归入车辆设置。", 11f, muted), 7)
         val settings = state.gaugeSettings()
         val received = card(body, "同步状态")
@@ -5471,9 +5475,9 @@ class MainActivity : Activity() {
         frozenValue(basic, "ELM327 名称", settings?.obdName?.ifEmpty { "未设置" })
         frozenValue(basic, "ELM327 MAC", settings?.obdMac?.let(::formatMac))
         frozenChoice(basic, "主题", listOf("DEFAULT", "AMBER", "OCEAN"), settings?.theme)
-        editableBrightness(basic, settings?.brightness)
-        editableGaugeBootChoice(basic, "默认启动页", gaugePageNames(), settings?.defaultPage, 2, settings)
-        editableGaugeBootChoice(basic, "默认朝向", listOf("0°（原安装方向）", "90°（顺时针）", "180°（倒置）", "270°（顺时针）"), settings?.defaultOrientation, 3, settings)
+        editableBrightness(basic, state.pendingDisplay(1)?.toIntOrNull() ?: settings?.brightness)
+        editableGaugeBootChoice(basic, "默认启动页", gaugePageNames(), state.pendingDisplay(2)?.toIntOrNull() ?: settings?.defaultPage, 2, settings)
+        editableGaugeBootChoice(basic, "默认朝向", listOf("0°（原安装方向）", "90°（顺时针）", "180°（倒置）", "270°（顺时针）"), state.pendingDisplay(3)?.toIntOrNull() ?: settings?.defaultOrientation, 3, settings)
 
         val warning = card(body, "提醒设置")
         frozenValue(warning, "转速黄线", settings?.rpmWarning?.let { "$it rpm" })
@@ -5550,61 +5554,50 @@ class MainActivity : Activity() {
         settingsReadOnlyRow(parent, name, value)
     }
     private fun editableGaugeBootChoice(parent: LinearLayout, title: String, names: List<String>, value: Int?, command: Int, settings: TripBleProtocol.GaugeSettings?) {
-        val supported = settings?.bootSettingsSupported == true
-        val canApply = supported && state.connected
+        val pending = state.pendingDisplay(command) != null
         add(parent, label(title, 12f, muted), 12)
         add(parent, primaryBookkeepingAction(names.getOrNull(value ?: -1) ?: "等待仪表数据", bookkeepingMaintenance) {
             AlertDialog.Builder(this).setTitle(title)
                 .setSingleChoiceItems(names.toTypedArray(), value ?: -1) { dialog, which ->
                     dialog.dismiss()
-                    if (TripSyncService.setGaugeBootSetting(this, command, which)) toast("已提交，将在仪表下次上电时生效")
-                    else toast("设置未修改，请连接支持此功能的仪表固件")
+                    TripSyncService.setGaugeBootSetting(this, command, which)
+                    toast("已保存到手机，同步后下次上电生效")
+                    gaugeSettingsPage()
                 }.setNegativeButton("取消", null).show()
-        }.apply { isEnabled = canApply }, 5)
+        }, 5)
         add(parent, label(when {
-            settings == null -> "连接仪表后读取设置。"
-            !supported -> "请升级支持启动页和朝向设置的仪表固件。"
-            !state.connected -> "当前为上次读取值，连接仪表后可修改。"
-            else -> "保存在仪表中，下次上电生效。"
+            settings != null && !settings.bootSettingsSupported -> "请升级仪表固件以同步启动设置。"
+            pending -> "已保存到手机 · 待仪表回读确认"
+            else -> "可离线修改，同步后下次上电生效。"
         }, 11f, muted), 5)
     }
     private fun editableBrightness(parent: LinearLayout, value: Int?) {
         add(parent, label("日间亮度", 12f, muted), 12)
         val initial = (value ?: 100).coerceIn(10, 100)
-        val canApply = value != null && state.connected
         var selected = initial
-        val valueLabel = label(if (value == null) "等待仪表数据" else "$initial%", 16f,
+        val valueLabel = label("$initial%", 16f,
             if (value == null) muted else ink, true)
         add(parent, valueLabel, 5)
         add(parent, SeekBar(this).apply {
             min = 10
             max = 100
             progress = initial
-            isEnabled = canApply
-            alpha = if (canApply) 1f else 0.55f
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                     selected = progress.coerceIn(10, 100)
-                    if (value != null) valueLabel.text = "$selected%"
+                    valueLabel.text = "$selected%"
                 }
                 override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                 override fun onStopTrackingTouch(bar: SeekBar?) = Unit
             })
         }, 3)
-        val apply = primaryBookkeepingAction("应用亮度到仪表", bookkeepingMaintenance) {
-            if (TripSyncService.setBrightness(this, selected)) {
-                toast("亮度 $selected% 已提交，将在当前同步完成后应用")
-            } else {
-                toast("仪表当前未连接，亮度没有修改")
-                gaugeSettingsPage()
-            }
-        }.apply { isEnabled = canApply }
-        add(parent, apply, 5)
-        add(parent, label(when {
-            value == null -> "连接仪表并读取当前设置后才能调整。"
-            !state.connected -> "当前显示上次读取值；重新连接仪表后才能调整。"
-            else -> "范围 10%～100%。拖动后点击应用，不会连续发送命令。"
-        }, 11f, muted), 5)
+        add(parent, primaryBookkeepingAction("保存日间亮度", bookkeepingMaintenance) {
+            TripSyncService.setBrightness(this, selected)
+            toast("已保存到手机，连接仪表后应用")
+            gaugeSettingsPage()
+        }, 5)
+        add(parent, label(if (state.pendingDisplay(1) != null) "已保存到手机 · 待仪表回读确认"
+            else "范围 10%～100%，支持离线调整。", 11f, muted), 5)
     }
     private fun editableRefuelThreshold(parent: LinearLayout, valueMl: Int?) {
         add(parent, label("自动加油识别阈值", 12f, muted), 12)

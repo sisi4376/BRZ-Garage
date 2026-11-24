@@ -13,6 +13,8 @@
 #include "export_path/ui.h"
 #include "export_path/ui_ext.h"
 #include "sim_ui_port.h"
+#include "export_path/ui_disp_item.h"
+#include "bsp_obd_dsp/gauge_layout.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
 #define SIM_W 466
@@ -99,6 +101,17 @@ static void read_page_command(void)
     int rpm = 0;
     int speed = 0;
     int gear = 0;
+    if (strncmp(command, "layout ", 7) == 0) {
+        uint8_t bytes[GAUGE_LAYOUT_WIRE_SIZE];
+        if (strcspn(command + 7, "\r\n") != sizeof(bytes)*2) return;
+        for (size_t i = 0; i < sizeof(bytes); ++i) {
+            unsigned value;
+            if (sscanf(command + 7 + 2*i, "%2x", &value) != 1) return;
+            bytes[i] = (uint8_t)value;
+        }
+        sim_ui_set_layout(bytes);
+        return;
+    }
     if (sscanf(command, "page %d", &page) == 1) {
         show_page(page);
     } else if (sscanf(command, "rpmwarn %d", &page) == 1) {
@@ -401,7 +414,7 @@ static void update_ui(void)
     lv_label_set_text(ui_RpmPageArcLabelRpmText, text);
     lv_arc_set_value(ui_RpmPageArcRpmBack, g_data.rpm);
     lv_label_set_text(ui_GearPageRpmText, text);
-    ui_gear_page_update_visuals((uint16_t)g_data.rpm, (uint16_t)g_data.speed,
+    ui_gear_page_update_visuals((uint16_t)g_data.rpm, (uint16_t)g_data.rpm, (uint16_t)g_data.speed,
                                 (uint8_t)g_data.gear,
                                 nvs_cfg_get()->rpm_warn_threshold);
 
@@ -412,25 +425,26 @@ static void update_ui(void)
     snprintf(text, sizeof(text), "%d", g_data.gear);
     lv_label_set_text(ui_GearPageArcLabelGearNumText, g_data.gear ? text : "N");
 
-    snprintf(text, sizeof(text), "%d", g_data.coolant);
-    lv_label_set_text(ui_LabelTempValue[0], text);
-    lv_label_set_text(ui_LabelInfoValue[0], text);
-    snprintf(text, sizeof(text), "%d", g_data.intake);
-    lv_label_set_text(ui_LabelTempValue[1], text);
-    lv_label_set_text(ui_LabelInfoValue[4], text);
-    snprintf(text, sizeof(text), "%d", g_data.oil);
-    lv_label_set_text(ui_LabelTempValue[2], text);
-    lv_label_set_text(ui_LabelInfoValue[1], text);
-    lv_label_set_text(ui_NeedleValueLabel, text);
-    lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, g_data.oil);
-    snprintf(text, sizeof(text), "%d", g_data.load);
-    lv_label_set_text(ui_LabelInfoValue[2], text);
-    snprintf(text, sizeof(text), "%d", g_data.throttle);
-    lv_label_set_text(ui_LabelInfoValue[3], text);
-
-    snprintf(text, sizeof(text), "%d", g_data.oil_pressure);
-    lv_label_set_text(ui_LabelOilPressureText, text);
-    lv_chart_set_next_value(ui_ChartOilPressure, ui_OilPressureChartSeries, g_data.oil_pressure);
+    const nvs_user_cfg_t *cfg = nvs_cfg_get();
+    const int raw[] = {g_data.coolant, g_data.intake, g_data.oil, g_data.load, g_data.throttle,
+                       g_data.rpm, g_data.speed, 14200, g_data.oil_pressure / 10, 1420, 2, 1470, 36};
+    for (int i = 0; i < 8; ++i) {
+        bool temp = i < 3;
+        int slot = temp ? i : i - 3;
+        uint8_t item = temp ? sim_temp_items()[slot] : cfg->info_display_map[slot];
+        lv_obj_t *name = temp ? ui_LabelTempName[slot] : ui_LabelInfoName[slot];
+        lv_obj_t *unit = temp ? ui_LabelTempUnit[slot] : ui_LabelInfoUnit[slot];
+        if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(ui_disp_item_color(item)), 0);
+        lv_label_set_text(name, ui_disp_item_name(item));
+        lv_label_set_text(unit, ui_disp_item_unit(item));
+        lv_obj_set_style_text_color(name, lv_color_hex(ui_disp_item_color(item)), 0);
+        disp_item_set_text(temp ? ui_LabelTempValue[slot] : ui_LabelInfoValue[slot], item, raw[item], true);
+    }
+    uint8_t needle = cfg->needle_source_idx, chart = cfg->chart_source_idx;
+    disp_item_set_text(ui_NeedleValueLabel, needle, raw[needle], true);
+    lv_meter_set_indicator_value(ui_NeedleMeter, ui_NeedleIndic, raw[needle] / ui_disp_item_scale(needle)->div);
+    disp_item_set_text(ui_LabelOilPressureText, chart, raw[chart], true);
+    lv_chart_set_next_value(ui_ChartOilPressure, ui_OilPressureChartSeries, raw[chart] / ui_disp_item_scale(chart)->div);
 
     fuel_sample_t fuel_sample = {
         .maf_x100 = (uint16_t)g_data.maf_x100, .afr_x100 = 1470,

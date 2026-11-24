@@ -23,6 +23,7 @@ class GaugeBootSettingsTest(unittest.TestCase):
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "bsp_obd_dsp/gauge_layout.h"
 #define TRIP_MERGE_TIMEOUT_EDITABLE 0
 ''' + wire_size + '\n' + typedef(header, 'theme_cfg_t') + typedef(header, 'nvs_user_cfg_t') + r'''
 static nvs_user_cfg_t cfg;
@@ -58,6 +59,7 @@ int main(void) {
 #include <string.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "bsp_obd_dsp/gauge_layout.h"
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_ERR_INVALID_ARG 1

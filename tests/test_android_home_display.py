@@ -371,7 +371,8 @@ class AndroidHomeDisplayTests(unittest.TestCase):
         self.assertIn("private fun settingsSubpageHero", source)
         self.assertIn("private fun settingsReadOnlyRow", source)
         self.assertIn('page("仪表设置"', source)
-        self.assertIn("其余参数以整洁的只读行展示", source)
+        self.assertIn('button("仪表页面设置")', source)
+        self.assertIn('frozenChoice(basic, "OBD 协议"', source)
         self.assertIn("SettingsIconView(this@MainActivity)", source)
         self.assertIn("class SettingsIconView", icons)
         for icon in ("VEHICLE", "MILEAGE", "GAUGE", "FUEL", "TRIP", "BLUETOOTH",

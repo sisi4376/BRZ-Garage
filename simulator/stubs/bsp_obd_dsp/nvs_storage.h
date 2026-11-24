@@ -39,7 +39,9 @@ typedef struct {
     uint8_t rpm_warn_linked_en;
     uint8_t rc_enabled;
     uint16_t trip_merge_timeout_min;
+    uint8_t default_orientation;
 } nvs_user_cfg_t;
+esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value);
 
 #define NVS_FUEL_TRIP_HISTORY_MAX 20
 typedef struct {

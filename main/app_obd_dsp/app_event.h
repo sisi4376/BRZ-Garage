@@ -13,6 +13,7 @@
 // ================================================================
 
 #include <stdint.h>
+#include "bsp_obd_dsp/gauge_layout.h"
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -46,6 +47,8 @@ typedef enum {
     APP_EVT_PHONE_REFUEL_DISCARD_OLDEST, // data.u32 = expected oldest reset-node id
     APP_EVT_PHONE_CUSTOM_TRIP_BASELINE, // data.trip_baseline = App's persisted lifetime baseline
 
+    APP_EVT_PHONE_LAYOUT,
+
     // Internal
     APP_EVT_BOOT_VIDEO_DONE,        // video playback finished
     APP_EVT_SHOWROOM_EXIT,          // exit showroom
@@ -58,6 +61,7 @@ typedef struct {
         uint16_t u16;
         int16_t  s16;
         uint32_t u32;
+        gauge_layout_t layout;
         struct {
             uint32_t distance_m;
             uint32_t duration_s;
@@ -80,6 +84,8 @@ bool app_event_send(app_event_type_t type, uint32_t data);
 bool app_event_send_custom_trip_baseline(uint32_t distance_m,
                                          uint32_t duration_s,
                                          uint32_t fuel_ml, uint32_t token);
+
+bool app_event_send_layout(const gauge_layout_t *layout);
 
 // Receive an event (non-blocking, returns false when there is no event)
 bool app_event_recv(app_event_t *out);

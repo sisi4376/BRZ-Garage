@@ -32,15 +32,15 @@ static void make_row(lv_obj_t *parent, lv_obj_t **name_out, lv_obj_t **val_out, 
                      const char *name_str, const char *unit_str)
 {
     // Left column: value
-    // Left boundary = 70px (matches divider line edge, safe for all row Y positions)
+    // Leave space for four-digit RPM values before the signal marker.
     *val_out = lv_label_create(parent);
     lv_label_set_long_mode(*val_out, LV_LABEL_LONG_CLIP);   // no wrap for overly long values
     lv_label_set_text(*val_out, "--");
     lv_obj_set_style_text_font(*val_out, &ui_font_FontTypoderSize40, LV_PART_MAIN);
     lv_obj_set_style_text_color(*val_out, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_width(*val_out, 110);
+    lv_obj_set_width(*val_out, 141);
     lv_obj_set_style_text_align(*val_out, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
-    lv_obj_align(*val_out, LV_ALIGN_LEFT_MID, 70, cy);
+    lv_obj_align(*val_out, LV_ALIGN_LEFT_MID, 38, cy);
 
     // Right column: dot + name + unit
     // Right boundary = 290px (x=360-70, matches divider line edge)

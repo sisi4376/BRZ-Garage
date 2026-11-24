@@ -36,10 +36,12 @@
 #define REFUEL_PROTOCOL_VERSION 2U
 #define CUSTOM_TRIP_STORE_VERSION 2U
 #define KEY_CFG_VERSION       "cfgver"    // config version (missing = v0)
-#define CFG_VERSION_CURRENT   13          // current version; bump on field add/semantic change (migration in nvs_storage_init)
+#define CFG_VERSION_CURRENT   14          // current version; bump on field add/semantic change (migration in nvs_storage_init)
 
 static nvs_user_cfg_t s_cfg =   {
                         .protocol = 0, // OBD protocol select: 0=auto, 1~9=fixed, default auto
+                        .page_order = GAUGE_DEFAULT_ORDER,
+                        .custom_items = {{0,2,8},{5,6,4},{7,10,11}},
                         .default_page = 6, // FUEL
                         .theme_cfg.theme = 0,// UI theme index (0=DEFAULT, registry in ui_theme.c)
                         .theme_cfg.user_theme_domiant_color = COLOR_DOMIANT_PINK,// legacy, unused (kept for struct layout)
@@ -491,6 +493,14 @@ static esp_err_t load_user_cfg(void)
     return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
 }
 
+static void reset_page_layout(void)
+{
+    static const uint8_t defaults[] = GAUGE_DEFAULT_ORDER;
+    memcpy(s_cfg.page_order, defaults, sizeof(defaults));
+    static const uint8_t initial_items[3][3] = {{0,2,8},{5,6,4},{7,10,11}};
+    memcpy(s_cfg.custom_items, initial_items, sizeof(initial_items));
+}
+
 esp_err_t nvs_storage_init(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -626,6 +636,10 @@ esp_err_t nvs_storage_init(void)
                 s_cfg.default_orientation = 0;
                 save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
             }
+            if (stored_ver < 14) {
+                reset_page_layout();
+                save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+            }
             // Write the new version number
             if (nvs_open(NS_CFG, NVS_READWRITE, &h) == ESP_OK) {
                 nvs_set_u8(h, KEY_CFG_VERSION, CFG_VERSION_CURRENT);
@@ -639,6 +653,7 @@ esp_err_t nvs_storage_init(void)
     /* Default-value repair for new fields (old NVS data has rsv[x] all zero) */
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
     if(s_cfg.default_orientation > 3) s_cfg.default_orientation = 0;
+    if (!gauge_page_count(s_cfg.page_order)) reset_page_layout();
     if(s_cfg.default_page > 8) s_cfg.default_page = 6; // 0=Temp..4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
     if(s_cfg.needle_source_idx >= CHART_ALARM_N) s_cfg.needle_source_idx = 0;
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
@@ -813,6 +828,24 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
     if(memcmp(&normalized,&s_cfg,sizeof(s_cfg))==0) return ESP_OK;
     s_cfg=normalized;
     return save_blob(NS_CFG, KEY_CFG, &s_cfg, sizeof(s_cfg));
+}
+
+esp_err_t nvs_gauge_layout_set(const gauge_layout_t *layout)
+{
+    if (!layout || !gauge_page_count(layout->pages)) return ESP_ERR_INVALID_ARG;
+    for (int i = 0; i < GAUGE_ITEM_SLOTS; ++i)
+        if (layout->items[i] >= CHART_ALARM_N) return ESP_ERR_INVALID_ARG;
+    nvs_user_cfg_t cfg = s_cfg;
+    memcpy(cfg.page_order, layout->pages, sizeof(cfg.page_order));
+    memcpy(cfg.temp_display_map, layout->items, 3);
+    memcpy(cfg.info_display_map, layout->items + 3, 5);
+    memcpy(cfg.custom_items, layout->items + 10, sizeof(cfg.custom_items));
+    cfg.needle_source_idx = layout->items[8];
+    cfg.chart_source_idx = layout->items[9];
+    if (!memcmp(&cfg, &s_cfg, sizeof(cfg))) return ESP_OK;
+    esp_err_t err = save_blob(NS_CFG, KEY_CFG, &cfg, sizeof(cfg));
+    if (err == ESP_OK) s_cfg = cfg;
+    return err;
 }
 
 esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value)

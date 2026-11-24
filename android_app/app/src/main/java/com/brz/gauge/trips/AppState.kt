@@ -460,6 +460,43 @@ class AppState(context: Context) {
     fun confirmRefuelDiscardOldest() {
         prefs.edit().remove(deviceKey("pending_refuel_discard_oldest_id")).apply()
     }
+    fun pendingDisplay(command: Int, device: String = dataDeviceId): String? =
+        prefs.getString(deviceKey("pending_display_$command", device), null)
+
+    fun queueDisplay(command: Int, value: String, device: String = dataDeviceId) {
+        prefs.edit().putString(deviceKey("pending_display_$command", device), value).apply()
+    }
+
+    fun adoptUnboundDisplay(device: String) {
+        if (device.isBlank()) return
+        val edit = prefs.edit()
+        for (command in 1..4) {
+            val local = pendingDisplay(command, "") ?: continue
+            if (pendingDisplay(command, device) == null)
+                edit.putString(deviceKey("pending_display_$command", device), local)
+            edit.remove(deviceKey("pending_display_$command", ""))
+        }
+        edit.apply()
+    }
+
+    fun confirmDisplay(command: Int, value: String, device: String) {
+        if (pendingDisplay(command, device) == value)
+            prefs.edit().remove(deviceKey("pending_display_$command", device)).apply()
+    }
+
+    internal fun editorLayout(device: String): GaugeLayout {
+        val settings = gaugeSettings()
+        val fallback = if (settings != null) GaugeLayout(GaugeLayout.default.pages,
+            settings.tempDisplayItems + settings.infoDisplayItems + listOf(settings.needleItem, settings.chartItem) + GaugeLayout.default.items.drop(10))
+            else GaugeLayout.default
+        return GaugeLayout.decode(pendingDisplay(4, device)) ?:
+            GaugeLayout.decode(prefs.getString(deviceKey("page_layout", device), null)) ?:
+            fallback.takeIf { it.valid } ?: GaugeLayout.default
+    }
+    internal fun cacheLayout(layout: GaugeLayout, device: String) {
+        prefs.edit().putString(deviceKey("page_layout", device), layout.encode()).apply()
+    }
+
     fun saveGaugeSettings(bytes: ByteArray) {
         prefs.edit().putString("gauge_settings_$address", Base64.encodeToString(bytes, Base64.NO_WRAP))
             .putLong("gauge_settings_at_$address", System.currentTimeMillis()).apply()

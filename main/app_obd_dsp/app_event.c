@@ -49,6 +49,12 @@ bool app_event_send_custom_trip_baseline(uint32_t distance_m,
     return xQueueSend(s_queue, &evt, 0) == pdTRUE;
 }
 
+bool app_event_send_layout(const gauge_layout_t *layout)
+{
+    app_event_t evt = { .type = APP_EVT_PHONE_LAYOUT, .data.layout = *layout };
+    return s_queue && xQueueSend(s_queue, &evt, 0) == pdTRUE;
+}
+
 bool app_event_recv(app_event_t *out)
 {
     if (!s_queue || !out) return false;

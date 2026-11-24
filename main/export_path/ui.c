@@ -250,6 +250,13 @@ static int32_t s_chart_ymax = 100;
 
 // The disp_item system has moved to ui_disp_item.c/h
 
+static int s_three_row_page;
+
+void ui_select_three_row_page(int page)
+{
+    s_three_row_page = page >= 9 && page < GAUGE_PAGE_COUNT ? page : 0;
+}
+
 static uint8_t needle_active_source(void)
 {
     uint8_t src = nvs_cfg_get()->needle_source_idx;
@@ -544,6 +551,11 @@ static void my_timerMain_impl(lv_timer_t * timer)
                     // RPM threshold synced from another gauge: write local NVS (the master forwards it to the other slaves) + refresh this page
                     espnow_link_apply_synced_threshold((uint16_t)evt.data.u16);
                     ui_rpm_warn_refresh_from_nvs();
+                    break;
+                case APP_EVT_PHONE_LAYOUT:
+                    if (nvs_gauge_layout_set(&evt.data.layout) != ESP_OK)
+                        ESP_LOGW(TAG, "Page layout save failed");
+                    else ui_needle_apply_source();
                     break;
                 case APP_EVT_PHONE_DEFAULT_PAGE:
                 case APP_EVT_PHONE_DEFAULT_ORIENTATION: {
@@ -843,6 +855,8 @@ static void my_timerMain_impl(lv_timer_t * timer)
 
     /*Temp page*/
     if (scr == ui_ScreenPageTemp && ui_LabelTempValue[0]) {
+        const uint8_t *items = s_three_row_page >= 9 ?
+            user_cfg->custom_items[s_three_row_page - 9] : user_cfg->temp_display_map;
         static int32_t s_disp_temp[3] = {0};
         static uint8_t s_last_temp_map[3] = {0xFF, 0xFF, 0xFF};
 
@@ -853,7 +867,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             else r = 1.0f;   // hold at max (hold phase)
 
             for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = user_cfg->temp_display_map[i];
+                uint8_t map_idx = items[i];
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_temp_map[i] != map_idx) {
@@ -868,7 +882,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             }
         } else {
             for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = user_cfg->temp_display_map[i];
+                uint8_t map_idx = items[i];
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_temp_map[i] != map_idx) {
@@ -1115,20 +1129,43 @@ void ui_event_logo_background(lv_event_t * e)
     }   
 }
 
+static bool gauge_swipe(int page, lv_dir_t dir)
+{
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return false;
+    static const struct {
+        lv_obj_t **screen;
+        void (*init)(void);
+    } screens[] = {
+        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
+        {&ui_ScreenPageInfo, ui_ScreenPageInfo_screen_init},
+        {&ui_ScreenPageOilPressure, ui_ScreenPageOilPressure_screen_init},
+        {&ui_ScreenPageNeedle, ui_ScreenPageNeedle_screen_init},
+        {&ui_ScreenPageGear, ui_ScreenPageGear_screen_init},
+        {&ui_ScreenPageSpeed, ui_ScreenPageSpeed_screen_init},
+        {&ui_ScreenPageFuel, ui_ScreenPageFuel_screen_init},
+        {&ui_ScreenPageTripHistory, ui_ScreenPageTripHistory_screen_init},
+        {&ui_ScreenPageTripOverview, ui_ScreenPageTripOverview_screen_init},
+        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
+        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
+        {&ui_ScreenPageTemp, ui_ScreenPageTemp_screen_init},
+        {&ui_ScreenPageEasterEgg, ui_ScreenPageEasterEgg_screen_init},
+    };
+    if (page == 0) page = s_three_row_page;
+    int next = gauge_page_step(nvs_cfg_get()->page_order, page, dir == LV_DIR_LEFT);
+    lv_indev_wait_release(lv_indev_get_act());
+    ui_select_three_row_page(next);
+    if (*screens[next].screen == lv_scr_act()) return true;
+    _ui_screen_change(screens[next].screen, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, screens[next].init);
+    return true;
+}
+
 // The combined Gear+RPM page sits at the front of the carousel: Gear+RPM→Speed→Temp→…
 void ui_event_gear_background(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageEasterEgg, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageEasterEgg_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageSpeed, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageSpeed_screen_init);
-        }
+        if (gauge_swipe(4, dir)) return;
         else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageRpmWarn, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageRpmWarn_screen_init);
@@ -1159,14 +1196,7 @@ void ui_event_speed_background(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageGear, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGear_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageTemp, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTemp_screen_init);
-        }
+        if (gauge_swipe(5, dir)) return;
     }
 }
 // Carousel order: Gear → RPM → Speed → Temp → Info → Needle → OilPressure → BrakeTemp → version page → back to Gear
@@ -1176,15 +1206,8 @@ void ui_event_temp_background(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageSpeed, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageSpeed_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
-        }
-        else if(dir == LV_DIR_BOTTOM) {
+        if (gauge_swipe(0, dir)) return;
+        else if(dir == LV_DIR_BOTTOM && s_three_row_page == 0) {
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageTempCustom, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTempCustom_screen_init);
         }
@@ -1208,14 +1231,7 @@ void ui_event_oil_pressure_background(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageNeedle, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedle_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageFuel, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageFuel_screen_init);
-        }
+        if (gauge_swipe(2, dir)) return;
         else if(dir == LV_DIR_BOTTOM) {
             // swipe down → chart data-source selection page (delete the old instance to force a rebuild, reflecting the current data item/selection)
             lv_indev_wait_release(lv_indev_get_act());
@@ -1235,30 +1251,14 @@ void ui_event_fuel_background(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-    if (dir == LV_DIR_RIGHT) {
-        lv_indev_wait_release(lv_indev_get_act());
-        _ui_screen_change(&ui_ScreenPageOilPressure, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageOilPressure_screen_init);
-    } else if (dir == LV_DIR_LEFT) {
-        lv_indev_wait_release(lv_indev_get_act());
-        _ui_screen_change(&ui_ScreenPageTripOverview, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageTripOverview_screen_init);
-    }
+    if (gauge_swipe(6, dir)) return;
 }
 
 void ui_event_trip_overview_background(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-    if (dir == LV_DIR_RIGHT) {
-        lv_indev_wait_release(lv_indev_get_act());
-        _ui_screen_change(&ui_ScreenPageFuel, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageFuel_screen_init);
-    } else if (dir == LV_DIR_LEFT) {
-        lv_indev_wait_release(lv_indev_get_act());
-        _ui_screen_change(&ui_ScreenPageTripHistory, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageTripHistory_screen_init);
-    } else if (dir == LV_DIR_TOP) {
+    if (gauge_swipe(8, dir)) return; else if (dir == LV_DIR_TOP) {
         lv_indev_wait_release(lv_indev_get_act());
         _ui_screen_change(&ui_ScreenPageTripIntervals, LV_SCR_LOAD_ANIM_NONE, 0, 0,
                           &ui_ScreenPageTripIntervals_screen_init);
@@ -1270,13 +1270,8 @@ void ui_event_trip_intervals_background(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
     lv_indev_wait_release(lv_indev_get_act());
-    if (dir == LV_DIR_RIGHT) {
-        _ui_screen_change(&ui_ScreenPageFuel, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageFuel_screen_init);
-    } else if (dir == LV_DIR_LEFT) {
-        _ui_screen_change(&ui_ScreenPageTripHistory, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                          &ui_ScreenPageTripHistory_screen_init);
-    } else if (dir == LV_DIR_BOTTOM) {
+    if (gauge_swipe(8, dir)) return;
+    if (dir == LV_DIR_BOTTOM) {
         _ui_screen_change(&ui_ScreenPageTripOverview, LV_SCR_LOAD_ANIM_NONE, 0, 0,
                           &ui_ScreenPageTripOverview_screen_init);
     }
@@ -1287,13 +1282,7 @@ void ui_event_trip_history_background(lv_event_t *e)
     if (lv_event_get_code(e) == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         lv_indev_wait_release(lv_indev_get_act());
-        if (dir == LV_DIR_RIGHT) {
-            _ui_screen_change(&ui_ScreenPageTripOverview, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                              &ui_ScreenPageTripOverview_screen_init);
-        } else if (dir == LV_DIR_LEFT) {
-            _ui_screen_change(&ui_ScreenPageEasterEgg, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0,
-                              &ui_ScreenPageEasterEgg_screen_init);
-        } else if (dir == LV_DIR_BOTTOM) {
+        if (gauge_swipe(7, dir)) return; else if (dir == LV_DIR_BOTTOM) {
             ui_trip_history_page(+1);
         } else if (dir == LV_DIR_TOP) {
             ui_trip_history_page(-1);
@@ -1356,14 +1345,7 @@ void ui_event_needle_background(lv_event_t * e)
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageNeedleConfig, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedleConfig_screen_init);
         }
-        else if(dir == LV_DIR_RIGHT){
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT){
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageOilPressure, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageOilPressure_screen_init);
-        }
+        else gauge_swipe(3, dir);
     }
 }
 
@@ -1382,14 +1364,7 @@ void ui_event_info_background(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageTemp, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTemp_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageNeedle, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageNeedle_screen_init);
-        }
+        if (gauge_swipe(1, dir)) return;
         else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
             _ui_screen_change(&ui_ScreenPageInfoCustom, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfoCustom_screen_init);
@@ -1417,14 +1392,7 @@ void ui_event_easter_egg_background(lv_event_t * e)
     }
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if(dir == LV_DIR_RIGHT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageTripHistory, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageTripHistory_screen_init);
-        }
-        else if(dir == LV_DIR_LEFT) {
-            lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageGear, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageGear_screen_init);
-        }
+        if (gauge_swipe(GAUGE_PAGE_SYSTEM, dir)) return;
         else if(dir == LV_DIR_TOP) {
             // swipe up → BLE scan page
             lv_indev_wait_release(lv_indev_get_act());
