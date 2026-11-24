@@ -5661,7 +5661,7 @@ class MainActivity : Activity() {
     private fun displayItemNames() = listOf(
         "CLT 水温", "IAT 进气温度", "OIL 机油温度", "LOD 发动机负荷",
         "TPS 节气门", "RPM 转速", "SPD 车速", "BAT 电压",
-        "OIP 机油压力", "BKT 刹车温度", "BST 增压压力", "AFR 空燃比")
+        "OIP 机油压力", "BKT 刹车温度", "BST 增压压力", "AFR 空燃比", "IGN 点火提前角")
     private fun displayItemName(index: Int): String = valueName(index, displayItemNames())
     private fun formatChartAlarm(index: Int, raw: Int): String {
         if (raw == 32767) return "关闭"

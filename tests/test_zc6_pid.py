@@ -116,6 +116,19 @@ class Zc6PidTest(unittest.TestCase):
         self.assertFalse(self.parse(None, ctypes.pointer(ctypes.c_int16())))
         self.assertFalse(self.parse(full.encode(), None))
 
+    def test_grouped_polling(self):
+        elm = (ROOT / 'main/bsp_obd_dsp/elm327_ble_client.c').read_text(encoding='utf-8')
+        template = (ROOT / 'tests/grouped_poll_host_test.c').read_text(encoding='utf-8')
+        source = Path(self.tmp.name) / 'grouped.c'
+        ui = (ROOT / 'main/export_path/ui_disp_item.c').read_text(encoding='utf-8')
+        header = (ROOT / 'main/export_path/ui_disp_item.h').read_text(encoding='utf-8')
+        enum = header[header.index('typedef enum {'):header.index('} disp_item_t;') + len('} disp_item_t;')]
+        template = template.replace('/* DISPLAY_VALUE */', enum + '\n' + function(ui, 'disp_item_set_text'))
+        source.write_text(template.replace('/* POLL_GROUP */', function(elm, 'poll_pid_group')), encoding='utf-8')
+        exe = Path(self.tmp.name) / 'grouped.exe'
+        self.compile([str(source), '-o', str(exe)])
+        subprocess.run([str(exe)], env=self.env, check=True)
+
     def test_transport_callbacks_cache_and_profile_switch(self):
         elm = (ROOT / 'main/bsp_obd_dsp/elm327_ble_client.c').read_text(encoding='utf-8')
         profiles = (ROOT / 'main/app_obd_dsp/vehicle_profiles.c').read_text(encoding='utf-8')

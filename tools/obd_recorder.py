@@ -10,10 +10,10 @@ import sys
 import time
 
 from obd_ble_simulator import StaticElm
-from obd_gauge_poll import GAUGE_PROFILES, capture_gauge
+from obd_gauge_poll import GAUGE_PROFILES, capture_gauge, split_group
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIDS = (3, 4, 5, 11, 12, 13, 15, 16, 17, 31, 47, 51, 66, 68, 92, 94, 164, 166)
+CORE_PIDS = (3, 4, 5, 11, 12, 13, 14, 15, 16, 17, 31, 47, 51, 66, 68, 92, 94, 164, 166)
 
 
 def normalize(command):
@@ -213,6 +213,7 @@ class ReplayData:
         self.samples, self.discovery = {}, {}
         self.end = 0
         session = None
+        vehicle = None
         with Path(path).open(encoding='utf-8') as file:
             for number, line in enumerate(file, 1):
                 if not line.endswith('\n'):
@@ -222,6 +223,8 @@ class ReplayData:
                 self.end = max(self.end, row['t'])
                 if row['kind'] == 'session':
                     session = row
+                if row['kind'] == 'capture_stage':
+                    vehicle = row.get('vehicle')
                 if row['kind'] != 'reply' or not row['complete']:
                     continue
                 command = normalize(row['command'])
@@ -233,6 +236,8 @@ class ReplayData:
                     self.discovery[key] = response
                 elif row['phase'] == 'poll':
                     self.samples.setdefault(key, []).append((row['t'], response))
+                    for pid, part in split_group(command, response).items():
+                        self.samples.setdefault((row['header'], pid), []).append((row['t'], part))
         if not session or session.get('schema') != 1 or session.get('headers') is not False:
             raise ValueError('Unsupported recording format; expected schema 1 with ATH0.')
         if not self.samples:
@@ -243,6 +248,7 @@ class ReplayData:
         self.origin = min(times[0] for times in self.times.values())
         self.duration = max(.001, self.end - self.origin)
         self.profile = session.get('profile', 'gauge')
+        self.vehicle = vehicle or self.profile
 
 
 class ReplayElm(StaticElm):

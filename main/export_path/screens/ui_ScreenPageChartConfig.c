@@ -4,6 +4,7 @@
 //  - A gesture in any direction returns to the chart page (see ui_event_chart_config_background)
 
 #include "../ui.h"
+#include "../ui_disp_item.h"
 #include <string.h>
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "app_obd_dsp/vehicle_profiles.h"
@@ -11,7 +12,7 @@
 // Selectable chart data sources (disp_item_t values). DISP_ITEM_BOOST=10 is appended only for turbo profiles, DISP_ITEM_AFR=11 for all profiles.
 #define CHART_ITEM_BOOST 10
 #define CHART_ITEM_AFR   11
-static const uint8_t k_chart_sources_base[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, CHART_ITEM_AFR}; // CLT,IAT,OIL,LOD,TPS,RPM,SPD,BAT,OIP,BKT,AFR
+static const uint8_t k_chart_sources_base[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, CHART_ITEM_AFR, DISP_ITEM_IGN}; // CLT,IAT,OIL,LOD,TPS,RPM,SPD,BAT,OIP,BKT,AFR
 #define CHART_BASE_COUNT (sizeof(k_chart_sources_base) / sizeof(k_chart_sources_base[0]))
 
 static uint8_t s_chart_sources[CHART_BASE_COUNT + 1];

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from obd_gauge_poll import GaugePoll
 from obd_recorder import ReplayData, ReplayElm
+from test_foreground_binding_lifecycle import method
 
 
 class AndroidStudioTest(unittest.TestCase):
@@ -67,17 +68,30 @@ class AndroidStudioTest(unittest.TestCase):
                 (folder / f'{name}.tsv').write_text('\n'.join(lines), encoding='utf-8')
             output = folder / 'classes'
             output.mkdir()
+            service = (sources/'StudioService.kt').read_text(encoding='utf-8')
+            fixture = (ROOT/'tests/studio_quick_capture_fixture.kt').read_text(encoding='utf-8')
+            fixture = fixture.replace('PRODUCTION_RECORD',method(service,'private fun record(')).replace('PRODUCTION_SAVE',method(service,'private fun save('))
+            (folder/'QuickFixture.kt').write_text(fixture,encoding='utf-8')
+            activity = (sources/'StudioActivity.kt').read_text(encoding='utf-8')
+            selection = (ROOT/'tests/studio_device_selection_fixture.kt').read_text(encoding='utf-8')
+            selection = selection.replace('PRODUCTION_CHOOSE_OBD',method(activity,'private fun chooseObd(')).replace('PRODUCTION_BEGIN_QUICK',method(activity,'private fun beginQuickRecord('))
+            (folder/'DeviceSelectionFixture.kt').write_text(selection,encoding='utf-8')
             result = subprocess.run([str(java), '-cp', cp, 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
                 '-no-stdlib','-no-reflect','-classpath',cp,'-d',str(output),str(sources/'Protocol.kt'),
-                str(sources/'Storage.kt'),str(ROOT/'tests/obd_studio_android_host_test.kt')],capture_output=True,text=True,encoding='utf-8',errors='replace')
+                str(sources/'Storage.kt'),str(sources/'CapturePlan.kt'),str(folder/'QuickFixture.kt'),str(folder/'DeviceSelectionFixture.kt'),
+                str(ROOT/'tests/studio_dialog_fixture.kt'),str(ROOT/'tests/obd_studio_android_host_test.kt')],capture_output=True,text=True,encoding='utf-8',errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             result = subprocess.run([str(java),'-cp',str(output)+os.pathsep+cp,
-                'com.brz.obdstudio.Obd_studio_android_host_testKt',temp],capture_output=True,text=True,encoding='utf-8',errors='replace')
+                'com.brz.obdstudio.Obd_studio_android_host_testKt',temp,*([os.environ['STUDIO_TEST_RECORDING']] if os.environ.get('STUDIO_TEST_RECORDING') else [])],capture_output=True,text=True,encoding='utf-8',errors='replace')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             self.assertIn('cross-platform checks',result.stdout)
             print(result.stdout.strip())
             imported = ReplayData(folder/'android-roundtrip.jsonl')
             self.assertEqual(imported.profile,'zc6-at')
+            grouped = ReplayElm(imported, clock=lambda: 0)
+            grouped.command('ATE0')
+            self.assertEqual(grouped.command('010E'), b'41 0E 7F\r>')
+            self.assertIn(b'1: 10 01 F4', grouped.command('010C0D10440E0F'))
 
 
 if __name__ == '__main__':

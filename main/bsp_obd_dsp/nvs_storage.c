@@ -20,7 +20,7 @@
 #define NS_CFG                "cfg"
 #define KEY_CFG               "settings"
 #define KEY_CHART_ALARM       "chartalarm"
-#define CHART_ALARM_N         12   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
+#define CHART_ALARM_N         13   // = DISP_ITEM_COUNT (must stay in sync with disp_item_t in ui.c)
 #define CHART_ALARM_OFF       32767 // "off" sentinel for alarm thresholds (unreachable, avoids false alarms)
 #define KEY_MG_EXTRA          "mgextra"   // multi-gauge boot animation settings
 #define KEY_FUEL_TRIPS        "fueltrips" // lifetime fuel totals + active trip + history
@@ -240,7 +240,7 @@ static void refuel_reset_locked(uint16_t flags, uint16_t detected_added_ml)
 static int16_t s_chart_alarm[CHART_ALARM_N] = {
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
     CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF,
-    80, 6000, CHART_ALARM_OFF
+    80, 6000, CHART_ALARM_OFF, CHART_ALARM_OFF, CHART_ALARM_OFF
 };
 
 // Multi-gauge boot animation settings (separate blob):
@@ -640,9 +640,9 @@ esp_err_t nvs_storage_init(void)
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
     if(s_cfg.default_orientation > 3) s_cfg.default_orientation = 0;
     if(s_cfg.default_page > 8) s_cfg.default_page = 6; // 0=Temp..4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
-    if(s_cfg.needle_source_idx >= 11) s_cfg.needle_source_idx = 0; // DISP_ITEM_COUNT=11 (CLT..BOOST)
+    if(s_cfg.needle_source_idx >= CHART_ALARM_N) s_cfg.needle_source_idx = 0;
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
-    if(s_cfg.chart_source_idx >= 11) s_cfg.chart_source_idx = 8; // chart item out-of-range -> default OILP (old NVS byte 0=CLT is also fine, unify to OILP)
+    if(s_cfg.chart_source_idx >= CHART_ALARM_N) s_cfg.chart_source_idx = 8; // chart item out-of-range -> default OILP (old NVS byte 0=CLT is also fine, unify to OILP)
     // Keep internal/legacy profiles frozen even if an old NVS blob selected one.
     if(!vehicle_profile_is_selectable(s_cfg.vehicle_profile_idx)) {
         s_cfg.vehicle_profile_idx = VEHICLE_PROFILE_DEFAULT_INDEX;
@@ -674,10 +674,10 @@ esp_err_t nvs_storage_init(void)
 
     // Validate TEMP/INFO custom display-item maps: 0..(DISP_ITEM_COUNT-1)
     for (int i = 0; i < 3; ++i) {
-        if (s_cfg.temp_display_map[i] > 11) s_cfg.temp_display_map[i] = (uint8_t)i;
+        if (s_cfg.temp_display_map[i] >= CHART_ALARM_N) s_cfg.temp_display_map[i] = (uint8_t)i;
     }
     for (int i = 0; i < 5; ++i) {
-        if (s_cfg.info_display_map[i] > 11) {
+        if (s_cfg.info_display_map[i] >= CHART_ALARM_N) {
             static const uint8_t def_map[5] = {0, 2, 3, 4, 1};
             s_cfg.info_display_map[i] = def_map[i];
         }

@@ -16,15 +16,12 @@ typedef struct {
     uint8_t speed_kmh;
     uint16_t maf_x100;
     int16_t afr_x100;  // -1: absent/stale -> nominal gasoline AFR
-    uint32_t fuel_rate_ml_h;
     int16_t load_pct;  // -1: absent/stale
     int16_t tps_pct;   // absolute throttle, NOT accelerator pedal; -1: absent/stale
     uint8_t fuel_status; // 0: absent/stale; 1=cold, 2=closed, 4=load/decel, 8/16=fault
-    bool disable_cut_est; // AT: unvalidated overrun heuristic is disabled
     bool rpm_valid;
     bool speed_valid;
     bool maf_valid;
-    bool fuel_rate_valid;
 } fuel_sample_t;
 
 typedef struct {

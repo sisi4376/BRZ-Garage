@@ -262,7 +262,7 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
                            int16_t load_pct, int16_t tps, int32_t bat_mv,
                            int16_t oilp_x10, int16_t brake_x10,
                            uint16_t rpm, uint16_t speed, int16_t boost_x10,
-                           int16_t afr_x100);
+                           int16_t afr_x100, int16_t ignition_x2);
 void ui_needle_apply_source(void);  // rebuild range/name/unit after the data source changes
 int  ui_sweep_get_step(void);       // get the current sweep progress (master broadcasts to slaves)
 // Data-item accessors (ui_disp_item_name/unit/color/range) — see ui_disp_item.h

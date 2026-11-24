@@ -27,6 +27,8 @@ class StudioActivity:Activity(){
     private lateinit var stats:TextView
     private lateinit var start:Button
     private lateinit var stop:Button
+    private val capturePrefs by lazy { getSharedPreferences("capture_setup", MODE_PRIVATE) }
+    private var obdName="";private var vehicleIndex=0;private var advancedCapture=false
     private var page=0
     private var pending:(()->Unit)?=null
     private val devices=linkedMapOf<String,Pair<String,Int>>()
@@ -46,13 +48,18 @@ class StudioActivity:Activity(){
             if(Build.VERSION.SDK_INT>=30){val i=insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime());v.setPadding(i.left+dp(14),i.top+dp(8),i.right+dp(14),i.bottom+dp(8))}
             else v.setPadding(insets.systemWindowInsetLeft+dp(14),insets.systemWindowInsetTop+dp(8),insets.systemWindowInsetRight+dp(14),insets.systemWindowInsetBottom+dp(8));insets}
         root.addView(text("OBD STUDIO",24).apply{setTextColor(cyan)})
+        @Suppress("DEPRECATION") val version=packageManager.getPackageInfo(packageName,0).versionName
+        root.addView(text("版本 $version",11))
         status=text("就绪",14);root.addView(status)
         stats=text("",12);root.addView(stats)
         val tabs=LinearLayout(this)
         listOf("采集","回放","实时","文件").forEachIndexed{i,s->tabs.addView(button(s){page=i;render()},LinearLayout.LayoutParams(0,dp(46),1f))};root.addView(tabs)
         val scroll=ScrollView(this).apply{isFillViewport=true};content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
-        val actions=LinearLayout(this);start=button("开始录制"){permissions {if(page==1)beginReplay()else beginRecord()}};stop=button("停止并保存"){stopScan();startService(Intent(this,StudioService::class.java).setAction("STOP"))}
+        val actions=LinearLayout(this);start=button("开始录制"){permissions {if(page==1)beginReplay()else if(advancedCapture)beginRecord()else beginQuickRecord()}};stop=button("停止并保存"){stopScan();startService(Intent(this,StudioService::class.java).setAction("STOP"))}
         actions.addView(start,LinearLayout.LayoutParams(0,dp(52),1f));actions.addView(stop,LinearLayout.LayoutParams(0,dp(52),1f));root.addView(actions)
+        obdName=capturePrefs.getString("obd_name","").orEmpty();address=capturePrefs.getString("obd_address","").orEmpty()
+        vehicleIndex=capturePrefs.getInt("vehicle",0).coerceIn(0,3)
+        advancedCapture=capturePrefs.getBoolean("advanced",false)
         render();handler.post(tick)
     }
     private fun dp(n:Int)=(n*resources.displayMetrics.density).toInt()
@@ -76,19 +83,23 @@ class StudioActivity:Activity(){
     }
     private fun render(){
         content.removeAllViews();shownValues.clear();raw=null;trend=null;notes=null;logs=null
-        start.text=if(page==1)"启动仪表回放"else "开始录制"
+        start.text=if(page==1)"启动仪表回放"else if(advancedCapture)"开始手动录制"else "一键采集（各 5 分钟）"
         when(page){
             0->{
-                content.addView(button(if(scanning)"停止扫描"else "扫描 BLE ELM327"){if(scanning)stopScan()else permissions{scan()}})
-                val list=devices.entries.sortedByDescending{it.value.second}
-                spinner("附近设备",list.map{"${it.value.first} · ${it.key} · ${it.value.second} dBm"}.ifEmpty{listOf("请扫描，或手动输入地址")},list.indexOfFirst{it.key==address}.coerceAtLeast(0)){i->list.getOrNull(i)?.let{address=it.key}}
+                content.addView(text(if(address.isBlank())"尚未选择 OBD，请先扫描并选择设备"else "已选 OBD：${obdName.ifBlank{"未命名设备"}}\n$address"))
+                content.addView(button(if(scanning)"结束扫描并选择 OBD"else "扫描并选择 OBD"){if(scanning)finishScan()else permissions{scan()}}.apply{isEnabled=!StudioState.active})
+                spinner("车型",Modes.labels.take(4).map{it.substringBefore(" ·")},vehicleIndex){vehicleIndex=it;capturePrefs.edit().putInt("vehicle",it).apply()}
+                content.addView(text("一键流程：全部支持的标准 PID 采集 5 分钟 → 所选车型轮询采集 5 分钟。记住所选设备与车型，下次可直接一键采集。两段各保存一份 JSONL 和摘要；连接、初始化和支持位识别不计入 5 分钟。"))
+                content.addView(CheckBox(this).apply{text="高级手动采集";setTextColor(Color.WHITE);isChecked=advancedCapture;isEnabled=!StudioState.active;setOnCheckedChangeListener{_,v->advancedCapture=v;capturePrefs.edit().putBoolean("advanced",v).apply();render()}})
+                if(advancedCapture){
                 field("手动蓝牙地址（填写后优先于扫描选择）",manualAddress){manualAddress=it}
                 spinner("采集范围",Modes.labels,modeIndex){modeIndex=it}
                 field("额外只读请求（非仪表模式，可用逗号分隔，如 221017,2101）",extra){extra=it}
                 field("采集时长 / 秒（0 = 手动停止）",duration){duration=it}
                 field("普通轮询请求间隔 / 毫秒（仪表模式固定 1 ms 时隙间隔）",interval){interval=it}
+                }
                 content.addView(button("选择自动导出文件夹"){if(!StudioState.active)startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION),12)})
-                content.addView(text("默认保存在应用本地；选定导出文件夹后，停止时自动复制 JSONL 和摘要。\n${getPreferences(0).getString("tree",null)?:"尚未选择自动导出位置"}"))
+                content.addView(text("默认保存在应用本地；选定导出文件夹后，每段结束自动复制 JSONL 和摘要。\n${getPreferences(0).getString("tree",null)?:"尚未选择自动导出位置"}"))
                 content.addView(text("采集前请让手机车库 App 和仪表断开 ELM。全量模式保留最近值，累计结果包含采样间隔保持值估算。"))
             }
             1->{fileChooser();content.addView(button("导入电脑版 / 手机版 JSONL"){pickImport()})
@@ -118,9 +129,12 @@ class StudioActivity:Activity(){
     private fun refresh(){
         if(StudioState.savedFile!=seenRecording){seenRecording=StudioState.savedFile;selectedFile=seenRecording}
         val s=StudioState.snapshot();status.text=s.status
+        val phaseSeconds=if(StudioState.pollingStartedNs>0)(System.nanoTime()-StudioState.pollingStartedNs)/1_000_000_000L else -1L
+        if(s.active&&StudioState.quickStage>0)status.text="${StudioState.quickStage}/2 · ${StudioState.quickLabel} · "+
+            (if(phaseSeconds<0)"准备中"else "${phaseSeconds.coerceAtMost(300)/60}:${(phaseSeconds.coerceAtMost(300)%60).toString().padStart(2,'0')} / 5:00")+"\n"+s.status
         val seconds=if(s.active)(System.currentTimeMillis()-StudioState.startWall).coerceAtLeast(0)/1000 else 0
         stats.text="${seconds/3600}:${(seconds/60%60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')} · ${s.count} 条响应 · %.1f KB".format(s.bytes/1024.0)
-        start.isEnabled=!s.active;stop.isEnabled=s.active||scanning
+        start.isEnabled=!s.active&&!scanning;stop.isEnabled=s.active||scanning
         logs?.text=s.log.takeLast(12).joinToString("\n")
         val latest=s.rows.associateBy{if(it.command=="2101")"015C"else it.command};val now=System.currentTimeMillis()
         shownValues.forEach{(key,v)->
@@ -132,11 +146,11 @@ class StudioActivity:Activity(){
         val age=if(s.rows.isEmpty())0 else (now-s.rows.maxOf{it.wall})/1000
         if(!s.full&&age>5){shownValues["instant"]?.text="—";shownValues["fuel_rate_lph"]?.text="—"}
         notes?.text="燃油来源：${s.metrics["fuel_source"]} · ${if(s.full)"全量保留最近值，无过期限制"else "仅累计有效采样时段"}\n里程覆盖 ${s.metrics["distance_seconds"]?.let{"%.0f".format(it)}} s / 燃油覆盖 ${s.metrics["fuel_seconds"]?.let{"%.0f".format(it)}} s"
-        raw?.text=s.rows.joinToString("\n\n"){r->"${r.command}  ${r.decoded?.let{"${it.name} %.2f ${it.unit}".format(it.value)}?:"原始数据"}  · ${(now-r.wall)/1000}s 前\n${r.text.replace('\r',' ')}"}
+        raw?.text=s.rows.joinToString("\n\n"){it.rawDisplayText(now)}
         trend?.points=s.trend;trend?.invalidate()
     }
     private fun permissions(action:()->Unit){
-        val needed=if(Build.VERSION.SDK_INT>=31)mutableListOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT,Manifest.permission.BLUETOOTH_ADVERTISE)else mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val needed=if(Build.VERSION.SDK_INT>=31)mutableListOf(Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT).apply{if(page==1)add(Manifest.permission.BLUETOOTH_ADVERTISE)}else mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
         if(Build.VERSION.SDK_INT>=33)needed+=Manifest.permission.POST_NOTIFICATIONS
         val missing=needed.filter{checkSelfPermission(it)!=PackageManager.PERMISSION_GRANTED}
         if(missing.isEmpty())action()else{pending=action;requestPermissions(missing.toTypedArray(),1)}
@@ -147,13 +161,38 @@ class StudioActivity:Activity(){
     private fun scan(){
         if(StudioState.active)return
         val adapter=getSystemService(BluetoothManager::class.java).adapter?:error("手机没有蓝牙");check(adapter.isEnabled){"请先开启蓝牙"}
-        devices.clear();scanning=true;StudioState.message("正在扫描 BLE 设备，约 8 秒")
-        val cb=object:ScanCallback(){override fun onScanResult(type:Int,result:ScanResult){runOnUiThread{devices[result.device.address]=(result.scanRecord?.deviceName?:result.device.name?:"未命名设备") to result.rssi}}
-            override fun onScanFailed(errorCode:Int){runOnUiThread{stopScan();StudioState.message("扫描失败：$errorCode")}}}
         val scanner=adapter.bluetoothLeScanner?:error("蓝牙扫描不可用")
-        scanCallback=cb;scanner.startScan(cb);handler.postDelayed({if(scanCallback===cb){stopScan();render()}},8000)
+        devices.clear();scanning=true;StudioState.message("正在扫描 BLE 设备，约 8 秒；随后从列表选择 OBD")
+        val cb=object:ScanCallback(){
+            override fun onScanResult(type:Int,result:ScanResult){runOnUiThread{if(scanCallback===this&&!isDestroyed){devices[result.device.address]=(result.scanRecord?.deviceName?.takeIf{it.isNotBlank()}?:result.device.name?.takeIf{it.isNotBlank()}?:"未命名设备") to result.rssi}}}
+            override fun onBatchScanResults(results:MutableList<ScanResult>){results.forEach{onScanResult(0,it)}}
+            override fun onScanFailed(errorCode:Int){runOnUiThread{if(scanCallback===this){stopScan();StudioState.message("扫描失败：$errorCode");if(!isDestroyed)render()}}}
+        }
+        scanCallback=cb
+        try{scanner.startScan(null,ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),cb)}catch(e:Exception){stopScan();throw e}
+        render();handler.postDelayed({if(scanCallback===cb&&!isDestroyed)finishScan()},8000)
+    }
+    private fun finishScan(){stopScan();render();chooseObd()}
+    private fun chooseObd(){
+        val found=devices.entries.sortedByDescending{it.value.second}.map{Triple(it.key,it.value.first,it.value.second)}
+        if(found.isEmpty()){StudioState.message("未扫描到 BLE 设备，请检查蓝牙、OBD 供电及扫描权限后重试");return}
+        android.app.AlertDialog.Builder(this).setTitle("选择 OBD（${found.size} 个设备）")
+            .setItems(found.map{"${it.second}\n${it.first} · ${it.third} dBm"}.toTypedArray()){_,i->
+                val selected=found[i];address=selected.first;obdName=selected.second
+                capturePrefs.edit().putString("obd_address",address).putString("obd_name",obdName).apply()
+                StudioState.message("已选择 OBD：$obdName · $address");render()
+            }.setNegativeButton("取消",null).show()
     }
     private fun stopScan(){scanCallback?.let{runCatching{getSystemService(BluetoothManager::class.java).adapter?.bluetoothLeScanner?.stopScan(it)}};scanCallback=null;if(scanning)StudioState.message("扫描完成 · ${devices.size} 个设备");scanning=false}
+    private fun beginQuickRecord(){
+        check(!scanning){"请先从扫描结果中选择 OBD"}
+        check(BluetoothAdapter.checkBluetoothAddress(address)){"请先扫描并选择 OBD"}
+        val model=Modes.ids[vehicleIndex];quickCapturePlan(model)
+        stopScan();val intent=Intent(this,StudioService::class.java).setAction("QUICK_RECORD")
+            .putExtra("obd_name",obdName).putExtra("address",address).putExtra("profile",model)
+        getPreferences(0).getString("tree",null)?.let{intent.putExtra("tree",it)}
+        startForegroundService(intent);page=2;render()
+    }
     private fun beginRecord(){
         val selectedAddress=manualAddress.trim().ifEmpty{address}.uppercase()
         check(BluetoothAdapter.checkBluetoothAddress(selectedAddress)){"请选择 ELM 或输入 AA:BB:CC:DD:EE:FF 地址"}

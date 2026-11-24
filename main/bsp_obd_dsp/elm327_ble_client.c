@@ -15,6 +15,7 @@
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "app_obd_dsp/vehicle_custom_config.h"
 #include "app_obd_dsp/zc6_pid.h"
+#include "app_obd_dsp/obd_group.h"
 #include "racechrono_ble_diy.h"
 #include "ble_adv_util.h"
 #include "esp_task_wdt.h"
@@ -111,6 +112,10 @@ static uint32_t s_oil_mode_fail_count[12] = {0};  // consecutive failure count p
 #define OBD_POLL_SLOT_GAP_MS   30  // idle gap between poll slots (ms); was 100, lowered to raise refresh rate — too small overwhelms clone adapters
 static bool s_vehicle_profile_inited = false;
 static const vehicle_profile_t *volatile s_elm_profile;
+static uint8_t s_group_pids[6];
+static volatile unsigned s_group_count;
+static volatile bool s_group_session;
+static volatile unsigned s_group_failures[2];
 static volatile bool s_accept_obd_responses;
 static volatile bool s_zc6_request; // tag outstanding request, independent of UI selection
 static volatile bool s_profile_transition;
@@ -148,7 +153,7 @@ bool elm327_ble_has_valid_data(void)
 
 static bool zc6_response_guarded(void)
 {
-    return s_zc6_request || s_profile_transition ||
+    return s_group_count || s_group_session || s_zc6_request || s_profile_transition ||
            (s_elm_profile && s_elm_profile != vehicle_profile_get_active());
 }
 
@@ -1069,6 +1074,7 @@ static void zc6_can_monitor_feed(const uint8_t *data, size_t len)
 static void do_elm_init(void) {
     const int64_t init_start_us = esp_timer_get_time();
     s_accept_obd_responses = false;
+    s_group_session = false;
     reset_obd_signal();
     s_elm_profile = vehicle_profile_get_active();
     ESP_LOGI(TAG, "OBD init start: profile=%s", s_elm_profile->name);
@@ -1084,6 +1090,7 @@ static void do_elm_init(void) {
     s_fuel_status_pid_support = -1;
     s_fuel_status_probes = 0;
     s_slow_poll_index = 0;
+    s_group_failures[0] = s_group_failures[1] = 0;
     obd_data_reset_fuel_inputs();
     obd_data_reset_factory_odometer();
     obd_data_set_fuel_rate_unavailable();
@@ -1155,6 +1162,39 @@ static void do_elm_init(void) {
              (unsigned)s_accept_obd_responses);
 }
 
+static void poll_pid_group(bool group_b, bool toyota_oil)
+{
+    static const uint8_t slow_pids[] = {0x0F, 0x05, 0x5C, 0x42, 0x2F, 0x5E, 0x40};
+    uint8_t pids[] = {0x0C, 0x0D, 0x10, 0x11, 0x04, 0x03};
+    unsigned count = sizeof(pids);
+    const char *extra = NULL;
+    if (group_b) {
+        pids[3] = 0x44;
+        pids[4] = 0x0E;
+        pids[5] = slow_pids[s_slow_poll_index];
+        s_slow_poll_index = (s_slow_poll_index + 1) % sizeof(slow_pids);
+        if (pids[5] == 0x40) extra = "0140\r";
+        if (pids[5] == 0x5C && toyota_oil) extra = "2101\r";
+        if (extra) --count;
+    } else if (s_fuel_status_pid_support == 0) {
+        pids[5] = 0x44;
+    }
+
+    if (s_group_failures[group_b] >= 2) {
+        for (unsigned i = 0; i < count; ++i) {
+            char command[6];
+            snprintf(command, sizeof(command), "01%02X\r", pids[i]);
+            elm327_ble_send_ascii_blocking(command);
+        }
+    } else {
+        char command[16] = "01";
+        for (unsigned i = 0; i < count; ++i)
+            snprintf(command + 2 + i * 2, 4, "%02X\r", pids[i]);
+        elm327_ble_send_ascii_blocking(command);
+    }
+    if (extra) elm327_ble_send_ascii_blocking(extra);
+}
+
 static void obd_poll_task(void *arg) {
     s_poll_task_handle = xTaskGetCurrentTaskHandle();
     esp_task_wdt_add(NULL);  // register with the watchdog
@@ -1162,7 +1202,7 @@ static void obd_poll_task(void *arg) {
     bool inited = false;
     uint8_t heal_attempts = 0;   // consecutive self-heal count; escalates to a forced reconnect if resending ATZ a few times still yields no data
 
-    // 6-slot poll: 0=MAF/Oil pressure, 1=Load, 2=TPS, 3=Fuel status/Boost,
+    // Legacy profiles use the 6-slot poll: 0=MAF/Oil pressure, 1=Load, 2=TPS, 3=Fuel status/Boost,
     // 4=AFR, 5=rotating IAT/CLT/OIL/BAT/LEVEL/5E/40.
     // Each slot appends RPM (even) or speed (odd); no standalone duplicates.
     while (1)
@@ -1291,8 +1331,14 @@ static void obd_poll_task(void *arg) {
             }
         }
 
-        bool completed_obd_round = (tick_count == 5);
-        {
+        bool grouped = !can_broadcast && vp_poll &&
+            (vehicle_profile_is_zc6_pid(vp_poll) || vehicle_profile_is_automatic(vp_poll) ||
+             strcmp(vp_poll->name, "ZD8") == 0);
+        bool completed_obd_round = grouped ? tick_count == 1 : tick_count == 5;
+        if (grouped) {
+            poll_pid_group(tick_count == 1, vehicle_profile_is_zc6_pid(vp_poll));
+            tick_count ^= 1u;
+        } else {
         switch(tick_count)
         {
             case 0:// Engine oil pressure (Mode 22 DID, per-profile: 4436=B58, 586F=N55) — physical header, only for OBD-oil-pressure profiles
@@ -1576,6 +1622,10 @@ bool elm327_ble_send_ascii_blocking(const char *ascii_cmd)
             ESP_LOGW(TAG, "Timeout (>3s) waiting previous response, forcing send: %s", ascii_cmd);
             // The next prompt may terminate the abandoned reply. Drain it;
             // never combine its prefix with a new request's response.
+            if (s_group_count) {
+                unsigned group = s_group_pids[3] == 0x44;
+                if (s_group_failures[group] < 2) ++s_group_failures[group];
+            }
             if (zc6_response_guarded()) s_accum_discard = true;
             s_elm_ready = true;
         }
@@ -1586,6 +1636,14 @@ bool elm327_ble_send_ascii_blocking(const char *ascii_cmd)
     if (n) {
         // Set context after waiting for the PREVIOUS reply, before submitting
         // the new write. This also clears an unanswered Mode21 on timeout.
+        s_group_count = 0;
+        if (n >= 7 && n <= 15 && n % 2 && buf[0] == '0' && buf[1] == '1') {
+            unsigned count = (n - 3) / 2;
+            for (unsigned i = 0; i < count; ++i)
+                s_group_pids[i] = (uint8_t)(16 * group_digit(buf[2 + 2*i]) + group_digit(buf[3 + 2*i]));
+            s_group_session = true;
+            s_group_count = count;
+        }
         s_zc6_request = vehicle_profile_is_zc6_pid(vehicle_profile_get_active());
         s_expect_mode21 = s_zc6_request && n == 5 && memcmp(buf, "2101\r", 5) == 0;
         bool sent = elm327_ble_send_command(buf, n);
@@ -1611,6 +1669,169 @@ size_t elm327_ble_ascii_cmd_to_bytes(const char *ascii, uint8_t *out_buf, size_t
         out_buf[out++] = (uint8_t)(*p++); // copy the ASCII byte directly
     }
     return out;
+}
+
+static void dispatch_mode01(unsigned pid, uint32_t *d, int dc)
+{
+    if (s_protocol_detect_idx < 0)
+        obd_poll_health_response((uint8_t)pid, d, (size_t)dc);
+    switch (pid) {
+        case 0x00: // Supported PIDs 01-20: PID 03 is byte A bit 5
+            if (dc >= 4) {
+                s_fuel_status_pid_support = (d[0] & 0x20u) ? 1 : 0;
+                ESP_LOGI(TAG, "[FUEL_CAP] PID0103=%s mask=%02X%02X%02X%02X",
+                         s_fuel_status_pid_support ? "supported" : "unsupported",
+                         d[0], d[1], d[2], d[3]);
+                if (!s_fuel_status_pid_support) obd_data_set_fuel_status(0);
+            }
+            break;
+        case 0x03: // Status 4 is load enrichment OR decel cut; not a direct cutoff bit
+            if (dc >= 2 && s_cbs.on_parsed_fuel_status) {
+                s_fuel_status_pid_support = 1;
+                s_cbs.on_parsed_fuel_status((uint8_t)d[0]);
+            }
+            break;
+        case 0x40: // Low-rate capability observation, not a polling gate.
+            if (dc >= 4 && s_protocol_detect_idx < 0) {
+                bool supported = (d[3] & 0x04u) != 0;
+                ESP_LOGI(TAG, "[FUEL_CAP] PID015E=%s mask=%02X%02X%02X%02X",
+                         supported ? "supported" : "unsupported",
+                         d[0], d[1], d[2], d[3]);
+                if (!supported) obd_data_set_fuel_rate_unavailable();
+            }
+            break;
+        case 0xA0: // Supported PIDs A1-C0; A4=byte A bit4, A6=byte A bit2
+            if (dc >= 4 && s_protocol_detect_idx < 0) {
+                s_standard_gear_pid_support = (d[0] & 0x10u) ? 1 : 0;
+                s_odometer_pid_support = (d[0] & 0x04u) ? 1 : 0;
+                ESP_LOGI(TAG, "[ODO_CAP] PID01A6=%s mask=%02X%02X%02X%02X",
+                         s_odometer_pid_support ? "supported" : "unsupported",
+                         d[0], d[1], d[2], d[3]);
+            }
+            break;
+        case 0x04: // Engine load (0~100%)
+            if (dc >= 1 && s_cbs.on_parsed_load_pct && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_load_pct((uint32_t)d[0] * 100 / 255);
+            break;
+        case 0x05: // Coolant temp
+            if (dc >= 1 && s_cbs.on_parsed_coolant_temp && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_coolant_temp((uint32_t)((int32_t)d[0] - 40));
+            break;
+        case 0x0C: // RPM
+            if (dc >= 2) {
+                uint16_t rpm_val = (uint16_t)(((d[0] << 8) | d[1]) / 4);
+
+                if (s_protocol_detect_idx >= 0) {
+                    // Protocol detection mode
+                    s_protocol_detect_rpm = (int32_t)rpm_val;
+                    s_protocol_detect_got_response = true;
+                } else {
+                    // Normal mode
+                    if (s_cbs.on_parsed_rpm)
+                        s_cbs.on_parsed_rpm(rpm_val);
+                    if (!s_first_rpm_logged) {
+                        s_first_rpm_logged = true;
+                        ESP_LOGI(TAG, "OBD first RPM: connected_ms=%lld rpm=%u",
+                                 (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000),
+                                 (unsigned)rpm_val);
+                    }
+                }
+            }
+            break;
+        case 0x0D: // Vehicle speed
+            if (dc >= 1 && s_cbs.on_parsed_speed_kmh && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_speed_kmh((uint8_t)d[0]);
+            break;
+        case 0x0E:
+            if (dc == 1 && d[0] <= 255 && s_protocol_detect_idx < 0)
+                obd_data_set_ignition_x2((int16_t)d[0] - 128);
+            break;
+        case 0x0F: // Intake air temp
+            if (dc >= 1 && s_cbs.on_parsed_intake_temp && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_intake_temp((uint32_t)((int32_t)d[0] - 40));
+            break;
+        case 0x10: // Mass air flow: raw value is g/s x100
+            if (dc >= 2 && s_cbs.on_parsed_maf && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_maf((d[0] << 8) | d[1]);
+            break;
+        case 0x2F: // Fuel tank level, A * 100 / 255 percent
+            if (dc >= 1 && s_protocol_detect_idx < 0) {
+                obd_data_set_fuel_level_x100((uint16_t)((d[0] * 10000UL + 127) / 255));
+            }
+            break;
+        case 0x11: // Throttle position TPS (0~100%)
+            if (dc >= 1 && s_cbs.on_parsed_throttle_position && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_throttle_position((uint32_t)d[0] * 100 / 255);
+            break;
+        case 0x0B: // Intake manifold absolute pressure MAP (kPa) → boost gauge pressure
+            if (dc >= 1 && s_cbs.on_parsed_manifold_pressure && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_manifold_pressure((uint32_t)d[0]);
+            break;
+        case 0x5C: // Oil temp PID (standard, used for ZD8)
+            if (dc >= 1 && s_cbs.on_parsed_oil_temp && s_protocol_detect_idx < 0) {
+                int32_t oil_temp = (int32_t)d[0] - 40;
+                // Validate range: -40 to 215°C
+                if (oil_temp >= -40 && oil_temp <= 215) {
+                    record_oil_temp_success(OIL_TEMP_MODE_PID_5C);
+                    s_cbs.on_parsed_oil_temp((uint32_t)oil_temp);
+                } else {
+                    record_oil_temp_failure(OIL_TEMP_MODE_PID_5C);
+                }
+            }
+            break;
+        case 0x42: // Battery voltage (mV)
+            if (dc >= 2 && s_cbs.on_parsed_control_module_voltage && s_protocol_detect_idx < 0)
+                s_cbs.on_parsed_control_module_voltage((d[0] << 8) | d[1]);
+            break;
+        case 0x44: // Air-fuel ratio AFR - Commanded Equivalence Ratio (λ)
+            // λ = (A*256+B)/32768, range 0~<2
+            // AFR = λ × 14.7, stored ×100: 1470 = 14.70:1
+            if (dc >= 2 && s_cbs.on_parsed_afr && s_protocol_detect_idx < 0) {
+                uint32_t raw = (d[0] << 8) | d[1];
+                // λ = raw / 32768, AFR×100 = λ × 1470
+                uint32_t afr_x100 = (raw * 1470UL) / 32768UL;
+                if (afr_x100 >= 800 && afr_x100 <= 2200) {
+                    s_cbs.on_parsed_afr(afr_x100);
+                } else {
+                    s_cbs.on_parsed_afr(0); // invalidate instead of keeping an old mixture
+                }
+            }
+            break;
+        case 0x5E: // Engine fuel rate: raw * 0.05 L/h = raw * 50 ml/h
+            if (dc >= 2 && s_cbs.on_parsed_fuel_rate && s_protocol_detect_idx < 0) {
+                uint32_t raw = (d[0] << 8) | d[1];
+                s_cbs.on_parsed_fuel_rate(raw * 50UL);
+            }
+            break;
+        case 0xA4: // Transmission actual gear: A=support, B=status, C,D=ratio x1000
+            {
+                if (dc >= 4) s_gear_unanswered = 0;
+                const vehicle_profile_t *vp = vehicle_profile_get_active();
+                if (dc >= 4 && vp && vp->obd_standard_gear_pid &&
+                    s_cbs.on_parsed_standard_gear_ratio && s_protocol_detect_idx < 0) {
+                    // A bit 1 advertises the ratio field. A reply can
+                    // pass self-check while its ratio is unavailable.
+                    uint16_t ratio_x1000 = (d[0] & 0x02u)
+                        ? (uint16_t)((d[2] << 8) | d[3]) : 0;
+                    s_cbs.on_parsed_standard_gear_ratio(ratio_x1000);
+                }
+            }
+            break;
+        case 0xA6: // Odometer: unsigned 32-bit big-endian, 0.1 km/count
+            if (dc >= 4 && s_protocol_detect_idx < 0) {
+                uint32_t raw = ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) |
+                               ((uint32_t)d[2] << 8) | (uint32_t)d[3];
+                // 0xFFFFFFFF is a common unavailable/sentinel payload. Zero is
+                // valid for a new ECU and therefore must not be discarded.
+                if (raw != UINT32_MAX) {
+                    s_odometer_pid_support = 1;
+                    obd_data_set_factory_odometer_x10_km(raw);
+                }
+            }
+            break;
+        default:
+            break;
+    }
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
@@ -1978,6 +2199,22 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
         do {
 
         char *buf = s_accum_buf;
+        if (s_group_count) {
+            obd_group_value_t values[6];
+            unsigned received = group_decode(buf, s_group_pids, s_group_count, values);
+            unsigned core = 0;
+            for (unsigned i = 0; i < received; ++i) {
+                const obd_group_value_t *v = &values[i];
+                uint32_t data[2] = {v->data[0], v->size == 2 ? v->data[1] : 0};
+                dispatch_mode01(v->pid, data, v->size);
+                if (v->pid == 0x0C || v->pid == 0x0D || v->pid == 0x10) ++core;
+            }
+            unsigned group = s_group_pids[3] == 0x44;
+            if (core == 3 && received > 3) s_group_failures[group] = 0;
+            else if (s_group_failures[group] < 2) ++s_group_failures[group];
+            if (received) mark_obd_data_valid();
+            break;
+        }
 
         char *p41 = strstr(buf, "41 ");
         char *p62 = strstr(buf, "62 ");
@@ -2110,161 +2347,7 @@ static void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_
                     break;  // skip non-target PIDs
                 }
 
-                if (s_protocol_detect_idx < 0)
-                    obd_poll_health_response((uint8_t)pid, d, (size_t)dc);
-                switch (pid) {
-                    case 0x00: // Supported PIDs 01-20: PID 03 is byte A bit 5
-                        if (dc >= 4) {
-                            s_fuel_status_pid_support = (d[0] & 0x20u) ? 1 : 0;
-                            ESP_LOGI(TAG, "[FUEL_CAP] PID0103=%s mask=%02X%02X%02X%02X",
-                                     s_fuel_status_pid_support ? "supported" : "unsupported",
-                                     d[0], d[1], d[2], d[3]);
-                            if (!s_fuel_status_pid_support) obd_data_set_fuel_status(0);
-                        }
-                        break;
-                    case 0x03: // Status 4 is load enrichment OR decel cut; not a direct cutoff bit
-                        if (dc >= 2 && s_cbs.on_parsed_fuel_status) {
-                            s_fuel_status_pid_support = 1;
-                            s_cbs.on_parsed_fuel_status((uint8_t)d[0]);
-                        }
-                        break;
-                    case 0x40: // Low-rate capability observation, not a polling gate.
-                        if (dc >= 4 && s_protocol_detect_idx < 0) {
-                            bool supported = (d[3] & 0x04u) != 0;
-                            ESP_LOGI(TAG, "[FUEL_CAP] PID015E=%s mask=%02X%02X%02X%02X",
-                                     supported ? "supported" : "unsupported",
-                                     d[0], d[1], d[2], d[3]);
-                            if (!supported) obd_data_set_fuel_rate_unavailable();
-                        }
-                        break;
-                    case 0xA0: // Supported PIDs A1-C0; A4=byte A bit4, A6=byte A bit2
-                        if (dc >= 4 && s_protocol_detect_idx < 0) {
-                            s_standard_gear_pid_support = (d[0] & 0x10u) ? 1 : 0;
-                            s_odometer_pid_support = (d[0] & 0x04u) ? 1 : 0;
-                            ESP_LOGI(TAG, "[ODO_CAP] PID01A6=%s mask=%02X%02X%02X%02X",
-                                     s_odometer_pid_support ? "supported" : "unsupported",
-                                     d[0], d[1], d[2], d[3]);
-                        }
-                        break;
-                    case 0x04: // Engine load (0~100%)
-                        if (dc >= 1 && s_cbs.on_parsed_load_pct && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_load_pct((uint32_t)d[0] * 100 / 255);
-                        break;
-                    case 0x05: // Coolant temp
-                        if (dc >= 1 && s_cbs.on_parsed_coolant_temp && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_coolant_temp((uint32_t)((int32_t)d[0] - 40));
-                        break;
-                    case 0x0C: // RPM
-                        if (dc >= 2) {
-                            uint16_t rpm_val = (uint16_t)(((d[0] << 8) | d[1]) / 4);
-
-                            if (s_protocol_detect_idx >= 0) {
-                                // Protocol detection mode
-                                s_protocol_detect_rpm = (int32_t)rpm_val;
-                                s_protocol_detect_got_response = true;
-                            } else {
-                                // Normal mode
-                                if (s_cbs.on_parsed_rpm)
-                                    s_cbs.on_parsed_rpm(rpm_val);
-                                if (!s_first_rpm_logged) {
-                                    s_first_rpm_logged = true;
-                                    ESP_LOGI(TAG, "OBD first RPM: connected_ms=%lld rpm=%u",
-                                             (long long)((esp_timer_get_time() - s_obd_connected_us) / 1000),
-                                             (unsigned)rpm_val);
-                                }
-                            }
-                        }
-                        break;
-                    case 0x0D: // Vehicle speed
-                        if (dc >= 1 && s_cbs.on_parsed_speed_kmh && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_speed_kmh((uint8_t)d[0]);
-                        break;
-                    case 0x0F: // Intake air temp
-                        if (dc >= 1 && s_cbs.on_parsed_intake_temp && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_intake_temp((uint32_t)((int32_t)d[0] - 40));
-                        break;
-                    case 0x10: // Mass air flow: raw value is g/s x100
-                        if (dc >= 2 && s_cbs.on_parsed_maf && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_maf((d[0] << 8) | d[1]);
-                        break;
-                    case 0x2F: // Fuel tank level, A * 100 / 255 percent
-                        if (dc >= 1 && s_protocol_detect_idx < 0) {
-                            obd_data_set_fuel_level_x100((uint16_t)((d[0] * 10000UL + 127) / 255));
-                        }
-                        break;
-                    case 0x11: // Throttle position TPS (0~100%)
-                        if (dc >= 1 && s_cbs.on_parsed_throttle_position && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_throttle_position((uint32_t)d[0] * 100 / 255);
-                        break;
-                    case 0x0B: // Intake manifold absolute pressure MAP (kPa) → boost gauge pressure
-                        if (dc >= 1 && s_cbs.on_parsed_manifold_pressure && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_manifold_pressure((uint32_t)d[0]);
-                        break;
-                    case 0x5C: // Oil temp PID (standard, used for ZD8)
-                        if (dc >= 1 && s_cbs.on_parsed_oil_temp && s_protocol_detect_idx < 0) {
-                            int32_t oil_temp = (int32_t)d[0] - 40;
-                            // Validate range: -40 to 215°C
-                            if (oil_temp >= -40 && oil_temp <= 215) {
-                                record_oil_temp_success(OIL_TEMP_MODE_PID_5C);
-                                s_cbs.on_parsed_oil_temp((uint32_t)oil_temp);
-                            } else {
-                                record_oil_temp_failure(OIL_TEMP_MODE_PID_5C);
-                            }
-                        }
-                        break;
-                    case 0x42: // Battery voltage (mV)
-                        if (dc >= 2 && s_cbs.on_parsed_control_module_voltage && s_protocol_detect_idx < 0)
-                            s_cbs.on_parsed_control_module_voltage((d[0] << 8) | d[1]);
-                        break;
-                    case 0x44: // Air-fuel ratio AFR - Commanded Equivalence Ratio (λ)
-                        // λ = (A*256+B)/32768, range 0~<2
-                        // AFR = λ × 14.7, stored ×100: 1470 = 14.70:1
-                        if (dc >= 2 && s_cbs.on_parsed_afr && s_protocol_detect_idx < 0) {
-                            uint32_t raw = (d[0] << 8) | d[1];
-                            // λ = raw / 32768, AFR×100 = λ × 1470
-                            uint32_t afr_x100 = (raw * 1470UL) / 32768UL;
-                            if (afr_x100 >= 800 && afr_x100 <= 2200) {
-                                s_cbs.on_parsed_afr(afr_x100);
-                            } else {
-                                s_cbs.on_parsed_afr(0); // invalidate instead of keeping an old mixture
-                            }
-                        }
-                        break;
-                    case 0x5E: // Engine fuel rate: raw * 0.05 L/h = raw * 50 ml/h
-                        if (dc >= 2 && s_cbs.on_parsed_fuel_rate && s_protocol_detect_idx < 0) {
-                            uint32_t raw = (d[0] << 8) | d[1];
-                            s_cbs.on_parsed_fuel_rate(raw * 50UL);
-                        }
-                        break;
-                    case 0xA4: // Transmission actual gear: A=support, B=status, C,D=ratio x1000
-                        {
-                            if (dc >= 4) s_gear_unanswered = 0;
-                            const vehicle_profile_t *vp = vehicle_profile_get_active();
-                            if (dc >= 4 && vp && vp->obd_standard_gear_pid &&
-                                s_cbs.on_parsed_standard_gear_ratio && s_protocol_detect_idx < 0) {
-                                // A bit 1 advertises the ratio field. A reply can
-                                // pass self-check while its ratio is unavailable.
-                                uint16_t ratio_x1000 = (d[0] & 0x02u)
-                                    ? (uint16_t)((d[2] << 8) | d[3]) : 0;
-                                s_cbs.on_parsed_standard_gear_ratio(ratio_x1000);
-                            }
-                        }
-                        break;
-                    case 0xA6: // Odometer: unsigned 32-bit big-endian, 0.1 km/count
-                        if (dc >= 4 && s_protocol_detect_idx < 0) {
-                            uint32_t raw = ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) |
-                                           ((uint32_t)d[2] << 8) | (uint32_t)d[3];
-                            // 0xFFFFFFFF is a common unavailable/sentinel payload. Zero is
-                            // valid for a new ECU and therefore must not be discarded.
-                            if (raw != UINT32_MAX) {
-                                s_odometer_pid_support = 1;
-                                obd_data_set_factory_odometer_x10_km(raw);
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
+                dispatch_mode01(pid, d, dc);
             }
         } else if (p62 != NULL) {
             // Mode 22 response: "62 HH LL D0 D1 ..."  (d0=A, d1=B)

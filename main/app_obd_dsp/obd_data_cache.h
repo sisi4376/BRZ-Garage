@@ -51,6 +51,7 @@ typedef struct {
     int16_t  boost_x10;
     int16_t  brake_temp_x10;
     int8_t   gear;
+    int16_t  ignition_x2; // signed half-degrees, INT16_MIN when stale
     int16_t  afr_x100;
     uint16_t maf_x100;          // mass-air-flow, g/s x100 (0 = unavailable)
     uint32_t fuel_rate_ml_h;     // SAE PID 01 5E, ml/h
@@ -82,6 +83,7 @@ void obd_data_set_gear(int8_t gear);               // direct gear value: -1=R, 0
 void obd_data_set_gear_source(int8_t gear, obd_gear_source_t source);
 void obd_data_reset_gear(void);
 void obd_data_set_brake_rs485_status(brake_rs485_status_t status);
+void obd_data_set_ignition_x2(int16_t value);
 void obd_data_set_afr_x100(int16_t afr_x100);      // air-fuel ratio AFR, ×100 (1470=14.7:1), -1=invalid
 void obd_data_set_maf_x100(uint16_t maf_x100);     // mass-air-flow, g/s ×100 (PID 01 10)
 void obd_data_set_fuel_rate_ml_h(uint32_t fuel_rate_ml_h); // SAE PID 01 5E; zero is valid

@@ -2,6 +2,9 @@
 from obd_recorder import normalize
 
 FORMULAS = {
+    '010E': ('点火提前角', '°', 1, lambda b: b[0] / 2 - 64),
+    '010F': ('进气温度', '°C', 1, lambda b: b[0] - 40),
+    '0103': ('燃油系统状态', '', 2, lambda b: b[0]),
     '010C': ('发动机转速', 'rpm', 2, lambda b: int.from_bytes(b, 'big') / 4),
     '010D': ('车速', 'km/h', 1, lambda b: b[0]),
     '0105': ('冷却液温度', '°C', 1, lambda b: b[0] - 40),
@@ -78,7 +81,11 @@ class TripMetrics:
     """
     FRESH_SECONDS = 5.0
 
+    CUT_AGES = {'0103': 2.5, '0111': 2.5, '0104': 2.5, '010C': 3, '010D': 3, '0110': 5}
+
     def __init__(self, fresh_seconds=5.0):
+        self.cut_active = False
+        self.candidate_since = None
         self.FRESH_SECONDS = float('inf') if fresh_seconds is None else fresh_seconds
         self.samples = {}
         self.t = None
@@ -93,10 +100,33 @@ class TripMetrics:
             return sample[0]
         return None
 
+    def update_cut(self, t):
+        def evidence(pid, default):
+            value, stamp = self.samples.get(pid, (default, t))
+            return value if 0 <= t - stamp < self.CUT_AGES[pid] else default
+        rpm, speed = evidence('010C', 0), evidence('010D', 0)
+        throttle, load = int(evidence('0111', 101)), int(evidence('0104', 101))
+        status = evidence('0103', 0)
+        low_air = evidence('0110', float('inf')) <= rpm * .005
+        direct = status == 4 and (load <= 3 or low_air)
+        inferred = load <= 3 and low_air
+        if self.cut_active:
+            self.cut_active = (rpm > 950 and speed >= 3 and throttle <= 18
+                               and (direct or inferred or (not status and load <= 5 and low_air)))
+        elif rpm >= 1050 and speed >= 5 and throttle <= 16:
+            if direct:
+                self.cut_active = True
+            elif inferred:
+                if self.candidate_since is None:
+                    self.candidate_since = t
+                self.cut_active = t >= self.candidate_since + .4
+                if not self.cut_active:
+                    return
+        self.candidate_since = None
+
     def rate(self, t):
-        direct = self.get('015E', t)
-        if direct is not None:
-            return direct, 'ECU'
+        if self.cut_active:
+            return 0., '滑行断油估算'
         rpm = self.get('010C', t)
         if rpm == 0:
             return 0.0, '发动机停止'
@@ -115,9 +145,13 @@ class TripMetrics:
             return
         if t < self.t:
             raise ValueError('Trip clock moved backwards; reset at replay loop boundaries.')
-        boundaries = sorted({self.t, t} | {stamp + self.FRESH_SECONDS
-            for _, stamp in self.samples.values() if self.t < stamp + self.FRESH_SECONDS < t})
+        expiries = [stamp + self.FRESH_SECONDS for _, stamp in self.samples.values()]
+        if self.candidate_since is not None:
+            expiries.append(self.candidate_since + .4)
+        expiries.extend(self.samples[pid][1] + age for pid, age in self.CUT_AGES.items() if pid in self.samples)
+        boundaries = sorted({self.t, t} | {stamp for stamp in expiries if self.t < stamp < t})
         for start, end in zip(boundaries, boundaries[1:]):
+            self.update_cut(start)
             middle = (start + end) / 2
             speed = self.get('010D', middle)
             rate, source = self.rate(middle)
@@ -133,15 +167,21 @@ class TripMetrics:
                 self.paired_distance_km += speed * dt / 3600
                 self.paired_fuel_l += rate * dt / 3600
                 self.paired_seconds += dt
+        self.update_cut(t)
         self.t = t
 
     def update(self, command, value, t, sampled_at=None):
+        self.update_many({command: value}, t, sampled_at)
+
+    def update_many(self, readings, t, sampled_at=None):
         self.advance(t)
-        command = normalize(command)
-        if value is None:
-            self.samples.pop(command, None)
-        else:
-            self.samples[command] = (value, t if sampled_at is None else sampled_at)
+        for command, value in readings.items():
+            command = normalize(command)
+            if value is None:
+                self.samples.pop(command, None)
+            else:
+                self.samples[command] = (value, t if sampled_at is None else sampled_at)
+        self.update_cut(t)
         self.has_speed |= self.get('010D', t) is not None
         rate, source = self.rate(t)
         self.has_fuel |= rate is not None

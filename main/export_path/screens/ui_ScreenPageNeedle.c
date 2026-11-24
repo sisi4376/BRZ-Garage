@@ -5,6 +5,7 @@
 //  Data reading/range/refresh logic reuses the disp_item system in ui.c (ui_needle_* interfaces)
 
 #include "../ui.h"
+#include "../ui_disp_item.h"
 #include <string.h>
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "app_obd_dsp/vehicle_profiles.h"
@@ -13,7 +14,7 @@
 // Order: CLT, IAT, OIL, LOAD, TPS, SPEED, BAT, OILP, BKT
 #define NEEDLE_ITEM_BOOST 10   // value of disp_item_t DISP_ITEM_BOOST
 #define NEEDLE_ITEM_AFR   11   // value of disp_item_t DISP_ITEM_AFR
-static const uint8_t k_needle_sources_base[] = {0, 1, 2, 3, 4, 6, 7, 8, 9, NEEDLE_ITEM_AFR};
+static const uint8_t k_needle_sources_base[] = {0, 1, 2, 3, 4, 6, 7, 8, 9, NEEDLE_ITEM_AFR, DISP_ITEM_IGN};
 #define NEEDLE_BASE_COUNT (sizeof(k_needle_sources_base) / sizeof(k_needle_sources_base[0]))
 
 // At runtime, dynamically decide the selectable sources based on whether the selected vehicle profile has a turbo (BOOST is appended only with turbo)

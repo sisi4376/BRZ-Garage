@@ -116,26 +116,15 @@ fuel_estimate_t fuel_estimator_step(fuel_estimator_t *state,
         state->dfco_active = false;
         state->dfco_candidate_ms = 0;
     }
-    if (sample->fuel_rate_valid) {
-        rate = sample->fuel_rate_ml_h; // ECU zero is valid; never override with a heuristic
-        out.source = FUEL_SOURCE_ECU;
-        state->dfco_active = false;
-        state->dfco_candidate_ms = 0;
+    if (sample->speed_valid && dfco_update(state, sample, dt_ms)) {
+        rate = 0;
+        out.source = FUEL_SOURCE_CUT_EST;
     } else {
-        /* PID 03 value 4 means high-load open loop OR deceleration fuel cut.
-           Distinguish the two with closed throttle plus either zero calculated
-           load or the low airflow/RPM relationship observed on this ZD8. */
-        if (sample->speed_valid && !sample->disable_cut_est && dfco_update(state, sample, dt_ms)) {
-            rate = 0;
-            out.source = FUEL_SOURCE_CUT_EST;
-        } else {
-            if (!sample->maf_valid || sample->maf_x100 == 0) return out;
-            uint16_t afr = sample->afr_x100 >= 800 && sample->afr_x100 <= 2200
-                         ? (uint16_t)sample->afr_x100 : 1470;
-            // Gasoline assumption: 745 g/L. MAF/AFR -> g/s -> mL/h.
-            rate = ((uint64_t)sample->maf_x100 * 3600000ULL) / ((uint64_t)afr * 745ULL);
-            out.source = FUEL_SOURCE_MAF;
-        }
+        if (!sample->maf_valid || sample->maf_x100 == 0) return out;
+        uint16_t afr = sample->afr_x100 >= 800 && sample->afr_x100 <= 2200
+                     ? (uint16_t)sample->afr_x100 : 1470;
+        rate = ((uint64_t)sample->maf_x100 * 3600000ULL) / ((uint64_t)afr * 745ULL);
+        out.source = FUEL_SOURCE_MAF;
     }
     out.valid = sample->speed_valid; // instantaneous unit/value needs fresh speed
     out.integrate = true;

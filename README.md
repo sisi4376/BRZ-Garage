@@ -4,11 +4,11 @@
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.1.4--beta.3-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.6.6-3DDC84)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.6.7-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.6.6 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.6) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.6.7 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.7) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
@@ -19,9 +19,9 @@
 
 ## Beta 公测版说明
 
-本版采用六位置轮询，转速和车速各每轮 3 次；完整更新、直接下载入口与验证限制见 [4.6.6 发布说明](docs/RELEASE_4_6_6.md)。
+本版采用A/B 分组轮询，每组读取转速、车速和 MAF；完整更新、直接下载入口与验证限制见 [4.6.7 发布说明](docs/RELEASE_4_6_7.md)。
 
-当前完整 **Beta 公测**版本为 Android App **4.6.6（177）** 与仪表固件 **4.1.4-beta.3**，含 Windows r4 一键烧录包。鸿蒙原生版提供 **0.6.5（605）源码**，内置同版固件；整体界面与设备行为仍待真机验收，本次不提供公开 HAP 下载。
+当前完整 **Beta 公测**版本为 Android App **4.6.7（179）** 与仪表固件 **4.1.4-beta.6**，含 Windows r4 一键烧录包。鸿蒙原生版提供 **0.6.5（605）源码**，内置 4.1.4-beta.3；整体界面与设备行为仍待真机验收，本次不提供公开 HAP 下载。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
@@ -128,7 +128,7 @@ flowchart LR
 |---|---|---|
 | 车辆 | Subaru BRZ ZD8 6MT | ✅ 已完成实车适配 |
 | 车辆 | Subaru BRZ ZC6 6MT / 6AT、ZD8 6AT | 🧪 已接入，等待实车验证 |
-| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75 / 1.75-B / 1.75-G（推荐）（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
+| 仪表开发板 | Waveshare ESP32-S3-Touch-AMOLED-1.75-G（推荐）/ 1.75-B（兼容）/ 1.75（兼容）（**如需为未来 GPS 扩展预留硬件，请购买 1.75-G 版本**），466×466，16 MB Flash，8 MB PSRAM | ✅ 支持 |
 | OBD 适配器 | 支持 BLE 的 ELM327 兼容设备 | ✅ 支持，品质会影响稳定性 |
 | 手机 | Android 8.0 或更高版本 | ✅ 支持 |
 | 其他车型、旧款 1.85 英寸 LCD | — | ❌ 当前用户版不支持 |
@@ -187,7 +187,7 @@ flowchart LR
 
 开始前请准备：
 
-- Waveshare ESP32-S3-Touch-AMOLED-1.75-G （推荐，预留定位功能）、1.75-B 或 1.75（如需为未来扩展预留硬件，请选择 1.75-G）；
+- Waveshare ESP32-S3-Touch-AMOLED-1.75-G（推荐，预留定位功能）、1.75-B（兼容）或 1.75（兼容）（如需为未来扩展预留硬件，请选择 1.75-G）；
 - 一条确认支持数据传输的 USB 线；
 - BLE ELM327 兼容适配器；
 - Android 8.0+ 手机；
@@ -195,7 +195,7 @@ flowchart LR
 
 推荐购买链接（仪表尽量购买相同产品，ELM327 类似产品均可）：
 
-- [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://e.tb.cn/h.8xLQrmnxrSXpy9i?tk=vgfbTnGLVRA)
+- [Waveshare ESP32-S3-Touch-AMOLED-1.75 系列：1.75-G（推荐）、1.75-B（兼容）、1.75（兼容）](https://e.tb.cn/h.8xLQrmnxrSXpy9i?tk=vgfbTnGLVRA)
 - [ELM327](https://e.tb.cn/h.8xL9TOFCOBy4qnl?tk=XBTFTnGKMOw)
 
 ## 第一次安装
@@ -261,7 +261,9 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.6.6 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.6) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
+前往 [v4.6.7 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.7) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
+
+[BRZ Garage 4.6.7 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk.sha256)）。安装后从“仪表固件更新”升级至 4.1.4-beta.6。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；
@@ -334,7 +336,7 @@ cd C:\path\to\BRZ_OBD
 
 ## 当前边界
 
-Windows 数据采集工具 [OBD Studio v1.5](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.6/BRZ-OBD-Studio-v1.5.exe) 支持 BLE ELM327 录制、油耗与里程统计和仪表回放；ZC6/ZD8 的 6MT、6AT 四车型采用同版六位置轮询，全量模式保留最近采样值，支持高 DPI 和小窗口。操作见[采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。独立 [Android OBD Studio 1.0.0-beta.4](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.6/BRZ-OBD-Studio-Android-v1.0.0-beta.4.apk) 支持采集、实时查看、文件互通和 BLE 回放；手机蓝牙及实车联调待验证，详见[安卓版说明](android_app/obd_studio/README.md)。
+Windows 数据采集工具 [OBD Studio 1.6](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-v1.6.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-v1.6.exe.sha256)） 与 [Android OBD Studio beta.12](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk.sha256)） 支持四车型 A/B 分组轮询、实时点火提前角、录制和回放。安卓版从扫描结果选择设备及车型后，可一键依次采集全部支持的标准 PID 和车型轮询，各五分钟。见[采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。
 
 - ZD8 6MT 是目前唯一完成实车验证的车型；ZC6 6MT 已实现单路 OBD/PID 和 FA20 Toyota Mode 21 机油温度读取，但仍需要更多实车验证。
 - 挡位、油耗、里程和加减速度是推算结果，只适合驾驶回顾，不能替代原厂仪表或专业诊断设备。

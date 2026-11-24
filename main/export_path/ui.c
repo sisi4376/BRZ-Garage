@@ -273,7 +273,7 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
                            int16_t load_pct, int16_t tps, int32_t bat_mv,
                            int16_t oilp_x10, int16_t brake_x10,
                            uint16_t rpm, uint16_t speed, int16_t boost_x10,
-                           int16_t afr_x100)
+                           int16_t afr_x100, int16_t ignition_x2)
 {
     if (!ui_ScreenPageNeedle || !ui_NeedleMeter || !ui_NeedleIndic) return;
     uint8_t src = needle_active_source();
@@ -294,7 +294,7 @@ void ui_needle_page_update(float sweep_ratio, int16_t clt, int16_t iat, int16_t 
 
     int32_t raw = 0;
     bool valid = disp_item_read_value(src, clt, iat, oil, load_pct, tps, bat_mv,
-                                      oilp_x10, brake_x10, rpm, speed, boost_x10, afr_x100, &raw);
+                                      oilp_x10, brake_x10, rpm, speed, boost_x10, afr_x100, ignition_x2, &raw);
 
     static int32_t s_disp_needle = 0;
     static uint8_t s_last_needle_src = 0xFF;
@@ -705,6 +705,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
     int32_t bat_mv = 0;
     int16_t boost_x10 = 0;
     int16_t afr_x100 = 0;
+    int16_t ignition_x2 = INT16_MIN;
 
     /* ---- Sweep trigger ----
        Master: triggered the instant the ELM327 BLE connects and advances the animation itself;
@@ -733,6 +734,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
         tps       = obd.tps;
         bat_mv    = obd.bat_mv;
         boost_x10 = obd.boost_x10; // boost gauge pressure 0.1bar, -32768=invalid
+        ignition_x2 = obd.ignition_x2;
         afr_x100  = obd.afr_x100;   // air-fuel ratio ×100, -1=invalid
         rawRpm    = obd.rpm;
         rawSpeed  = obd.speed;
@@ -836,7 +838,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
  /*Needle page (configurable data source, sweeps along during gauge sweep)*/
     if (scr == ui_ScreenPageNeedle) {
         ui_needle_page_update(sweep_ratio, clt, iat, oil, load_pct, tps, bat_mv,
-                              oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100);
+                              oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2);
     }
 
     /*Temp page*/
@@ -876,7 +878,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
                 }
 
                 int32_t value = 0;
-                bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &value);
+                bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2, &value);
                 disp_item_update(&s_disp_temp[i], ui_LabelTempValue[i], item, value, valid, ANIM_THRESH_TEMP);
             }
         }
@@ -905,7 +907,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             disp_item_set_value_color(ui_LabelOilPressureText, citem, s_disp_chart, cvalid);
         } else {
             cvalid = disp_item_read_value(citem, clt, iat, oil, load_pct, tps, bat_mv,
-                                          oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &cval);
+                                          oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2, &cval);
             disp_item_update(&s_disp_chart, ui_LabelOilPressureText, citem, cval, cvalid, ANIM_THRESH_TEMP);
         }
 
@@ -964,7 +966,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
                 }
 
                 int32_t value = 0;
-                bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, &value);
+                bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2, &value);
                 disp_item_update(&s_disp_info[i], ui_LabelInfoValue[i], item, value, valid, ANIM_THRESH_TEMP);
             }
         }

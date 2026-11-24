@@ -6,9 +6,9 @@ static uint32_t s_received;
 /* 0..13 are measurements; 14 is ZC6 oil, 15..17 are capability replies. */
 static const uint8_t s_pids[] = {
     0x0C, 0x0D, 0x0F, 0x05, 0x5C, 0x42, 0x04, 0x11,
-    0x03, 0x44, 0x10, 0x2F, 0x5E, 0xA4, 0xFF, 0x00, 0x40, 0xA0
+    0x03, 0x44, 0x10, 0x2F, 0x5E, 0xA4, 0xFF, 0x00, 0x40, 0xA0, 0x0E
 };
-static const uint8_t s_lengths[] = {2,1,1,1,1,2,1,1,2,2,2,1,2,4,0,4,4,4};
+static const uint8_t s_lengths[] = {2,1,1,1,1,2,1,1,2,2,2,1,2,4,0,4,4,4,1};
 
 static int channel(uint8_t pid)
 {
@@ -25,14 +25,19 @@ static int hex(uint8_t c)
 }
 void obd_poll_health_request(const uint8_t *command, size_t length)
 {
-    if (!command || length != 5 || command[4] != '\r') return;
-    int bit = -1;
-    if (command[0] == '2' && command[1] == '1' && command[2] == '0' && command[3] == '1') bit = 14;
-    else if (command[0] == '0' && command[1] == '1') {
-        int hi = hex(command[2]), lo = hex(command[3]);
-        if (hi >= 0 && lo >= 0) bit = channel((uint8_t)(hi * 16 + lo));
+    if (!command || length < 5 || length > 15 || !(length % 2) || command[length - 1] != '\r') return;
+    uint32_t mask = 0;
+    if (length == 5 && command[0] == '2' && command[1] == '1' && command[2] == '0' && command[3] == '1') {
+        mask = 1UL << 14;
+    } else if (command[0] == '0' && command[1] == '1') {
+        for (size_t i = 2; i + 1 < length - 1; i += 2) {
+            int hi = hex(command[i]), lo = hex(command[i + 1]);
+            if (hi < 0 || lo < 0) return;
+            int bit = channel((uint8_t)(hi * 16 + lo));
+            if (bit >= 0) mask |= 1UL << bit;
+        }
     }
-    if (bit >= 0) __atomic_fetch_or(&s_requested, 1UL << bit, __ATOMIC_RELAXED);
+    __atomic_fetch_or(&s_requested, mask, __ATOMIC_RELAXED);
 }
 void obd_poll_health_response(uint8_t pid, const uint32_t *data, size_t length)
 {

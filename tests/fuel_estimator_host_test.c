@@ -82,19 +82,19 @@ int main(void)
     assert(fuel_estimator_step(&state, &sample, 200).source == FUEL_SOURCE_MAF);
     puts("PASS: cutoff, recovery, cold/fault/closed-loop and enrichment guards");
 
-    sample = cruising(); sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = 0;
+    sample = cruising();
     result = fuel_estimator_step(&state, &sample, 200);
-    assert(result.source == FUEL_SOURCE_ECU && result.rate_ml_h == 0);
-    sample.fuel_rate_ml_h = 10000; sample.fuel_status = 4; sample.load_pct = 10; sample.tps_pct = 14;
+    assert(result.source == FUEL_SOURCE_MAF && result.rate_ml_h == 4832);
+    sample.fuel_status = 4; sample.load_pct = 10; sample.tps_pct = 14;
     result = fuel_estimator_step(&state, &sample, 200);
-    assert(result.source == FUEL_SOURCE_ECU && result.rate_ml_h == 10000);
-    sample.fuel_rate_valid = false; sample.fuel_status = 2;
+    assert(result.source == FUEL_SOURCE_MAF && result.rate_ml_h == 4832);
+    sample.fuel_status = 2;
     assert(fuel_estimator_step(&state, &sample, 200).source == FUEL_SOURCE_MAF);
     sample.afr_x100 = 1200;
     assert(fuel_estimator_step(&state, &sample, 200).rate_ml_h > 4832);
     sample.afr_x100 = -1;
     assert(fuel_estimator_step(&state, &sample, 200).rate_ml_h == 4832);
-    puts("PASS: ECU zero/positive priority, fallback and AFR");
+    puts("PASS: MAF and AFR fallback");
 
     sample = cruising(); sample.maf_valid = false;
     assert(!fuel_estimator_step(&state, &sample, 200).valid);
@@ -136,24 +136,23 @@ int main(void)
     sample = cruising(); sample.speed_kmh = 3; sample.maf_x100 = UINT16_MAX;
     result = fuel_estimator_step(&state, &sample, 200);
     assert(result.valid && result.instant_x100 == UINT16_MAX && result.rate_ml_h > 200000);
-    sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = UINT32_MAX;
     result = fuel_estimator_step(&state, &sample, 200);
-    assert(result.valid && result.instant_x100 == UINT16_MAX && result.rate_ml_h == UINT32_MAX);
+    assert(result.valid && result.instant_x100 == UINT16_MAX && result.rate_ml_h > 200000 && result.rate_ml_h != UINT32_MAX);
     for (int i = 0; i < 1000000; ++i) {
         result = fuel_estimator_step(&state, &sample, 200);
         assert(result.instant_x100 == UINT16_MAX);
     }
     puts("PASS: extreme fuel values saturate without wrap or hang");
-    sample = cruising(); sample.disable_cut_est = true;
-    sample.fuel_status = 4; sample.load_pct = 0; sample.tps_pct = 0; sample.maf_x100 = 500;
-    for (int n = 0; n < 10; ++n) { result = fuel_estimator_step(&state, &sample, 200); assert(result.source == FUEL_SOURCE_MAF && result.fuel_ul > 0 && result.distance_mm > 0); }
-    sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = 0;
-    result = fuel_estimator_step(&state, &sample, 200); assert(result.source == FUEL_SOURCE_ECU && result.rate_ml_h == 0);
-    sample.fuel_rate_ml_h = 6000;
-    result = fuel_estimator_step(&state, &sample, 200); assert(result.instant_x100 == 1000);
-    sample.speed_kmh = 0; result = fuel_estimator_step(&state, &sample, 200);
-    assert(result.instant_is_lph && result.fuel_ul > 0 && result.distance_mm == 0);
-    puts("PASS: AT MAF accumulation, ECU zero/positive and idle fuel");
+    state = (fuel_estimator_t){0};
+    sample = cruising(); sample.fuel_status = 0; sample.load_pct = 3;
+    sample.tps_pct = 16; sample.maf_x100 = 500;
+    assert(fuel_estimator_step(&state, &sample, 399).source == FUEL_SOURCE_MAF);
+    assert(fuel_estimator_step(&state, &sample, 1).source == FUEL_SOURCE_CUT_EST);
+    sample.rpm = 1000; sample.speed_kmh = 3; sample.tps_pct = 18; sample.load_pct = 5;
+    assert(fuel_estimator_step(&state, &sample, 200).source == FUEL_SOURCE_CUT_EST);
+    sample.rpm = 950;
+    assert(fuel_estimator_step(&state, &sample, 200).source == FUEL_SOURCE_MAF);
+    puts("PASS: common overrun confirmation, hold and release");
 
     /* Mileage is independent of missing fuel inputs and RPM. Invalid speed
        and long scheduling gaps must still never be extrapolated. */
@@ -184,18 +183,17 @@ int main(void)
     for (int speed = 0; speed <= 3; ++speed) {
         state = (fuel_estimator_t){0}; sample = cruising();
         sample.speed_kmh = speed;
-        sample.fuel_rate_valid = true; sample.fuel_rate_ml_h = 6000;
         distance = 0; fuel = 0;
         for (int i = 0; i < 3000; ++i) {
             result = fuel_estimator_step(&state, &sample, 200);
             assert(result.valid && result.instant_is_lph == (speed < 3));
-            assert(result.instant_x100 == (speed < 3 ? 600 : 20000));
+            assert(result.instant_x100 == (speed < 3 ? 483 : 16106));
             distance += result.distance_mm;
             fuel += result.fuel_ul;
         }
         assert(distance == (uint64_t)speed * 600000ULL * 5ULL / 18ULL);
-        assert(fuel == 1000000); // 6 L/h for 10 min, including 0/1/2 km/h
-        sample.fuel_rate_valid = false; sample.maf_valid = false;
+        assert(fuel == 805333);
+        sample.maf_valid = false;
         result = fuel_estimator_step(&state, &sample, 200);
         assert(!result.valid && result.instant_is_lph == (speed < 3));
         assert(result.distance_valid);

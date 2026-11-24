@@ -17,62 +17,31 @@ class FirmwarePollScheduleTest(unittest.TestCase):
     def test_four_profiles_fast_rounds_rotation_and_reconnect(self):
         source = (ROOT / 'main/bsp_obd_dsp/elm327_ble_client.c').read_text(encoding='utf-8')
         task = function(source, 'obd_poll_task')
-        # The compiled switch includes the real oil strategy, slot advancement
-        # and interleaved requests, rather than a second handwritten schedule.
-        body = task[task.index('        switch(tick_count)'):task.index('        } // end standard OBD poll block')]
-        self.assertEqual(task.count('"01 5E\\r"'), 1)
-        self.assertEqual(task.count('"01 40\\r"'), 1)
+        self.assertIn('poll_pid_group(tick_count == 1', task)
         self.assertIn('s_slow_poll_index = 0;', function(source, 'do_elm_init'))
         compiler = ROOT / 'tools/.cache/w64devkit/bin/gcc.exe'
         compiler = str(compiler) if compiler.exists() else shutil.which('gcc')
         self.assertIsNotNone(compiler)
         harness = r'''
-#include <assert.h>
-#include <stdlib.h>
-#include "app_obd_dsp/vehicle_profiles.h"
-static vehicle_profile_t profile;
-const vehicle_profile_t *vehicle_profile_get_active(void) { return &profile; }
-const vehicle_override_t *vehicle_profile_get_override(void) { return NULL; }
-static uint8_t tick_count, s_slow_poll_index, s_oil_override_idx, s_oil_query_mode;
-static bool s_oil_use_override;
-static uint8_t s_fuel_status_probes;
-static int8_t s_fuel_status_pid_support = 1;
-static int64_t now_us;
-static const vehicle_override_t *s_ov;
-static const oil_formula_t *s_oil_formula_pri, *s_oil_formula_sec;
-static int64_t esp_timer_get_time(void) { return now_us; }
-void obd_data_set_fuel_status(uint8_t status) { (void)status; }
-static const char *get_vehicle_fixed_header_cmd(void) { return "ATSH7DF\r"; }
-static oil_temp_query_mode_t get_next_oil_query_mode(uint8_t *idx) {
-    *idx = 0; return profile.oil_temp_strategy.primary;
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+static unsigned s_slow_poll_index, s_group_failures[2];
+static int s_fuel_status_pid_support = 1;
+static void elm327_ble_send_ascii_blocking(const char *cmd) {
+    for (; *cmd; ++cmd) if (*cmd != '\r') putchar(*cmd);
+    putchar('|');
 }
-static bool elm327_ble_send_ascii_blocking(const char *cmd) {
-    for (; *cmd; ++cmd) if (*cmd != ' ' && *cmd != '\r') putchar(*cmd);
-    putchar('|'); return true;
-}
-static bool send_rpm_request(const char *tag) {
-    (void)tag; return elm327_ble_send_ascii_blocking("01 0C\r");
-}
-static void send_standard_gear_request(int64_t now) { (void)now; }
-''' + function(source, 'send_fuel_status_request') + r'''
-static void slot(void) {
-    bool can_broadcast=false, can_obd_primary=false;
-    bool can_has_coolant=false, can_has_oil=false, can_has_tps=false;
-    int64_t poll_now_us=now_us;
-''' + body + r'''
-}
+''' + function(source, 'poll_pid_group') + r'''
 int main(int argc, char **argv) {
-    assert(argc == 2);
-    profile.oil_temp_strategy.primary = argv[1][1] == 'c'
-        ? OIL_TEMP_MODE_TOYOTA_21_01 : OIL_TEMP_MODE_PID_5C;
-    for (int n=0; n<1000; ++n) {
-        now_us = n < 80 ? 1000000LL + n*1000LL : 1080000LL + (n-80)*170000LL;
-        slot(); putchar('\n');
+    if (argc != 2) return 1;
+    for (int pass = 0; pass < 2; ++pass) {
+        s_slow_poll_index = 0;
+        for (int n = 0; n < (pass ? 6 : 1000); ++n) {
+            poll_pid_group(n % 2, argv[1][1] == 'c');
+            putchar('\n');
+        }
     }
-    // ELM reconnect restarts the rotating cursor at intake temperature.
-    tick_count=0; s_slow_poll_index=0;
-    for (int n=0; n<6; ++n) { ++now_us; slot(); putchar('\n'); }
-    return 0;
 }
 '''
         env = os.environ.copy()

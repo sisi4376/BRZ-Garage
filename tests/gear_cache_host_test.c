@@ -104,23 +104,27 @@ int main(void)
     puts("PASS: direct priority and fallback");
 
     fuel_sample_t fuel;
+    obd_data_snapshot_t raw;
     test_now = 0;
     obd_data_reset_fuel_inputs();
     obd_data_get_fuel_sample(&fuel);
-    assert(!fuel.rpm_valid && !fuel.speed_valid && !fuel.maf_valid && !fuel.fuel_rate_valid);
+    obd_data_get_snapshot(&raw);
+    assert(!fuel.rpm_valid && !fuel.speed_valid && !fuel.maf_valid && !raw.fuel_rate_valid);
     obd_data_set_rpm(2500); obd_data_set_speed(60); obd_data_set_maf_x100(1470);
     obd_data_set_afr_x100(1470); obd_data_set_load_pct(10); obd_data_set_tps(14);
     obd_data_set_fuel_status(4); obd_data_set_fuel_rate_ml_h(0);
     obd_data_get_fuel_sample(&fuel);
-    assert(fuel.rpm_valid && fuel.speed_valid && fuel.maf_valid && fuel.fuel_rate_valid);
-    assert(fuel.fuel_status == 4 && fuel.fuel_rate_ml_h == 0); // tick 0 is a valid sample
+    obd_data_get_snapshot(&raw);
+    assert(fuel.rpm_valid && fuel.speed_valid && fuel.maf_valid && raw.fuel_rate_valid);
+    assert(fuel.fuel_status == 4 && raw.fuel_rate_ml_h == 0); // tick 0 is a valid sample
     test_now = 2501; obd_data_get_fuel_sample(&fuel);
     assert(fuel.fuel_status == 0 && fuel.load_pct == -1 && fuel.tps_pct == -1);
     assert(fuel.rpm_valid && fuel.maf_valid);
     test_now = 3001; obd_data_get_fuel_sample(&fuel);
     assert(!fuel.rpm_valid && !fuel.speed_valid);
     test_now = 5001; obd_data_get_fuel_sample(&fuel);
-    assert(!fuel.maf_valid && !fuel.fuel_rate_valid && fuel.afr_x100 == -1);
+    obd_data_get_snapshot(&raw);
+    assert(!fuel.maf_valid && !raw.fuel_rate_valid && fuel.afr_x100 == -1);
     obd_data_set_fuel_status(0xFF); obd_data_get_fuel_sample(&fuel); assert(fuel.fuel_status == 0);
     obd_data_set_afr_x100(1470); obd_data_set_afr_x100(0);
     obd_data_get_fuel_sample(&fuel); assert(fuel.afr_x100 == -1);
@@ -133,7 +137,7 @@ int main(void)
             for (int n = 0; n < 4; ++n) { test_now += 100; obd_data_set_speed(speed); obd_data_set_rpm(2500); }
             obd_data_set_gear_source(4, OBD_GEAR_SOURCE_PID_A4); expect(127);
             obd_data_get_fuel_sample(&fuel);
-            assert(fuel.disable_cut_est && fuel.rpm_valid && fuel.speed_valid);
+            assert(fuel.rpm_valid && fuel.speed_valid);
         }
     }
     profile.name = "ZD8"; profile.gear_count = 6; reset();

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QLabe
 from obd_recorder import capture, ReplayData, ReplayElm, body, normalize
 from obd_ble_simulator import serve
 from obd_telemetry import decode, TripMetrics
-from obd_gauge_poll import GAUGE_PROFILES
+from obd_gauge_poll import GAUGE_PROFILES, split_group
 
 HOME = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
 ACCENT = '#50dec2'
@@ -106,7 +106,7 @@ class Job(QThread):
             await capture(self.args, self.report)
         else:
             data = ReplayData(self.args.file)
-            self.event.emit(dict(kind='replay_info', duration=data.duration, pids=len(data.samples), profile=data.profile))
+            self.event.emit(dict(kind='replay_info', duration=data.duration, pids=len(data.samples), profile=data.profile, vehicle=data.vehicle))
             await serve(self.args, lambda: ReplayElm(data, self.args.speed, self.args.loop), self.report)
 
     def run(self):
@@ -593,7 +593,7 @@ class Window(QMainWindow):
             self.write_log(f"扫描完成，发现 {len(event['devices'])} 个 BLE 设备。")
         elif kind == 'poll_plan':
             self.badge.setText('●  正在录制')
-            slots = {'brz-6slot-v6': 6, 'brz-8slot-v5': 8, 'brz-9slot-v4': 9, 'brz-10slot-v3': 10}.get(event.get('schedule'), 14)
+            slots = {'brz-ab-v1': 2, 'brz-6slot-v6': 6, 'brz-8slot-v5': 8, 'brz-9slot-v4': 9, 'brz-10slot-v3': 10}.get(event.get('schedule'), 14)
             self.state_detail.setText(f"{event.get('vehicle', 'ZD8 6MT')} 仪表 {slots} 时隙轮询，等待响应后继续。" if event.get('schedule') else f"正在采集 {len(event['commands'])} 类请求。")
         elif kind == 'ready':
             self.badge.setText('●  等待仪表')
@@ -619,7 +619,9 @@ class Window(QMainWindow):
     def update_response(self, event):
         command = normalize(event['command'])
         response = body(bytes.fromhex(event['hex']), command).strip()
-        value = decode(command, response) if event['complete'] else None
+        parts = split_group(command, response) if event['complete'] else {}
+        parts = parts or {command: response}
+        values = {pid: decode(pid, part) if event['complete'] else None for pid, part in parts.items()}
         timeline = event.get('timeline')
         if event['kind'] == 'replay_reply':
             if timeline is not None:
@@ -629,11 +631,15 @@ class Window(QMainWindow):
                     self.trip_epoch = epoch
                 stamp = timeline['sampled_at']
                 if stamp is None or timeline['t'] - stamp >= self.trip.FRESH_SECONDS:
-                    value = None
-                self.trip.update(command, value[1] if value else None, timeline['t'], stamp)
+                    values = dict.fromkeys(values)
+                self.trip.update_many({pid: v[1] if v else None for pid, v in values.items()}, timeline['t'], stamp)
         else:
-            self.trip.update(command, value[1] if value else None, event.get('t', time.monotonic()))
+            self.trip.update_many({pid: v[1] if v else None for pid, v in values.items()}, event.get('t', time.monotonic()))
         self.render_metrics()
+        for pid, part in parts.items():
+            self.update_reading(pid, part.strip(), values[pid], event)
+
+    def update_reading(self, command, response, value, event):
         if command not in self.rows:
             row = self.table.rowCount()
             self.rows[command] = row

@@ -104,8 +104,11 @@ typedef struct __attribute__((packed)) {
     int32_t  bat_mv;
     int16_t  afr_x100;          // air-fuel ratio AFR, x100 (1470=14.7:1), -1=invalid
     uint16_t maf_x100;          // mass-air-flow, g/s x100 (0=unavailable)
-    char     name[MASTER_NAME_LEN];  // master name (shown on the slave info page as "SLAVE: <name>")
+    char     name[MASTER_NAME_LEN - 1];  // master name (shown on the slave info page as "SLAVE: <name>")
+    uint8_t ignition_raw; // final padding byte in the legacy NUL-terminated name
 } espnow_obd_packet_t;
+
+_Static_assert(sizeof(MASTER_NAME) < MASTER_NAME_LEN, "master name must fit with terminator");
 
 static char s_master_name[MASTER_NAME_LEN] = {0};  // slave side: name of the last master heard
 
@@ -155,7 +158,12 @@ static void master_pack(espnow_obd_packet_t *p) {
     p->bat_mv           = snap.bat_mv;
     p->afr_x100         = snap.afr_x100;
     p->maf_x100         = snap.maf_x100;
-    strncpy(p->name, MASTER_NAME, MASTER_NAME_LEN);   // broadcast the master name
+    p->ignition_raw = 0;
+    if (snap.ignition_x2 >= -128 && snap.ignition_x2 <= 127) {
+        p->flags |= ESPNOW_FLAG_IGNITION_VALID;
+        p->ignition_raw = (uint8_t)(snap.ignition_x2 + 128);
+    }
+    strncpy(p->name, MASTER_NAME, sizeof(p->name));   // broadcast the master name
 }
 
 // Linked-test ramp control: compute the simulated RPM along the timeline and write it into the RPM override layer.
@@ -241,7 +249,9 @@ static void apply_packet(const espnow_obd_packet_t *p) {
     // Notify the UI task via the event queue (avoids races from direct cross-task calls)
     app_event_send(APP_EVT_ESPNOW_SYNC_SLOT, p->sweep_step);
     app_event_send(APP_EVT_ESPNOW_INTRO_STEP, p->intro_step);
-    memcpy(s_master_name, p->name, MASTER_NAME_LEN);
+    obd_data_set_ignition_x2((p->flags & ESPNOW_FLAG_IGNITION_VALID) ?
+                             (int16_t)p->ignition_raw - 128 : INT16_MIN);
+    memcpy(s_master_name, p->name, sizeof(p->name));
     s_master_name[MASTER_NAME_LEN - 1] = '\0';   // remember the master name (shown on the info page)
 }
 

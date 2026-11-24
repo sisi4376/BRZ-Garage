@@ -9,6 +9,7 @@
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "app_obd_dsp/vehicle_custom_config.h"
 #include "app_obd_dsp/zc6_pid.h"
+#include "app_obd_dsp/obd_group.h"
 #include "bsp_obd_dsp/espnow_link.h"
 #include "app_obd_dsp/perf_monitor.h"
 #include "esp_timer.h"
@@ -235,6 +236,18 @@ int main(void)
     master_pack(&packed); assert(packed.flags == (0x01 | ESPNOW_FLAG_OBD_DATA_VALID));
     test_now += 5000;
     master_pack(&packed); assert(packed.flags == 0x01);
+    obd_data_set_ignition_x2(-1);
+    master_pack(&packed);
+    assert((packed.flags & ESPNOW_FLAG_IGNITION_VALID) && packed.ignition_raw == 127);
+    assert(strcmp(packed.name, MASTER_NAME) == 0);
+    obd_data_set_ignition_x2(INT16_MIN);
+    apply_packet(&packed);
+    obd_data_snapshot_t ignition_snap;
+    obd_data_get_snapshot(&ignition_snap);
+    assert(ignition_snap.ignition_x2 == -1);
+    test_now += pdMS_TO_TICKS(5001);
+    obd_data_get_snapshot(&ignition_snap);
+    assert(ignition_snap.ignition_x2 == INT16_MIN);
     espnow_obd_packet_t remote = {.flags = ESPNOW_FLAG_ZC6_PID};
     const int remote_values[] = {-40, -25, 0, 100, 151, 215, -100};
     for (unsigned i=0; i<sizeof(remote_values)/sizeof(remote_values[0]); ++i) {

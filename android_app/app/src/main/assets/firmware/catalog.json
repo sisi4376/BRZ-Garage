@@ -9,6 +9,12 @@
       "rollback": false
     },
     {
+      "id": "4.1.4-beta.3",
+      "label": "4.1.4-beta.3（六位置轮询公测版）",
+      "manifest": "firmware/history/4.1.4-beta.3/latest.json",
+      "rollback": true
+    },
+    {
       "id": "4.1.4-beta.1",
       "label": "4.1.4-beta.1（8位置轮询）",
       "manifest": "firmware/history/4.1.4-beta.1/latest.json",

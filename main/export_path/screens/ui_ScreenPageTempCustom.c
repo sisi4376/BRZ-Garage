@@ -16,7 +16,8 @@ static const char *k_data_options =
     "OILP\n"
     "BKT\n"
     "BOOST\n"
-    "AFR";
+    "AFR\n"
+    "IGN";
 
 static void on_temp_map_changed(lv_event_t *e)
 {

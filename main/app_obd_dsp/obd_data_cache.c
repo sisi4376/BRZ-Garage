@@ -23,11 +23,12 @@ static int16_t  s_boost_x10 = -32768;
 static int8_t   s_gear = 127;
 static obd_gear_source_t s_gear_source = OBD_GEAR_SOURCE_NONE;
 static TickType_t s_gear_last_tick = 0;
+static int16_t  s_ignition_x2 = INT16_MIN;
 static int16_t  s_afr_x100 = -1;
 static uint16_t s_maf_x100 = 0;
 static uint32_t s_fuel_rate_ml_h = 0;
 static TickType_t s_fuel_rate_last_tick = 0;
-enum { FI_RPM, FI_SPEED, FI_MAF, FI_AFR, FI_LOAD, FI_TPS, FI_RATE, FI_STATUS, FI_COUNT };
+enum { FI_RPM, FI_SPEED, FI_MAF, FI_AFR, FI_LOAD, FI_TPS, FI_RATE, FI_STATUS, FI_IGN, FI_COUNT };
 static TickType_t s_fuel_ticks[FI_COUNT];
 static bool s_fuel_seen[FI_COUNT];
 static uint8_t s_fuel_status;
@@ -499,6 +500,15 @@ int8_t obd_data_get_gear(void)
     return val;
 }
 
+void obd_data_set_ignition_x2(int16_t value)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_ignition_x2 = value;
+    if (value >= -128 && value <= 127) fuel_input_received_locked(FI_IGN);
+    else s_fuel_seen[FI_IGN] = false;
+    portEXIT_CRITICAL(&s_mux);
+}
+
 void obd_data_set_afr_x100(int16_t afr_x100)
 {
     portENTER_CRITICAL(&s_mux);
@@ -637,12 +647,10 @@ void obd_data_get_fuel_sample(fuel_sample_t *out)
     portENTER_CRITICAL(&s_mux);
     *out = (fuel_sample_t) {
         .rpm = s_rpm_smooth, .speed_kmh = s_speed_smooth,
-        .disable_cut_est = vehicle_profile_is_automatic(vehicle_profile_get_active()),
-        .maf_x100 = s_maf_x100, .fuel_rate_ml_h = s_fuel_rate_ml_h,
+        .maf_x100 = s_maf_x100,
         .rpm_valid = fuel_input_fresh_locked(FI_RPM, now, 3000),
         .speed_valid = fuel_input_fresh_locked(FI_SPEED, now, 3000),
         .maf_valid = fuel_input_fresh_locked(FI_MAF, now, 5000),
-        .fuel_rate_valid = fuel_input_fresh_locked(FI_RATE, now, FUEL_RATE_STALE_MS),
         .afr_x100 = fuel_input_fresh_locked(FI_AFR, now, 5000) ? s_afr_x100 : -1,
         .load_pct = fuel_input_fresh_locked(FI_LOAD, now, 2500) ? s_load_pct : -1,
         .tps_pct = fuel_input_fresh_locked(FI_TPS, now, 2500) ? s_tps : -1,
@@ -671,6 +679,7 @@ void obd_data_get_snapshot(obd_data_snapshot_t *out)
     bool inferred_fresh = s_inferred_gear != 127 && s_inferred_gear_seen &&
         (TickType_t)(now - s_inferred_gear_last_tick) <= pdMS_TO_TICKS(GEAR_INFER_STALE_MS);
     out->gear = vehicle_profile_is_automatic(vehicle_profile_get_active()) ? 127 : direct_gear_is_fresh_locked(now) ? s_gear : (inferred_fresh ? s_inferred_gear : 127);
+    out->ignition_x2 = fuel_input_fresh_locked(FI_IGN, now, 5000) ? s_ignition_x2 : INT16_MIN;
     out->afr_x100 = s_afr_x100;
     out->maf_x100 = s_maf_x100;
     out->fuel_rate_ml_h = s_fuel_rate_ml_h;

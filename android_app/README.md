@@ -1,3 +1,7 @@
+# BRZ Garage Android 4.6.7（179）Beta
+
+[安装 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk.sha256)）。覆盖安装后在“仪表固件更新”中升级到 4.1.4-beta.6。支持 A/B 分组轮询和点火提前角，详见[本版说明](../docs/RELEASE_4_6_7.md)。
+
 # BRZ Garage Android 4.6.6（177）Beta
 
 内置固件 **4.1.4-beta.3**，包含六位置轮询、蓝牙握手隔离、实时首页里程和通知管理更新。下载 [4.6.6 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.6/BRZ-Garage-v4.6.6-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.6/BRZ-Garage-v4.6.6-debug.apk.sha256)），原签名覆盖安装；随后到“仪表固件更新”单独执行 OTA。历史回滚入口保留，实际 BLE／OTA 和实车表现待验证。完整变化与限制见[发布说明](../docs/RELEASE_4_6_6.md)。

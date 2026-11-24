@@ -72,7 +72,7 @@ class StudioTests(unittest.TestCase):
         window = Window()
         try:
             for t in range(61):
-                for command, response in [('010D', b'41 0D 3C\r>'), ('015E', b'41 5E 00 78\r>')]:
+                for command, response in [('010D', b'41 0D 3C\r>'), ('010C', b'41 0C 1F 40\r>'), ('0110', b'41 10 07 21\r>'), ('015E', b'41 5E 00 00\r>')]:
                     window.on_event(dict(kind='replay_reply', command=command, hex=response.hex(),
                         complete=True, client='gauge', timeline=dict(t=t, sampled_at=t, cycle=0)))
             self.assertEqual(window.metric_values['distance_km'].text(), '1.00')
@@ -91,6 +91,22 @@ class StudioTests(unittest.TestCase):
         self.assertIsNone(decode('010C', 'NO DATA'))
         self.assertIsNone(decode('010C', '41 0C 1F'))
         self.assertIsNone(decode('010C', '41 0D 32'))
+
+    def test_grouped_display_and_trip(self):
+        window = Window()
+        try:
+            raw = b'010\r0: 41 0C 0C 80 0D 20\r1: 10 01 F4 44 80 00 0E\r2: 7F 0F 44\r>'
+            event = dict(kind='reply', command='010C0D10440E0F', complete=True, phase='poll', hex=raw.hex())
+            window.on_event(dict(event, t=0))
+            window.on_event(dict(event, t=1))
+            self.assertEqual(window.count, 2)
+            self.assertEqual(window.table.rowCount(), 6)
+            self.assertEqual(window.table.item(window.rows['010E'], 2).text(), '-0.5 °')
+            self.assertEqual(window.cards['010C'].text(), '800')
+            self.assertAlmostEqual(window.trip.distance_km, 32 / 3600)
+            self.assertAlmostEqual(window.trip.fuel_l, 5 / 14.7 / 745)
+        finally:
+            window.close()
 
     def test_display_clears_failed_value_and_stale_value(self):
         window = Window()
