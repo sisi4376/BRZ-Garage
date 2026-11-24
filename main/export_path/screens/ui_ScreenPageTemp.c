@@ -47,7 +47,7 @@ static void make_row(unsigned slot, lv_coord_t y, lv_coord_t inset, lv_color_t c
 
     lv_obj_t *label = ui_LabelTempName[slot] = lv_label_create(parent);
     lv_label_set_text(label, name);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_32, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
     lv_obj_align(label, LV_ALIGN_LEFT_MID, inset + 14, y);
 
@@ -57,12 +57,13 @@ static void make_row(unsigned slot, lv_coord_t y, lv_coord_t inset, lv_color_t c
     lv_obj_set_style_text_color(value, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_label_set_long_mode(value, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_letter_space(value, -2, LV_PART_MAIN);
-    lv_obj_align(value, LV_ALIGN_CENTER, 5, y);
+    lv_obj_align(value, LV_ALIGN_CENTER, 7, y);
     lv_obj_add_event_cb(value, fit_value, LV_EVENT_SIZE_CHANGED, NULL);
 
     lv_obj_t *unit = ui_LabelTempUnit[slot] = lv_label_create(parent);
     lv_label_set_text(unit, "°C");
-    lv_obj_set_style_text_font(unit, &lv_font_montserrat_32, LV_PART_MAIN);
+    lv_obj_set_style_text_font(unit, &ui_font_FontTypoderSize28, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(unit, -1, LV_PART_MAIN);
     lv_obj_set_style_text_color(unit, lv_color_hex(0xD6D6D6), LV_PART_MAIN);
     lv_obj_align(unit, LV_ALIGN_LEFT_MID, 341, y);
 }
@@ -91,11 +92,11 @@ void ui_ScreenPageTemp_screen_init(void)
 
     // OBD and TIME occupy the top band. The first row starts below the badge.
     // Row insets follow the inner circle at each row height.
-    make_row(0, -84, 43, lv_color_hex(0x44AAFF), "CLT");
+    make_row(0, -84, 40, lv_color_hex(0x44AAFF), "CLT");
     make_hdiv(ui_ScreenPageTemp, -41, 346);
-    make_row(1, 2, 25, lv_color_hex(0x44FF88), "IAT");
+    make_row(1, 2, 22, lv_color_hex(0x44FF88), "IAT");
     make_hdiv(ui_ScreenPageTemp, 45, 346);
-    make_row(2, 88, 45, lv_color_hex(0xFF7722), "OIL");
+    make_row(2, 88, 42, lv_color_hex(0xFF7722), "OIL");
 
     // Backward compatibility for existing update code
     ui_LabelCoolantTempText = ui_LabelTempValue[0];

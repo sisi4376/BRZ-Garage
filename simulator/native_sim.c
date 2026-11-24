@@ -494,7 +494,9 @@ static bool check_three_slot_readouts(void)
             lv_obj_get_coords(ui_LabelTempName[row], &name);
             lv_obj_get_coords(ui_LabelTempValue[row], &value);
             lv_obj_get_coords(ui_LabelTempUnit[row], &unit);
-            if (lv_obj_get_x(ui_LabelTempUnit[row]) != unit_column ||
+            if (lv_obj_get_style_text_font(ui_LabelTempName[row], 0) != &ui_font_FontTypoderSize28 ||
+                lv_obj_get_style_text_font(ui_LabelTempUnit[row], 0) != &ui_font_FontTypoderSize28 ||
+                lv_obj_get_x(ui_LabelTempUnit[row]) != unit_column ||
                 value.x1 < name.x2 + 3 || unit.x1 < value.x2 + 3 ||
                 (n == 0 && lv_obj_get_style_text_font(ui_LabelTempValue[row], 0) != &ui_font_FontTypoderSize56)) {
                 fprintf(stderr, "Three-slot overlap or unexpected font: row %d, %s (name ends %d, value %d..%d, unit starts %d)\n",

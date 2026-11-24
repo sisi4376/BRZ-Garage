@@ -34,6 +34,7 @@ APP_SRCS := simulator/native_sim.c simulator/sim_ui_port.c \
 	main/export_path/screens/ui_ScreenPageODBProtocal.c \
 	main/export_path/fonts/ui_font_FontTypoderSize16.c \
 	main/export_path/fonts/ui_font_FontTypoderSize20.c \
+	main/export_path/fonts/ui_font_FontTypoderSize28.c \
 	main/export_path/fonts/ui_font_FontTypoderSize24.c \
 	main/export_path/fonts/ui_font_FontTypoderSize36.c \
 	main/export_path/fonts/ui_font_FontTypoderSize40.c \
