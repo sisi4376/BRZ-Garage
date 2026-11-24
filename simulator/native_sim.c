@@ -442,7 +442,7 @@ static void update_ui(void)
         lv_obj_t *unit = temp ? ui_LabelTempUnit[slot] : ui_LabelInfoUnit[slot];
         if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(ui_disp_item_color(item)), 0);
         lv_label_set_text(name, ui_disp_item_name(item));
-        lv_label_set_text(unit, temp ? ui_three_slot_unit(item) : ui_disp_item_unit(item));
+        lv_label_set_text(unit, ui_info_slot_unit(item));
         lv_obj_set_style_text_color(name, lv_color_hex(ui_disp_item_color(item)), 0);
         disp_item_set_text(temp ? ui_LabelTempValue[slot] : ui_LabelInfoValue[slot], item, raw[item], true);
     }
@@ -469,23 +469,24 @@ static void update_ui(void)
     ui_trip_history_refresh();
 }
 
+static const struct { disp_item_t item; int value; } info_samples[] = {
+    {DISP_ITEM_RPM, 8888}, {DISP_ITEM_RPM, 65535}, {DISP_ITEM_IGN, -127},
+    {DISP_ITEM_SPEED, 255}, {DISP_ITEM_OILP, 100}, {DISP_ITEM_CLT, 90},
+    {DISP_ITEM_IAT, -39}, {DISP_ITEM_OIL, 160}, {DISP_ITEM_LOAD, 100},
+    {DISP_ITEM_TPS, 100}, {DISP_ITEM_BAT, 14400}, {DISP_ITEM_BKT, 8000},
+    {DISP_ITEM_BOOST, -10}, {DISP_ITEM_AFR, 2200}
+};
+
 /* Check that changing the width of a live reading keeps it inside its column. */
 static bool check_three_slot_readouts(void)
 {
-    static const struct { disp_item_t item; int value; } samples[] = {
-        {DISP_ITEM_RPM, 8888}, {DISP_ITEM_RPM, 65535}, {DISP_ITEM_IGN, -127},
-        {DISP_ITEM_SPEED, 255}, {DISP_ITEM_OILP, 100}, {DISP_ITEM_CLT, 90},
-        {DISP_ITEM_IAT, -39}, {DISP_ITEM_OIL, 160}, {DISP_ITEM_LOAD, 100},
-        {DISP_ITEM_TPS, 100}, {DISP_ITEM_BAT, 14400}, {DISP_ITEM_BKT, 8000},
-        {DISP_ITEM_BOOST, -10}, {DISP_ITEM_AFR, 2200}
-    };
     sim_ui_show_page(SIM_PAGE_TEMP);
-    for (unsigned n = 0; n < sizeof(samples) / sizeof(samples[0]); ++n) {
+    for (unsigned n = 0; n < sizeof(info_samples) / sizeof(info_samples[0]); ++n) {
         for (int row = 0; row < 3; ++row) {
-            disp_item_t item = samples[n].item;
+            disp_item_t item = info_samples[n].item;
             lv_label_set_text(ui_LabelTempName[row], ui_disp_item_name(item));
-            disp_item_set_text(ui_LabelTempValue[row], item, samples[n].value, true);
-            lv_label_set_text(ui_LabelTempUnit[row], ui_three_slot_unit(item));
+            disp_item_set_text(ui_LabelTempValue[row], item, info_samples[n].value, true);
+            lv_label_set_text(ui_LabelTempUnit[row], ui_info_slot_unit(item));
         }
         lv_obj_update_layout(ui_ScreenPageTemp);
         lv_coord_t unit_column = lv_obj_get_x(ui_LabelTempUnit[0]);
@@ -501,6 +502,30 @@ static bool check_three_slot_readouts(void)
                 (n == 0 && lv_obj_get_style_text_font(ui_LabelTempValue[row], 0) != &ui_font_FontTypoderSize56)) {
                 fprintf(stderr, "Three-slot overlap or unexpected font: row %d, %s (name ends %d, value %d..%d, unit starts %d)\n",
                         row, lv_label_get_text(ui_LabelTempValue[row]), name.x2, value.x1, value.x2, unit.x1);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool check_five_slot_readouts(void)
+{
+    sim_ui_show_page(SIM_PAGE_INFO);
+    for (unsigned n = 0; n < sizeof(info_samples) / sizeof(info_samples[0]); ++n) {
+        disp_item_t item = info_samples[n].item;
+        for (int slot = 0; slot < 5; ++slot) {
+            lv_label_set_text(ui_LabelInfoName[slot], ui_disp_item_name(item));
+            disp_item_set_text(ui_LabelInfoValue[slot], item, info_samples[n].value, true);
+            lv_label_set_text(ui_LabelInfoUnit[slot], ui_info_slot_unit(item));
+        }
+        lv_obj_update_layout(ui_ScreenPageInfo);
+        for (int slot = 0; slot < 5; ++slot) {
+            lv_obj_t *value = ui_LabelInfoValue[slot];
+            const lv_font_t *font = lv_obj_get_style_text_font(value, LV_PART_MAIN);
+            if (lv_obj_get_width(value) > 182 || lv_obj_get_height(value) != font->line_height ||
+                (item == DISP_ITEM_CLT && font != &ui_font_FontTypoderSize56)) {
+                fprintf(stderr, "Five-slot reading does not fit: slot %d, %s\n", slot, lv_label_get_text(value));
                 return false;
             }
         }
@@ -538,7 +563,7 @@ static int export_editor_frames(void)
             if (!write_framebuffer(name)) return 1;
         }
     }
-    return check_three_slot_readouts() ? 0 : 1;
+    return check_three_slot_readouts() && check_five_slot_readouts() ? 0 : 1;
 }
 
 int main(int argc, char **argv)

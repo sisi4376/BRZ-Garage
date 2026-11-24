@@ -231,13 +231,24 @@ void sim_ui_show_page(int page)
     lv_scr_load(screen);
 }
 
-static lv_obj_t *temp_obd_indicator;
+static lv_obj_t *info_obd_indicators[2];
+
+static lv_obj_t *add_info_indicators(lv_obj_t *screen)
+{
+    lv_obj_t *obd = status_indicator_create(screen, "OBD", -30);
+    lv_obj_t *time = status_indicator_create(screen, "TIME", 30);
+    lv_obj_clear_flag(obd, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(time, LV_OBJ_FLAG_HIDDEN);
+    return obd;
+}
 
 void sim_ui_set_elm_connected(bool connected)
 {
     s_ble_connected = connected;
-    if (temp_obd_indicator)
-        lv_obj_set_style_text_color(temp_obd_indicator, lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
+    for (int i = 0; i < 2; ++i) {
+        if (info_obd_indicators[i])
+            lv_obj_set_style_text_color(info_obd_indicators[i], lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
+    }
 }
 
 void sim_ui_set_rpm_warn_threshold(uint16_t threshold)
@@ -587,12 +598,10 @@ void sim_ui_create_pages(void)
     ui_ScreenPageRpm_screen_init();
     ui_ScreenPageSpeed_screen_init();
     ui_ScreenPageTemp_screen_init();
-    temp_obd_indicator = status_indicator_create(ui_ScreenPageTemp, "OBD", -30);
-    lv_obj_clear_flag(temp_obd_indicator, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_t *time_indicator = status_indicator_create(ui_ScreenPageTemp, "TIME", 30);
-    lv_obj_clear_flag(time_indicator, LV_OBJ_FLAG_HIDDEN);
+    info_obd_indicators[0] = add_info_indicators(ui_ScreenPageTemp);
     ui_ScreenPageTempCustom_screen_init();
     ui_ScreenPageInfo_screen_init();
+    info_obd_indicators[1] = add_info_indicators(ui_ScreenPageInfo);
     ui_ScreenPageInfoCustom_screen_init();
     ui_ScreenPageNeedle_screen_init();
     ui_ScreenPageOilPressure_screen_init();

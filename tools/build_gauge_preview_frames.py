@@ -11,8 +11,8 @@ SIDE = 466
 SOURCES = 13
 # Cuts lie between LVGL cells. Validate mixed frames against native renders before saving.
 TEMP_CELLS = [(0, 0, 466, 192), (0, 192, 466, 278), (0, 278, 466, 466)]
-INFO_CELLS = [(0, 0, 233, 197), (233, 0, 466, 197), (0, 197, 233, 301),
-              (233, 197, 466, 301), (0, 301, 466, 466)]
+INFO_CELLS = [(0, 0, 233, 206), (233, 0, 466, 206), (0, 206, 233, 320),
+              (233, 206, 466, 320), (0, 320, 466, 466)]
 
 
 def generate():

@@ -1,10 +1,5 @@
-// Info Page - OBD Extra Data
-// Layout (360×360 circle):
-//   Row 1: [CLT °C] | [OIL °C]
-//   Row 2: [LOAD %] | [TPS %]
-//   Row 3 (bottom center): [IAT °C]
-
 #include "../ui.h"
+#include <string.h>
 
 lv_obj_t *ui_ScreenPageInfo  = NULL;
 lv_obj_t *ui_LabelInfoCLT    = NULL;
@@ -16,12 +11,23 @@ lv_obj_t *ui_LabelInfoValue[5] = {NULL, NULL, NULL, NULL, NULL};
 lv_obj_t *ui_LabelInfoName[5]  = {NULL, NULL, NULL, NULL, NULL};
 lv_obj_t *ui_LabelInfoUnit[5]  = {NULL, NULL, NULL, NULL, NULL};
 
-// Helper: create one data tile (name + value + unit) at a given offset from center
-// Tile internal layout (relative to cy):
-//   name  center: cy - 28  (font Size16, ~16px tall)
-//   value center: cy + 2   (font Size36, ~36px tall)  gap between name bottom and value top ≈ 6px
-//   unit  center: cy + 34  (font Size16, ~16px tall)  gap between value bottom and unit top ≈ 8px
-// Total tile height ≈ 80px
+// Fit the actual formatted reading to one column, including signed decimals.
+static void fit_info_value(lv_event_t *event)
+{
+    lv_obj_t *label = lv_event_get_target(event);
+    const char *text = lv_label_get_text(label);
+    uint32_t length = strlen(text);
+    lv_coord_t spacing = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
+    const lv_font_t *font = &ui_font_FontTypoderSize56;
+    if (lv_txt_get_width(text, length, font, spacing, LV_TEXT_FLAG_NONE) > 182) {
+        font = &ui_font_FontTypoderSize44;
+        if (lv_txt_get_width(text, length, font, spacing, LV_TEXT_FLAG_NONE) > 182)
+            font = &ui_font_FontTypoderSize36;
+    }
+    if (lv_obj_get_style_text_font(label, LV_PART_MAIN) != font)
+        lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
+}
+
 static lv_obj_t *create_info_tile(lv_obj_t *parent,
                                    lv_obj_t **name_out,
                                    lv_obj_t **unit_out,
@@ -32,27 +38,27 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
     // Name label
     lv_obj_t *lbl_name = lv_label_create(parent);
     lv_label_set_text(lbl_name, name);
-    lv_obj_set_style_text_font(lbl_name, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl_name, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_name, name_color, LV_PART_MAIN);
-    lv_obj_align(lbl_name, LV_ALIGN_CENTER, cx, cy - 28);
+    lv_obj_align(lbl_name, LV_ALIGN_CENTER, cx, cy - 38);
     if (name_out) *name_out = lbl_name;
 
     // Value label (returned so caller can update it)
     lv_obj_t *lbl_val = lv_label_create(parent);
     lv_label_set_text(lbl_val, "--");
-    lv_obj_set_style_text_font(lbl_val, &ui_font_FontTypoderSize40, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl_val, &ui_font_FontTypoderSize56, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_val, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_label_set_long_mode(lbl_val, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(lbl_val, 158);
+    lv_obj_add_event_cb(lbl_val, fit_info_value, LV_EVENT_SIZE_CHANGED, NULL);
     lv_obj_set_style_text_align(lbl_val, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(lbl_val, LV_ALIGN_CENTER, cx, cy + 2);
+    lv_obj_align(lbl_val, LV_ALIGN_CENTER, cx, cy);
 
     // Unit label
     lv_obj_t *lbl_unit = lv_label_create(parent);
     lv_label_set_text(lbl_unit, unit);
-    lv_obj_set_style_text_font(lbl_unit, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl_unit, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_unit, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_align(lbl_unit, LV_ALIGN_CENTER, cx, cy + 34);
+    lv_obj_align(lbl_unit, LV_ALIGN_CENTER, cx, cy + 38);
     if (unit_out) *unit_out = lbl_unit;
 
     return lbl_val;
@@ -95,62 +101,6 @@ void ui_ScreenPageInfo_screen_init(void)
     // Outer spinner ring (decorative, white)
     lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageInfo, 8);   // white ring: static circular border, replaces the rotating spinner, removes the arc seam gap
 
-    // Page title
-    lv_obj_t *title = lv_label_create(ui_ScreenPageInfo);
-    lv_label_set_text(title, "INFO");
-    lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize20, LV_PART_MAIN);
-    lv_obj_set_style_text_color(title, lv_color_hex(0x666666), LV_PART_MAIN);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -148);
-
-    // Grid dividers
-    // Row1 cy=-84: unit bottom at cy+34+8 = -42 → pixel 138
-    // Hdiv at y=-36 → pixel 144 (6px gap below row1 unit)
-    create_hdiv(ui_ScreenPageInfo, -36, 260);
-    // Row2 cy=+22: name top at cy-28-8 = -14 → pixel 166
-    // Hdiv at y=-36 → pixel 144, gap to row2 name = 22px ✓
-    // Row2 bottom: unit at cy+34+8 = +64 → pixel 244
-    // Second hdiv at y=+68 → pixel 248 (4px gap below row2 unit)
-    create_hdiv(ui_ScreenPageInfo, +68, 200);
-    // Vertical divider between left and right cols, spans rows 1+2
-    // center_y = (-84+22)/2 = -31, height ≈ 196px
-    create_vdiv(ui_ScreenPageInfo, 0, -31, 196);
-
-    // ── Row 1 ──  cy = -84  (name pixel≈68, value≈96, unit≈126)
-    // CLT: left column cx=-82
-    ui_LabelInfoCLT  = create_info_tile(ui_ScreenPageInfo,
-                                        &ui_LabelInfoName[0], &ui_LabelInfoUnit[0],
-                                        "CLT", lv_color_hex(0x44AAFF), "'C",
-                                        -82, -84);
-    // OIL: right column cx=+82
-    ui_LabelInfoOil  = create_info_tile(ui_ScreenPageInfo,
-                                        &ui_LabelInfoName[1], &ui_LabelInfoUnit[1],
-                                        "OIL", lv_color_hex(0xFF7722), "'C",
-                                        +82, -84);
-
-    // ── Row 2 ──  cy = +22  (name pixel≈174, value≈202, unit≈232)
-    // LOAD: left column
-    ui_LabelInfoLoad = create_info_tile(ui_ScreenPageInfo,
-                                        &ui_LabelInfoName[2], &ui_LabelInfoUnit[2],
-                                        "LOAD", lv_color_hex(0xFFCC00), "%",
-                                        -82, +22);
-    // TPS: right column
-    ui_LabelInfoTPS  = create_info_tile(ui_ScreenPageInfo,
-                                        &ui_LabelInfoName[3], &ui_LabelInfoUnit[3],
-                                        "TPS", lv_color_hex(0xFF8844), "%",
-                                        +82, +22);
-
-    // ── Row 3: IAT centered ──
-    ui_LabelInfoIAT  = create_info_tile(ui_ScreenPageInfo,
-                                        &ui_LabelInfoName[4], &ui_LabelInfoUnit[4],
-                                        "IAT", lv_color_hex(0x44FF88), "'C",
-                                        0, +112);
-
-    ui_LabelInfoValue[0] = ui_LabelInfoCLT;
-    ui_LabelInfoValue[1] = ui_LabelInfoOil;
-    ui_LabelInfoValue[2] = ui_LabelInfoLoad;
-    ui_LabelInfoValue[3] = ui_LabelInfoTPS;
-    ui_LabelInfoValue[4] = ui_LabelInfoIAT;
-
     // Black ear image at top
     lv_obj_t *black_ear = lv_img_create(ui_ScreenPageInfo);
     lv_img_set_src(black_ear, &ui_img_pngblackear_png);
@@ -159,6 +109,48 @@ void ui_ScreenPageInfo_screen_init(void)
     lv_obj_align(black_ear, LV_ALIGN_CENTER, 0, -142);
     lv_obj_add_flag(black_ear, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_clear_flag(black_ear, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Page title
+    lv_obj_t *title = lv_label_create(ui_ScreenPageInfo);
+    lv_label_set_text(title, "INFO");
+    lv_obj_set_style_text_font(title, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x666666), LV_PART_MAIN);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -148);
+
+    // Two paired rows and a centered fifth slot on the 466 px round screen.
+    create_hdiv(ui_ScreenPageInfo, -27, 316);
+    create_hdiv(ui_ScreenPageInfo, 87, 244);
+    create_vdiv(ui_ScreenPageInfo, 0, -25, 222);
+
+    ui_LabelInfoCLT  = create_info_tile(ui_ScreenPageInfo,
+                                        &ui_LabelInfoName[0], &ui_LabelInfoUnit[0],
+                                        "CLT", lv_color_hex(0x44AAFF), "°C",
+                                        -96, -84);
+    ui_LabelInfoOil  = create_info_tile(ui_ScreenPageInfo,
+                                        &ui_LabelInfoName[1], &ui_LabelInfoUnit[1],
+                                        "OIL", lv_color_hex(0xFF7722), "°C",
+                                        +96, -84);
+
+    ui_LabelInfoLoad = create_info_tile(ui_ScreenPageInfo,
+                                        &ui_LabelInfoName[2], &ui_LabelInfoUnit[2],
+                                        "LOAD", lv_color_hex(0xFFCC00), "%",
+                                        -96, +30);
+    ui_LabelInfoTPS  = create_info_tile(ui_ScreenPageInfo,
+                                        &ui_LabelInfoName[3], &ui_LabelInfoUnit[3],
+                                        "TPS", lv_color_hex(0xFF8844), "%",
+                                        +96, +30);
+
+    ui_LabelInfoIAT  = create_info_tile(ui_ScreenPageInfo,
+                                        &ui_LabelInfoName[4], &ui_LabelInfoUnit[4],
+                                        "IAT", lv_color_hex(0x44FF88), "°C",
+                                        0, +144);
+
+    ui_LabelInfoValue[0] = ui_LabelInfoCLT;
+    ui_LabelInfoValue[1] = ui_LabelInfoOil;
+    ui_LabelInfoValue[2] = ui_LabelInfoLoad;
+    ui_LabelInfoValue[3] = ui_LabelInfoTPS;
+    ui_LabelInfoValue[4] = ui_LabelInfoIAT;
+
 
     // Touch events
     lv_obj_move_foreground(ring);   // bring the ring to the front
