@@ -39,3 +39,4 @@ int sim_ui_current_page(void);
 const char *sim_ui_page_name(int page);
 void sim_ui_set_elm_connected(bool connected);
 void sim_ui_set_rpm_warn_threshold(uint16_t threshold);
+void sim_ui_set_fuel_readings(bool valid, bool litres_per_hour, uint16_t value_x100);

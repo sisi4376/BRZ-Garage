@@ -92,7 +92,8 @@ class FuelEstimatorTests(unittest.TestCase):
         self.assertIn("s_cfg.default_page = 6", storage)
         device_page = (ROOT / "main" / "export_path" / "screens" /
                        "ui_ScreenPageEasterEgg.c").read_text(encoding="utf-8")
-        self.assertIn("lv_color_hex(0xD8E0E8)", device_page)
+        self.assertIn("device_readout_color = 0xD8E0E8", device_page)
+        self.assertIn("ui_LabelEasterEggOdometer, lv_color_hex(device_readout_color)", device_page)
         self.assertIn("lv_obj_move_foreground(ui_LabelEasterEggOdometer);", device_page)
         self.assertIn("vehicle_profile_normalize_index(normalized.vehicle_profile_idx)", storage)
         multi = (ROOT / "main/export_path/screens/ui_ScreenPageMultiGauge.c").read_text(encoding="utf-8")

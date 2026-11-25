@@ -1,5 +1,6 @@
 #include "../ui.h"
 #include "../ui_rounding.h"
+#include <string.h>
 #include "bsp_obd_dsp/nvs_storage.h"
 
 lv_obj_t *ui_ScreenPageFuel = NULL;
@@ -23,7 +24,7 @@ static lv_obj_t *fuel_label(lv_obj_t *parent, const char *text,
     return label;
 }
 
-static void fuel_set_x100(lv_obj_t *label, bool valid, uint16_t value)
+static void fuel_set_x100(lv_obj_t *label, bool valid, uint16_t value, bool is_average)
 {
     if (!label) return;
     if (!valid) lv_label_set_text(label, "--.-");
@@ -32,6 +33,17 @@ static void fuel_set_x100(lv_obj_t *label, bool valid, uint16_t value)
         lv_label_set_text_fmt(label, "%lu.%lu",
                               (unsigned long)(tenths / 10U),
                               (unsigned long)(tenths % 10U));
+    }
+
+    // Widen the two averages while keeping their longest readings in their columns.
+    if (is_average) {
+        const lv_font_t *font = &ui_font_FontTypoderSize56;
+        const char *text = lv_label_get_text(label);
+        lv_coord_t spacing = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
+        if (lv_txt_get_width(text, strlen(text), font, spacing, LV_TEXT_FLAG_NONE) > 166)
+            font = &ui_font_FontTypoderSize44;
+        if (lv_obj_get_style_text_font(label, LV_PART_MAIN) != font)
+            lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
     }
 }
 
@@ -50,15 +62,15 @@ void ui_fuel_page_refresh(void)
     }
     if (!s_fuel_rendered || data.data_valid != s_last_fuel_render.data_valid ||
         data.instant_x100 != s_last_fuel_render.instant_x100) {
-        fuel_set_x100(ui_LabelFuelInstant, data.data_valid, data.instant_x100);
+        fuel_set_x100(ui_LabelFuelInstant, data.data_valid, data.instant_x100, false);
     }
     if (!s_fuel_rendered || data.current_avg_valid != s_last_fuel_render.current_avg_valid ||
         data.current_avg_x100 != s_last_fuel_render.current_avg_x100) {
-        fuel_set_x100(ui_LabelFuelTripAverage, data.current_avg_valid, data.current_avg_x100);
+        fuel_set_x100(ui_LabelFuelTripAverage, data.current_avg_valid, data.current_avg_x100, true);
     }
     if (!s_fuel_rendered || data.lifetime_avg_valid != s_last_fuel_render.lifetime_avg_valid ||
         data.lifetime_avg_x100 != s_last_fuel_render.lifetime_avg_x100) {
-        fuel_set_x100(ui_LabelFuelLifetimeAverage, data.lifetime_avg_valid, data.lifetime_avg_x100);
+        fuel_set_x100(ui_LabelFuelLifetimeAverage, data.lifetime_avg_valid, data.lifetime_avg_x100, true);
     }
     if (ui_LabelFuelInstantUnit &&
         (!s_fuel_rendered || data.instant_is_lph != s_last_fuel_render.instant_is_lph)) {
@@ -79,42 +91,43 @@ void ui_ScreenPageFuel_screen_init(void)
     lv_obj_set_style_bg_opa(ui_ScreenPageFuel, 255, LV_PART_MAIN);
 
     lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageFuel, 8);
-    s_fuel_title = fuel_label(ui_ScreenPageFuel, "FUEL", &ui_font_FontTypoderSize20,
-               0x666666, 0, -148);
-
-    fuel_label(ui_ScreenPageFuel, "INSTANT", &ui_font_FontTypoderSize20,
-               0x44FF88, 0, -105);
-    ui_LabelFuelInstant = fuel_label(ui_ScreenPageFuel, "--.-",
-                                    &ui_font_FontTypoderSize56, 0xFFFFFF, -18, -62);
-    ui_LabelFuelInstantUnit = fuel_label(ui_ScreenPageFuel, "L/100km",
-                                        &ui_font_FontTypoderSize16, 0x888888, 92, -55);
-
-    lv_obj_t *divider = lv_obj_create(ui_ScreenPageFuel);
-    lv_obj_remove_style_all(divider);
-    lv_obj_set_size(divider, 240, 1);
-    lv_obj_align(divider, LV_ALIGN_CENTER, 0, -12);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(0x333333), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(divider, 255, LV_PART_MAIN);
-
-    fuel_label(ui_ScreenPageFuel, "CURRENT TRIP", &ui_font_FontTypoderSize16,
-               0x44AAFF, -82, 25);
-    ui_LabelFuelTripAverage = fuel_label(ui_ScreenPageFuel, "--.-",
-                                        &ui_font_FontTypoderSize40, 0xFFFFFF, -82, 61);
-    fuel_label(ui_ScreenPageFuel, "L/100km", &ui_font_FontTypoderSize16,
-               0x888888, -82, 92);
-
-    fuel_label(ui_ScreenPageFuel, "LIFETIME", &ui_font_FontTypoderSize16,
-               0xFFAA44, 82, 25);
-    ui_LabelFuelLifetimeAverage = fuel_label(ui_ScreenPageFuel, "--.-",
-                                            &ui_font_FontTypoderSize40, 0xFFFFFF, 82, 61);
-    fuel_label(ui_ScreenPageFuel, "L/100km", &ui_font_FontTypoderSize16,
-               0x888888, 82, 92);
-
     lv_obj_t *ear = lv_img_create(ui_ScreenPageFuel);
     lv_img_set_src(ear, &ui_img_pngblackear_png);
     lv_obj_align(ear, LV_ALIGN_CENTER, 0, -142);
     lv_obj_add_flag(ear, LV_OBJ_FLAG_ADV_HITTEST);
     lv_obj_clear_flag(ear, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_fuel_title = fuel_label(ui_ScreenPageFuel, "FUEL", &ui_font_FontTypoderSize24,
+               0x888888, 0, -148);
+
+    fuel_label(ui_ScreenPageFuel, "INSTANT", &ui_font_FontTypoderSize24,
+               0x44FF88, 0, -105);
+    ui_LabelFuelInstant = fuel_label(ui_ScreenPageFuel, "--.-",
+                                    &ui_font_FontTypoderSize64, 0xFFFFFF, 0, -57);
+    ui_LabelFuelInstantUnit = fuel_label(ui_ScreenPageFuel, "L/100km",
+                                        &ui_font_FontTypoderSize20, 0xAAAAAA, 0, -7);
+
+    lv_obj_t *divider = lv_obj_create(ui_ScreenPageFuel);
+    lv_obj_remove_style_all(divider);
+    lv_obj_set_size(divider, 320, 1);
+    lv_obj_align(divider, LV_ALIGN_CENTER, 0, 9);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(divider, 255, LV_PART_MAIN);
+
+    fuel_label(ui_ScreenPageFuel, "CURRENT TRIP", &ui_font_FontTypoderSize20,
+               0x44AAFF, -100, 34);
+    ui_LabelFuelTripAverage = fuel_label(ui_ScreenPageFuel, "--.-",
+                                        &ui_font_FontTypoderSize56, 0xFFFFFF, -100, 80);
+    fuel_label(ui_ScreenPageFuel, "L/100km", &ui_font_FontTypoderSize20,
+               0xAAAAAA, -100, 126);
+
+    fuel_label(ui_ScreenPageFuel, "LIFETIME", &ui_font_FontTypoderSize20,
+               0xFFAA44, 100, 34);
+    ui_LabelFuelLifetimeAverage = fuel_label(ui_ScreenPageFuel, "--.-",
+                                            &ui_font_FontTypoderSize56, 0xFFFFFF, 100, 80);
+    fuel_label(ui_ScreenPageFuel, "L/100km", &ui_font_FontTypoderSize20,
+               0xAAAAAA, 100, 126);
+
     lv_obj_move_foreground(ring);
     lv_obj_add_event_cb(ui_ScreenPageFuel, ui_event_fuel_background,
                         LV_EVENT_GESTURE, NULL);

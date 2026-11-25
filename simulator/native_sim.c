@@ -655,6 +655,43 @@ static bool export_fixed_editor_frames(void)
     return write_framebuffer("device.bmp");
 }
 
+static bool check_fuel_readout_layout(void)
+{
+    static const struct {
+        bool valid;
+        bool litres_per_hour;
+        uint16_t value_x100;
+        const char *text;
+    } samples[] = {
+        {true, false, UINT16_MAX, "655.4"},
+        {true, true, 8888, "88.9"},
+        {false, false, 0, "--.-"},
+        {true, false, 840, "8.4"},
+    };
+
+    sim_ui_show_page(SIM_PAGE_FUEL);
+    for (unsigned i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i) {
+        sim_ui_set_fuel_readings(samples[i].valid, samples[i].litres_per_hour, samples[i].value_x100);
+        lv_obj_update_layout(ui_ScreenPageFuel);
+        lv_area_t instant, unit, trip, lifetime;
+        lv_obj_get_coords(ui_LabelFuelInstant, &instant);
+        lv_obj_get_coords(ui_LabelFuelInstantUnit, &unit);
+        lv_obj_get_coords(ui_LabelFuelTripAverage, &trip);
+        lv_obj_get_coords(ui_LabelFuelLifetimeAverage, &lifetime);
+        if (instant.y2 + 2 >= unit.y1 || trip.x2 + 2 >= lifetime.x1 ||
+            !inside_round_display(ui_LabelFuelInstant) ||
+            !inside_round_display(ui_LabelFuelTripAverage) ||
+            !inside_round_display(ui_LabelFuelLifetimeAverage) ||
+            strcmp(lv_label_get_text(ui_LabelFuelInstant), samples[i].text) != 0 ||
+            strcmp(lv_label_get_text(ui_LabelFuelInstantUnit), samples[i].litres_per_hour ? "L/h" : "L/100km") != 0) {
+            fprintf(stderr, "Fuel layout failed for %s (value %d, unit %d, averages %d/%d)\n",
+                    samples[i].text, instant.y2, unit.y1, trip.x2, lifetime.x1);
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Export each data source with the production LVGL screen and font objects.
  * The last pass is a mixed layout used to check the phone's cell boundaries. */
 static int export_editor_frames(void)
@@ -686,7 +723,8 @@ static int export_editor_frames(void)
         }
     }
     return check_three_slot_readouts() && check_five_slot_readouts() &&
-           check_single_signal_readouts() && check_speed_and_rpm_readouts() && export_fixed_editor_frames() ? 0 : 1;
+           check_single_signal_readouts() && check_speed_and_rpm_readouts() &&
+           export_fixed_editor_frames() && check_fuel_readout_layout() ? 0 : 1;
 }
 
 int main(int argc, char **argv)

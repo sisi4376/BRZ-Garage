@@ -358,6 +358,17 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg) { s_sim_cfg = *cfg; return 0; }
 int16_t nvs_chart_alarm_get(uint8_t item) { return item < 12 ? s_chart_alarm[item] : 32767; }
 void nvs_chart_alarm_set(uint8_t item, int16_t raw) { if (item < 12) s_chart_alarm[item] = raw; }
 void nvs_fuel_get_snapshot(nvs_fuel_snapshot_t *out) { if (out) *out = s_sim_fuel; }
+void sim_ui_set_fuel_readings(bool valid, bool litres_per_hour, uint16_t value_x100)
+{
+    s_sim_fuel.data_valid = valid;
+    s_sim_fuel.current_avg_valid = valid;
+    s_sim_fuel.lifetime_avg_valid = valid;
+    s_sim_fuel.instant_is_lph = litres_per_hour;
+    s_sim_fuel.instant_x100 = value_x100;
+    s_sim_fuel.current_avg_x100 = value_x100;
+    s_sim_fuel.lifetime_avg_x100 = value_x100;
+    ui_fuel_page_refresh();
+}
 void nvs_refuel_get_meta(nvs_refuel_meta_t *out)
 {
     *out = (nvs_refuel_meta_t){
