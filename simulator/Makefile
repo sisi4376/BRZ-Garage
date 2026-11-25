@@ -39,6 +39,7 @@ APP_SRCS := simulator/native_sim.c simulator/sim_ui_port.c \
 	main/export_path/fonts/ui_font_FontTypoderSize36.c \
 	main/export_path/fonts/ui_font_FontTypoderSize40.c \
 	main/export_path/fonts/ui_font_FontTypoderSize44.c \
+	main/export_path/fonts/ui_font_FontTypoderSize64.c \
 	main/export_path/fonts/ui_font_FontTypoderSize56.c \
 	main/export_path/fonts/ui_font_FontTypoderSize140.c \
 	main/export_path/images/ui_img_pngblackear_png.c \

@@ -231,7 +231,7 @@ void sim_ui_show_page(int page)
     lv_scr_load(screen);
 }
 
-static lv_obj_t *page_obd_indicators[4];
+static lv_obj_t *page_obd_indicators[7];
 
 static lv_obj_t *add_page_indicators(lv_obj_t *screen)
 {
@@ -245,7 +245,7 @@ static lv_obj_t *add_page_indicators(lv_obj_t *screen)
 void sim_ui_set_elm_connected(bool connected)
 {
     s_ble_connected = connected;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < sizeof(page_obd_indicators) / sizeof(page_obd_indicators[0]); ++i) {
         if (page_obd_indicators[i])
             lv_obj_set_style_text_color(page_obd_indicators[i], lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
     }
@@ -597,6 +597,9 @@ void sim_ui_create_pages(void)
     ui_ScreenPageGear_screen_init();
     ui_ScreenPageRpm_screen_init();
     ui_ScreenPageSpeed_screen_init();
+    page_obd_indicators[4] = add_page_indicators(ui_ScreenPageGear);
+    page_obd_indicators[5] = add_page_indicators(ui_ScreenPageRpm);
+    page_obd_indicators[6] = add_page_indicators(ui_ScreenPageSpeed);
     ui_ScreenPageTemp_screen_init();
     page_obd_indicators[0] = add_page_indicators(ui_ScreenPageTemp);
     ui_ScreenPageTempCustom_screen_init();

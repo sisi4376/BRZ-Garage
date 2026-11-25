@@ -325,6 +325,7 @@ LV_FONT_DECLARE(ui_font_FontTypoderSize36);
 LV_FONT_DECLARE(ui_font_FontTypoderSize40);
 LV_FONT_DECLARE(ui_font_FontTypoderSize44);
 LV_FONT_DECLARE(ui_font_FontTypoderSize56);
+LV_FONT_DECLARE(ui_font_FontTypoderSize64);
 LV_FONT_DECLARE(ui_font_FontTypoderSize100);
 LV_FONT_DECLARE(ui_font_FontTypoderSize140);
 

@@ -571,6 +571,60 @@ static bool check_single_signal_readouts(void)
     return true;
 }
 
+static bool check_speed_and_rpm_readouts(void)
+{
+    static const struct {
+        int page;
+        int rpm;
+        int speed;
+    } samples[] = {
+        {SIM_PAGE_GEAR, 8888, 128},
+        {SIM_PAGE_GEAR, 65535, 128},
+        {SIM_PAGE_RPM, 65535, 128},
+        {SIM_PAGE_SPEED, 8888, SWEEP_SPEED_PEAK},
+    };
+    for (unsigned i = 0; i < sizeof(samples) / sizeof(samples[0]); ++i) {
+        sim_ui_show_page(samples[i].page);
+        g_data.rpm = samples[i].rpm;
+        g_data.speed = samples[i].speed;
+        update_ui();
+        lv_obj_t *reading = samples[i].page == SIM_PAGE_GEAR ? ui_GearPageRpmText :
+                            samples[i].page == SIM_PAGE_RPM ? ui_RpmPageArcLabelRpmText :
+                            ui_SpeedPageArcLabelSpeedText;
+        lv_obj_t *unit = samples[i].page == SIM_PAGE_GEAR ? ui_GearPageRpmUnit :
+                         samples[i].page == SIM_PAGE_RPM ? ui_RpmPageArcLabelRpmUnit :
+                         ui_SpeedPageArcLabelSpeedUnit;
+        const lv_font_t *font = lv_obj_get_style_text_font(reading, LV_PART_MAIN);
+        const char *value = lv_label_get_text(reading);
+        lv_coord_t width = lv_txt_get_width(value, strlen(value), font,
+                                           lv_obj_get_style_text_letter_space(reading, LV_PART_MAIN),
+                                           LV_TEXT_FLAG_NONE);
+        lv_obj_update_layout(reading);
+        if (width > lv_obj_get_content_width(reading) ||
+            lv_obj_get_y(reading) + lv_obj_get_height(reading) > lv_obj_get_y(unit)) {
+            fprintf(stderr, "Reading %s exceeds its space on page %d\n", value, samples[i].page);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool export_speed_and_rpm_frames(void)
+{
+    g_data.rpm = 5888;
+    g_data.speed = 128;
+    g_data.gear = 5;
+    update_ui();
+
+    sim_ui_show_page(SIM_PAGE_GEAR);
+    lv_refr_now(NULL);
+    if (!write_framebuffer("gear.bmp")) return false;
+
+    sim_ui_show_page(SIM_PAGE_SPEED);
+    lv_refr_now(NULL);
+    return write_framebuffer("speed.bmp");
+}
+
 /* Export each data source with the production LVGL screen and font objects.
  * The last pass is a mixed layout used to check the phone's cell boundaries. */
 static int export_editor_frames(void)
@@ -601,7 +655,8 @@ static int export_editor_frames(void)
             if (!write_framebuffer(name)) return 1;
         }
     }
-    return check_three_slot_readouts() && check_five_slot_readouts() && check_single_signal_readouts() ? 0 : 1;
+    return check_three_slot_readouts() && check_five_slot_readouts() &&
+           check_single_signal_readouts() && check_speed_and_rpm_readouts() && export_speed_and_rpm_frames() ? 0 : 1;
 }
 
 int main(int argc, char **argv)

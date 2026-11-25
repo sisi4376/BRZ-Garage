@@ -52,13 +52,13 @@ void ui_ScreenPageSpeed_screen_init(void)
     lv_obj_set_style_text_align(ui_SpeedPageArcLabelSpeedText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_SpeedPageArcLabelSpeedText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_SpeedPageArcLabelSpeedText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_SpeedPageArcLabelSpeedText, &ui_font_FontTypoderSize56, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_SpeedPageArcLabelSpeedText, &ui_font_FontTypoderSize64, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_SpeedPageArcLabelSpeedUnit = lv_label_create(ui_ScreenPageSpeed);
     lv_obj_set_width(ui_SpeedPageArcLabelSpeedUnit, LV_SIZE_CONTENT);   /// 60
     lv_obj_set_height(ui_SpeedPageArcLabelSpeedUnit, LV_SIZE_CONTENT);    /// 60
     lv_obj_set_x(ui_SpeedPageArcLabelSpeedUnit, 0);
-    lv_obj_set_y(ui_SpeedPageArcLabelSpeedUnit, 46);
+    lv_obj_set_y(ui_SpeedPageArcLabelSpeedUnit, 51);
     lv_obj_set_align(ui_SpeedPageArcLabelSpeedUnit, LV_ALIGN_CENTER);
     lv_label_set_text(ui_SpeedPageArcLabelSpeedUnit, "km/h");
     lv_obj_set_style_text_color(ui_SpeedPageArcLabelSpeedUnit, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);

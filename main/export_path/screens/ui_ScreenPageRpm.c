@@ -52,13 +52,13 @@ void ui_ScreenPageRpm_screen_init(void)
     lv_obj_set_style_text_align(ui_RpmPageArcLabelRpmText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_RpmPageArcLabelRpmText, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize56, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_RpmPageArcLabelRpmText, &ui_font_FontTypoderSize64, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_RpmPageArcLabelRpmUnit = lv_label_create(ui_ScreenPageRpm);
     lv_obj_set_width(ui_RpmPageArcLabelRpmUnit, LV_SIZE_CONTENT);   /// 60
     lv_obj_set_height(ui_RpmPageArcLabelRpmUnit, LV_SIZE_CONTENT);    /// 60
     lv_obj_set_x(ui_RpmPageArcLabelRpmUnit, 0);
-    lv_obj_set_y(ui_RpmPageArcLabelRpmUnit, 46);
+    lv_obj_set_y(ui_RpmPageArcLabelRpmUnit, 51);
     lv_obj_set_align(ui_RpmPageArcLabelRpmUnit, LV_ALIGN_CENTER);
     lv_label_set_text(ui_RpmPageArcLabelRpmUnit, "rpm");
     lv_obj_set_style_text_color(ui_RpmPageArcLabelRpmUnit, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);

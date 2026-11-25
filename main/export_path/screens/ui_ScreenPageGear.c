@@ -40,6 +40,9 @@ void ui_gear_page_update_visuals(uint16_t rpm, uint16_t warning_rpm, uint16_t sp
                                                    ui_theme_color_lv(UI_COLOR_ARC_INDICATOR);
     lv_obj_set_style_arc_color(ui_GearPageArcGearNumBack, rpm_color,
                                LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    const lv_font_t *rpm_font = rpm >= 10000 ? &ui_font_FontTypoderSize44 : &ui_font_FontTypoderSize64;
+    if (lv_obj_get_style_text_font(ui_GearPageRpmText, LV_PART_MAIN) != rpm_font)
+        lv_obj_set_style_text_font(ui_GearPageRpmText, rpm_font, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_GearPageRpmText, rpm_color,
                                 LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -108,16 +111,18 @@ void ui_ScreenPageGear_screen_init(void)
     lv_obj_set_width(ui_GearPageRpmText, 320);
     lv_obj_set_height(ui_GearPageRpmText, LV_SIZE_CONTENT);
     lv_obj_set_align(ui_GearPageRpmText, LV_ALIGN_CENTER);
-    lv_obj_set_y(ui_GearPageRpmText, -58);
+    lv_obj_set_y(ui_GearPageRpmText, -38);
     lv_label_set_long_mode(ui_GearPageRpmText, LV_LABEL_LONG_CLIP);
     lv_label_set_text(ui_GearPageRpmText, "0");
+    // Keep the wider reading inside the ring of lower-gear markers.
+    lv_obj_set_style_text_letter_space(ui_GearPageRpmText, -5, LV_PART_MAIN);
     lv_obj_set_style_text_align(ui_GearPageRpmText, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_GearPageRpmText, ui_theme_color_lv(UI_COLOR_TEXT_PRIMARY), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_GearPageRpmText, &ui_font_FontTypoderSize56, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_GearPageRpmText, &ui_font_FontTypoderSize64, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_GearPageRpmUnit = lv_label_create(ui_ScreenPageGear);
     lv_obj_set_align(ui_GearPageRpmUnit, LV_ALIGN_CENTER);
-    lv_obj_set_y(ui_GearPageRpmUnit, -15);
+    lv_obj_set_y(ui_GearPageRpmUnit, 10);
     lv_label_set_text(ui_GearPageRpmUnit, "RPM");
     lv_obj_set_style_text_color(ui_GearPageRpmUnit, ui_theme_color_lv(UI_COLOR_TEXT_SECONDARY), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(ui_GearPageRpmUnit, &ui_font_FontTypoderSize16, LV_PART_MAIN | LV_STATE_DEFAULT);
