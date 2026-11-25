@@ -10,6 +10,7 @@ LDLIBS := -lws2_32 -lgdi32 -luser32 -lm
 LVGL_SRCS := $(shell find $(LVGL_DIR)/src -name '*.c')
 APP_SRCS := simulator/native_sim.c simulator/sim_ui_port.c \
 	main/app_obd_dsp/fuel_estimator.c \
+	main/app_obd_dsp/vehicle_profiles.c \
 	main/export_path/ui_disp_item.c \
 	main/export_path/screens/ui_ScreenPageLogo.c \
 	main/export_path/screens/ui_ScreenPageGear.c \
@@ -53,11 +54,12 @@ OBJECTS := $(addprefix simulator/build/obj/,$(SOURCES:.c=.o))
 
 all: $(TARGET)
 
-$(addprefix simulator/build/obj/,$(APP_SRCS:.c=.o)): main/bsp_obd_dsp/gauge_layout.h simulator/stubs/bsp_obd_dsp/nvs_storage.h main/export_path/ui_page_items.h
+$(addprefix simulator/build/obj/,$(APP_SRCS:.c=.o)): main/bsp_obd_dsp/gauge_layout.h simulator/stubs/bsp_obd_dsp/nvs_storage.h main/export_path/ui_page_items.h simulator/stubs/app_obd_dsp/vehicle_profiles.h
 
 $(OBJECTS): simulator/lv_conf.h
 
 simulator/build/obj/simulator/sim_ui_port.o: main/export_path/ui_status_indicator.h
+simulator/build/obj/main/app_obd_dsp/vehicle_profiles.o: main/app_obd_dsp/vehicle_profiles.h main/app_obd_dsp/vehicle_custom_config.h
 
 ifdef PREVIEW_FW_VERSION
 simulator/build/obj/main/export_path/screens/ui_ScreenPageEasterEgg.o: CFLAGS += -DOBD_GAUGE_FIRMWARE_VERSION=\"$(PREVIEW_FW_VERSION)\"

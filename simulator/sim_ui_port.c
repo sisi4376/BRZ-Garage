@@ -135,29 +135,6 @@ static nvs_user_cfg_t s_sim_cfg = {
     .trip_merge_timeout_min = 5,
 };
 
-static vehicle_profile_t s_vehicles[] = {
-    {
-        .name = "OBD2 GENERIC", .final_drive_ratio = 4.10f,
-        .tire_rolling_radius_m = 0.315f, .gear_count = 6,
-        .gear_ratios = {0, 3.500f, 2.000f, 1.400f, 1.100f, 0.900f, 0.750f},
-        .has_boost = false,
-    },
-    [VEHICLE_PROFILE_ZD8_INDEX] = {
-        .name = "SUBARU BRZ ZD8", .final_drive_ratio = 4.10f,
-        .tire_rolling_radius_m = 0.315f, .gear_count = 6,
-        .gear_ratios = {0, 3.626f, 2.188f, 1.541f, 1.213f, 1.000f, 0.767f},
-        .has_boost = false,
-    },
-    [VEHICLE_PROFILE_ZC6_INDEX] = {
-        .name = "SUBARU BRZ ZC6", .final_drive_ratio = 4.10f,
-        .tire_rolling_radius_m = 0.314f, .gear_count = 6,
-        .gear_ratios = {0, 3.626f, 2.188f, 1.541f, 1.213f, 1.000f, 0.767f},
-        .has_boost = false,
-    },
-    [VEHICLE_PROFILE_ZC6_AT_INDEX] = {.name = "SUBARU BRZ ZC6 AT"},
-    [VEHICLE_PROFILE_ZD8_AT_INDEX] = {.name = "SUBARU BRZ ZD8 AT"},
-};
-
 static const ui_theme_t s_sim_theme = {
     .id = "default",
     .name = "DEFAULT",
@@ -423,21 +400,9 @@ void nvs_intro_enable_set(uint8_t en) { s_intro = en; }
 uint8_t nvs_device_position_get(void) { return s_position; }
 void nvs_device_position_set(uint8_t pos) { s_position = pos; }
 
-const vehicle_profile_t *vehicle_profile_get_all(uint8_t *count)
-{
-    if (count) *count = (uint8_t)(sizeof(s_vehicles) / sizeof(s_vehicles[0]));
-    return s_vehicles;
-}
-const vehicle_profile_t *vehicle_profile_get_active(void)
-{
-    unsigned index = s_sim_cfg.vehicle_profile_idx;
-    if (index >= sizeof(s_vehicles) / sizeof(s_vehicles[0])) index = 0;
-    return &s_vehicles[index];
-}
-void vehicle_profile_set_active(uint8_t index)
-{
-    if (index < sizeof(s_vehicles) / sizeof(s_vehicles[0])) s_sim_cfg.vehicle_profile_idx = index;
-}
+// The native renderer uses the firmware's profiles; it has no ECU cache to reset.
+void obd_data_reset_temp_cache(void) {}
+void obd_data_reset_gear(void) {}
 
 size_t sim_strlcat(char *dst, const char *src, size_t size)
 {
@@ -593,6 +558,7 @@ EMPTY_EVENT(ui_event_obd_prot_background)
 
 void sim_ui_create_pages(void)
 {
+    vehicle_profile_set_active(s_sim_cfg.vehicle_profile_idx);
     ui_ScreenPageLogo_screen_init();
     ui_ScreenPageGear_screen_init();
     ui_ScreenPageRpm_screen_init();

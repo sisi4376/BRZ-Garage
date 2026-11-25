@@ -15,6 +15,7 @@
 #include "sim_ui_port.h"
 #include "export_path/ui_page_items.h"
 #include "export_path/ui_disp_item.h"
+#include "app_obd_dsp/vehicle_profiles.h"
 #include "bsp_obd_dsp/gauge_layout.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 
@@ -358,21 +359,30 @@ static bool elm_pid(const char *pid, int *a, int *b)
     return true;
 }
 
+static float rpm_for_gear(const vehicle_profile_t *profile, int speed, int gear)
+{
+    return speed * vehicle_profile_calc_constant(profile) *
+           profile->final_drive_ratio * profile->gear_ratios[gear];
+}
+
 static int estimate_gear(int rpm, int speed)
 {
     if (speed < 3 || rpm < 500) return 0;
-    static const double rpm_per_kmh[] = {125.4, 75.7, 53.3, 41.9, 34.6, 26.5};
-    double ratio = (double)rpm / speed;
+
+    const vehicle_profile_t *profile = vehicle_profile_get_active();
     int best = 0;
-    double best_error = 1e9;
-    for (int i = 0; i < 6; ++i) {
-        double error = fabs(ratio - rpm_per_kmh[i]);
+    float best_error = profile->gear_tolerance;
+    for (int gear = 1; gear <= profile->gear_count; ++gear) {
+        float expected = rpm_for_gear(profile, speed, gear);
+        if (expected <= 0) continue;
+
+        float error = fabsf(rpm - expected) / expected;
         if (error < best_error) {
             best_error = error;
-            best = i + 1;
+            best = gear;
         }
     }
-    return best_error / rpm_per_kmh[best - 1] < 0.22 ? best : 0;
+    return best;
 }
 
 static void update_from_elm(void)
@@ -616,9 +626,12 @@ static bool check_speed_and_rpm_readouts(void)
 
 static bool export_fixed_editor_frames(void)
 {
-    g_data.rpm = 5888;
+    // Derive the displayed RPM and the lower-gear marks from the same drivetrain.
+    vehicle_profile_set_active(VEHICLE_PROFILE_ZD8_INDEX);
+    const vehicle_profile_t *profile = vehicle_profile_get_active();
     g_data.speed = 128;
     g_data.gear = 5;
+    g_data.rpm = (int)lroundf(rpm_for_gear(profile, g_data.speed, g_data.gear));
     update_ui();
 
     sim_ui_show_page(SIM_PAGE_GEAR);
