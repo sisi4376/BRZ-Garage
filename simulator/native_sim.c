@@ -630,7 +630,7 @@ static bool export_fixed_editor_frames(void)
     if (!write_framebuffer("speed.bmp")) return false;
 
     sim_ui_show_page(SIM_PAGE_DEVICE);
-    update_ui();
+    ui_device_fuel_level_refresh(2400);
     lv_refr_now(NULL);
     return write_framebuffer("device.bmp");
 }

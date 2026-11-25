@@ -18,7 +18,10 @@
 #define OBD_GAUGE_FIRMWARE_VERSION "3.2.9"
 #endif
 
+#define LOW_FUEL_PERCENT 25
+
 static lv_obj_t *fuel_level_label;
+static const uint32_t device_readout_color = 0xD8E0E8;
 static int16_t displayed_fuel_percent;
 
 void ui_device_fuel_level_refresh(int16_t level_x100)
@@ -31,6 +34,9 @@ void ui_device_fuel_level_refresh(int16_t level_x100)
 
     if (percent < 0) lv_label_set_text(fuel_level_label, "--%");
     else lv_label_set_text_fmt(fuel_level_label, "%d%%", (int)percent);
+    lv_color_t color = lv_color_hex(percent >= 0 && percent <= LOW_FUEL_PERCENT
+        ? 0xFFD21F : device_readout_color);
+    lv_obj_set_style_text_color(fuel_level_label, color, LV_PART_MAIN);
     displayed_fuel_percent = percent;
 }
 
@@ -67,7 +73,7 @@ static void create_fuel_level_row(lv_obj_t *parent)
     lv_obj_set_style_pad_column(row, 10, LV_PART_MAIN);
     lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -55);
 
-    lv_color_t ink = lv_color_hex(0xD8E0E8);
+    lv_color_t ink = lv_color_hex(device_readout_color);
     lv_obj_t *pump = lv_obj_create(row);
     lv_obj_remove_style_all(pump);
     lv_obj_clear_flag(pump, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -89,8 +95,7 @@ static void create_fuel_level_row(lv_obj_t *parent)
     }
 
     fuel_level_label = lv_label_create(row);
-    lv_obj_set_style_text_font(fuel_level_label, &ui_font_FontTypoderSize28, LV_PART_MAIN);
-    lv_obj_set_style_text_color(fuel_level_label, ink, LV_PART_MAIN);
+    lv_obj_set_style_text_font(fuel_level_label, &ui_font_FontTypoderSize32, LV_PART_MAIN);
     displayed_fuel_percent = -2;
     ui_device_fuel_level_refresh(-1);
 }
@@ -160,7 +165,7 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     lv_obj_set_width(ui_LabelEasterEggOdometer, 320);
     lv_obj_set_style_text_align(ui_LabelEasterEggOdometer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(ui_LabelEasterEggOdometer, &ui_font_FontTypoderSize36, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ui_LabelEasterEggOdometer, lv_color_hex(0xD8E0E8), LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui_LabelEasterEggOdometer, lv_color_hex(device_readout_color), LV_PART_MAIN);
     lv_obj_set_style_text_opa(ui_LabelEasterEggOdometer, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(ui_LabelEasterEggOdometer, LV_ALIGN_BOTTOM_MID, 0, -102);
     lv_obj_add_flag(ui_LabelEasterEggOdometer, LV_OBJ_FLAG_HIDDEN);
