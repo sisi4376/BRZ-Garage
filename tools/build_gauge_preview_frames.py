@@ -34,10 +34,16 @@ def generate():
             if difference:
                 raise ValueError(f"Page {page} differs from LVGL in rectangle {difference}")
 
-        for source, page in [("gear", 4), ("speed", 5), ("device", 12)]:
+        fixed_frames = [
+            ("gear", "page-4"), ("speed", "page-5"), ("fuel", "page-6"),
+            ("trip-history", "page-7"), ("trip-overview", "page-8"),
+            ("trip-intervals", "trip-intervals"), ("trip-history-2", "trip-history-2"),
+            ("device", "page-12"),
+        ]
+        for source, target in fixed_frames:
             with Image.open(frames / f"{source}.bmp") as bmp:
                 assert bmp.size == (SIDE, SIDE)
-                bmp.convert("RGB").save(ASSETS / f"page-{page}.png", optimize=True)
+                bmp.convert("RGB").save(ASSETS / f"{target}.png", optimize=True)
 
         for page in range(4):
             atlas = Image.new("RGB", (4 * SIDE, 4 * SIDE))

@@ -25,6 +25,7 @@ APP_SRCS := simulator/native_sim.c simulator/sim_ui_port.c \
 	main/export_path/screens/ui_ScreenPageOilPressure.c \
 	main/export_path/screens/ui_ScreenPageFuel.c \
 	main/export_path/screens/ui_ScreenPageTripOverview.c \
+	main/export_path/screens/ui_ScreenPageTripIntervals.c \
 	main/export_path/screens/ui_ScreenPageTripHistory.c \
 	main/export_path/screens/ui_ScreenPageChartConfig.c \
 	main/export_path/screens/ui_ScreenPageChartAlarm.c \

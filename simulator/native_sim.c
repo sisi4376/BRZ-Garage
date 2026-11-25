@@ -426,7 +426,7 @@ static void update_demo(DWORD now)
     g_data.maf_x100 = 180 + (g_data.rpm * (g_data.load > 5 ? g_data.load : 5)) / 115;
 }
 
-static void update_ui(void)
+static void update_ui(uint32_t fuel_dt_ms)
 {
     char text[24];
     snprintf(text, sizeof(text), "%d", g_data.rpm);
@@ -472,10 +472,6 @@ static void update_ui(void)
         .rpm_valid = true, .speed_valid = true, .maf_valid = true,
         .fuel_status = 0, // unknown: never invent an ECU cutoff state in the preview
     };
-    static DWORD last_fuel_ms;
-    DWORD now_fuel_ms = GetTickCount();
-    DWORD fuel_dt_ms = last_fuel_ms ? now_fuel_ms - last_fuel_ms : 0;
-    last_fuel_ms = now_fuel_ms;
     nvs_fuel_update(&fuel_sample, fuel_dt_ms);
     ui_fuel_page_refresh();
     ui_trip_overview_refresh();
@@ -602,7 +598,7 @@ static bool check_speed_and_rpm_readouts(void)
         sim_ui_show_page(samples[i].page);
         g_data.rpm = samples[i].rpm;
         g_data.speed = samples[i].speed;
-        update_ui();
+        update_ui(0);
         lv_obj_t *reading = samples[i].page == SIM_PAGE_GEAR ? ui_GearPageRpmText :
                             samples[i].page == SIM_PAGE_RPM ? ui_RpmPageArcLabelRpmText :
                             ui_SpeedPageArcLabelSpeedText;
@@ -632,15 +628,26 @@ static bool export_fixed_editor_frames(void)
     g_data.speed = 128;
     g_data.gear = 5;
     g_data.rpm = (int)lroundf(rpm_for_gear(profile, g_data.speed, g_data.gear));
-    update_ui();
+    g_data.maf_x100 = 3280;
+    update_ui(200);
 
-    sim_ui_show_page(SIM_PAGE_GEAR);
+    const struct { int page; const char *name; } pages[] = {
+        {SIM_PAGE_GEAR, "gear.bmp"},
+        {SIM_PAGE_SPEED, "speed.bmp"},
+        {SIM_PAGE_FUEL, "fuel.bmp"},
+        {SIM_PAGE_TRIP_HISTORY, "trip-history.bmp"},
+        {SIM_PAGE_TRIP_OVERVIEW, "trip-overview.bmp"},
+        {SIM_PAGE_TRIP_INTERVALS, "trip-intervals.bmp"},
+    };
+    for (unsigned i = 0; i < sizeof(pages) / sizeof(pages[0]); ++i) {
+        sim_ui_show_page(pages[i].page);
+        lv_refr_now(NULL);
+        if (!write_framebuffer(pages[i].name)) return false;
+    }
+    sim_ui_show_page(SIM_PAGE_TRIP_HISTORY);
+    ui_trip_history_page(+1);
     lv_refr_now(NULL);
-    if (!write_framebuffer("gear.bmp")) return false;
-
-    sim_ui_show_page(SIM_PAGE_SPEED);
-    lv_refr_now(NULL);
-    if (!write_framebuffer("speed.bmp")) return false;
+    if (!write_framebuffer("trip-history-2.bmp")) return false;
 
     sim_ui_show_page(SIM_PAGE_DEVICE);
     ui_device_fuel_level_refresh(2400);
@@ -668,7 +675,7 @@ static int export_editor_frames(void)
         /* Replay the same thirty samples for every signal and reference frame. */
         for (int sample = 0; sample < 30; ++sample) {
             update_demo(1000U * (sample + 1));
-            update_ui();
+            update_ui(0);
         }
         for (unsigned page = 0; page < (mixed ? 2U : 4U); ++page) {
             sim_ui_show_page(pages[page]);
@@ -753,6 +760,7 @@ int main(int argc, char **argv)
         if (elapsed) lv_tick_inc(elapsed);
 
         if (now - last_data >= 100) {
+            uint32_t fuel_dt_ms = last_data ? now - last_data : 0;
             last_data = now;
             if (!g_force_demo && !g_elm_online && now - g_last_elm_retry >= 2000) {
                 g_last_elm_retry = now;
@@ -762,7 +770,7 @@ int main(int argc, char **argv)
                 if (g_elm_online) update_from_elm();
                 else update_demo(now);
             }
-            update_ui();
+            update_ui(fuel_dt_ms);
             read_page_command();
             if (g_headless) save_status();
         }

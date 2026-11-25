@@ -42,6 +42,9 @@ function parse(raw) {
   return [order, fields];
 }
 let pages, items, selected = systemPage, saved = "";
+let previewPage = systemPage;
+let subpage = 0;
+const subpageFrames = {7: "trip-history-2", 8: "trip-intervals"};
 function load(raw) {
   try { [pages,items] = parse(raw); } catch { [pages,items] = parse(factory); }
   saved = pages.join(",") + "/" + items.join(",");
@@ -91,7 +94,8 @@ async function draw(id) {
   img.hidden = !fixed;
   canvas.hidden = fixed;
   if (fixed) {
-    img.src = "page-" + (id === systemPage ? 12 : id) + ".png";
+    const frame = subpage && subpageFrames[id] ? subpageFrames[id] : "page-" + (id === systemPage ? 12 : id);
+    img.src = frame + ".png";
     return;
   }
 
@@ -124,8 +128,20 @@ function titleOf(id) {
 function render() {
   const order = [systemPage, ...pages];
   if (!order.includes(selected)) selected = systemPage;
+  if (previewPage !== selected) {
+    previewPage = selected;
+    subpage = 0;
+  }
   const fixed = selected === systemPage;
-  const title = titleOf(selected);
+  const canTurnVertically = Boolean(subpageFrames[selected]);
+  $("dial").classList.toggle("has-subpages", canTurnVertically);
+  $("subpage").hidden = !canTurnVertically;
+  if (canTurnVertically) {
+    $("subpage").textContent = selected === 8
+      ? (subpage ? "↓ 返回行程总览" : "↑ 查看行程区间")
+      : (subpage ? "↑ 上一页记录" : "↓ 下一页记录");
+  }
+  const title = selected === 8 && subpage ? "行程区间" : titleOf(selected);
   const slots = fieldsOf(selected);
   draw(selected);
   $("title").textContent = title;
@@ -199,10 +215,16 @@ function addPage(type) {
     id = 9 + type * 19 + slot;
   }
   fieldsOf(id).forEach((slot, i) => { items[slot] = defaults[type][i]; });
-  pages.push(id);
+  // The fixed version page is outside the editable array. Insert at page 02
+  // when it is selected, otherwise use the selected page's current position.
+  pages.splice(Math.max(0, pages.indexOf(selected)), 0, id);
   selected = id;
   save();
 }
+$("subpage").onclick = () => {
+  subpage = 1 - subpage;
+  render();
+};
 $("prev").onclick = () => step(-1);
 $("next").onclick = () => step(1);
 $("up").onclick = () => move(-1);
@@ -217,7 +239,15 @@ $("remove").onclick = () => {
 $("add").onchange = e => { if (e.target.value !== "") addPage(Number(e.target.value)); };
 let startX,startY;
 $("dial").onpointerdown=e=>{startX=e.clientX;startY=e.clientY;e.currentTarget.setPointerCapture(e.pointerId);};
-$("dial").onpointerup=e=>{const dx=e.clientX-startX;if(Math.abs(dx)>30 && Math.abs(dx)>Math.abs(e.clientY-startY))step(dx<0?1:-1);};
+$("dial").onpointerup = e => {
+  const dx = e.clientX - startX, dy = e.clientY - startY;
+  if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) {
+    step(dx < 0 ? 1 : -1);
+  } else if (Math.abs(dy) > 30 && Math.abs(dy) > Math.abs(dx) && subpageFrames[selected]) {
+    subpage = (selected === 8 ? dy < 0 : dy > 0) ? 1 : 0;
+    render();
+  }
+};
 if(phone){
   $("back").hidden=false;$("back").onclick=()=>phone.back();
   setInterval(()=>{

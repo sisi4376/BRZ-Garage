@@ -82,6 +82,26 @@ typedef struct {
     bool display_enabled;
 } nvs_odometer_snapshot_t;
 
+typedef struct {
+    uint8_t protocol_version;
+    uint8_t count;
+    uint32_t oldest_id;
+    uint32_t newest_id;
+    uint64_t current_start_epoch_s;
+    uint32_t current_duration_s;
+    uint32_t current_distance_m;
+    uint32_t current_fuel_ml;
+    uint16_t history_revision;
+} nvs_refuel_meta_t;
+
+typedef struct {
+    uint32_t duration_s;
+    uint32_t distance_m;
+    uint32_t fuel_ml;
+} nvs_custom_trip_meta_t;
+
+void nvs_refuel_get_meta(nvs_refuel_meta_t *out);
+void nvs_custom_trip_get_meta(nvs_custom_trip_meta_t *out);
 const nvs_user_cfg_t *nvs_cfg_get(void);
 esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg);
 int16_t nvs_chart_alarm_get(uint8_t item);

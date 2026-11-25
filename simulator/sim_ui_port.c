@@ -176,6 +176,7 @@ static lv_obj_t *page_object(int page)
     case SIM_PAGE_FUEL: return ui_ScreenPageFuel;
     case SIM_PAGE_TRIP_OVERVIEW: return ui_ScreenPageTripOverview;
     case SIM_PAGE_TRIP_HISTORY: return ui_ScreenPageTripHistory;
+    case SIM_PAGE_TRIP_INTERVALS: return ui_ScreenPageTripIntervals;
     default: return NULL;
     }
 }
@@ -186,7 +187,7 @@ const char *sim_ui_page_name(int page)
         "GEAR + RPM", "RPM (LEGACY)", "SPEED", "TEMP", "INFO", "NEEDLE", "CHART",
         "DEVICE", "BLE SCAN", "SETTINGS", "MULTI-GAUGE", "OBD PROTOCOL",
         "LOGO", "YELLOWLINE", "TEMP SOURCE", "INFO SOURCE", "NEEDLE SOURCE",
-        "CHART SOURCE", "CHART ALARM", "FUEL", "TRIP OVERVIEW", "TRIP HISTORY"
+        "CHART SOURCE", "CHART ALARM", "FUEL", "TRIP OVERVIEW", "TRIP HISTORY", "TRIP INTERVALS"
     };
     return page >= 0 && page < SIM_PAGE_COUNT ? names[page] : "UNKNOWN";
 }
@@ -208,7 +209,7 @@ void sim_ui_show_page(int page)
     lv_scr_load(screen);
 }
 
-static lv_obj_t *page_obd_indicators[7];
+static lv_obj_t *page_obd_indicators[SIM_PAGE_COUNT];
 
 static lv_obj_t *add_page_indicators(lv_obj_t *screen)
 {
@@ -222,7 +223,7 @@ static lv_obj_t *add_page_indicators(lv_obj_t *screen)
 void sim_ui_set_elm_connected(bool connected)
 {
     s_ble_connected = connected;
-    for (int i = 0; i < sizeof(page_obd_indicators) / sizeof(page_obd_indicators[0]); ++i) {
+    for (int i = 0; i < SIM_PAGE_COUNT; ++i) {
         if (page_obd_indicators[i])
             lv_obj_set_style_text_color(page_obd_indicators[i], lv_color_hex(connected ? 0x45D66F : 0xFF4D4D), LV_PART_MAIN);
     }
@@ -298,8 +299,9 @@ void sim_ui_handle_gesture(const char *direction)
     bool up = is_dir(direction, "up"), down = is_dir(direction, "down");
     int next = s_page;
     if (left || right) {
+        int carousel_page = s_page == SIM_PAGE_TRIP_INTERVALS ? SIM_PAGE_TRIP_OVERVIEW : s_page;
         for (int i = 0; i <= 9; ++i) {
-            if (sim_carousel[i] != s_page) continue;
+            if (sim_carousel[i] != carousel_page) continue;
             int current = i == 9 ? GAUGE_PAGE_SYSTEM : i;
             if (gauge_page_type(sim_active_page) == current) current = sim_active_page;
             sim_active_page = gauge_page_step(sim_order, current, left);
@@ -320,7 +322,8 @@ void sim_ui_handle_gesture(const char *direction)
     case SIM_PAGE_NEEDLE: next = left ? SIM_PAGE_CHART : right ? SIM_PAGE_INFO : down ? SIM_PAGE_NEEDLE_SOURCE : s_page; break;
     case SIM_PAGE_CHART: next = left ? SIM_PAGE_FUEL : right ? SIM_PAGE_NEEDLE : down ? SIM_PAGE_CHART_SOURCE : up ? SIM_PAGE_CHART_ALARM : s_page; break;
     case SIM_PAGE_FUEL: next = left ? SIM_PAGE_TRIP_OVERVIEW : right ? SIM_PAGE_CHART : s_page; break;
-    case SIM_PAGE_TRIP_OVERVIEW: next = left ? SIM_PAGE_TRIP_HISTORY : right ? SIM_PAGE_FUEL : s_page; break;
+    case SIM_PAGE_TRIP_OVERVIEW: if (up) next = SIM_PAGE_TRIP_INTERVALS; break;
+    case SIM_PAGE_TRIP_INTERVALS: if (down) next = SIM_PAGE_TRIP_OVERVIEW; break;
     case SIM_PAGE_TRIP_HISTORY:
         if (left) next = SIM_PAGE_DEVICE;
         else if (right) next = SIM_PAGE_TRIP_OVERVIEW;
@@ -355,6 +358,16 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg) { s_sim_cfg = *cfg; return 0; }
 int16_t nvs_chart_alarm_get(uint8_t item) { return item < 12 ? s_chart_alarm[item] : 32767; }
 void nvs_chart_alarm_set(uint8_t item, int16_t raw) { if (item < 12) s_chart_alarm[item] = raw; }
 void nvs_fuel_get_snapshot(nvs_fuel_snapshot_t *out) { if (out) *out = s_sim_fuel; }
+void nvs_refuel_get_meta(nvs_refuel_meta_t *out)
+{
+    *out = (nvs_refuel_meta_t){
+        .current_distance_m = 214600, .current_duration_s = 10260, .current_fuel_ml = 16970,
+    };
+}
+void nvs_custom_trip_get_meta(nvs_custom_trip_meta_t *out)
+{
+    *out = (nvs_custom_trip_meta_t){.distance_m = 47400, .duration_s = 2820, .fuel_ml = 3580};
+}
 void nvs_odometer_get_snapshot(nvs_odometer_snapshot_t *out)
 {
     if (!out) return;
@@ -544,6 +557,7 @@ EMPTY_EVENT(ui_event_chart_config_background)
 EMPTY_EVENT(ui_event_chart_alarm_background)
 EMPTY_EVENT(ui_event_fuel_background)
 EMPTY_EVENT(ui_event_trip_overview_background)
+EMPTY_EVENT(ui_event_trip_intervals_background)
 EMPTY_EVENT(ui_event_trip_history_background)
 EMPTY_EVENT(ui_event_oil_warn_background)
 EMPTY_EVENT(ui_event_rpm_warn_background)
@@ -563,25 +577,30 @@ void sim_ui_create_pages(void)
     ui_ScreenPageGear_screen_init();
     ui_ScreenPageRpm_screen_init();
     ui_ScreenPageSpeed_screen_init();
-    page_obd_indicators[4] = add_page_indicators(ui_ScreenPageGear);
-    page_obd_indicators[5] = add_page_indicators(ui_ScreenPageRpm);
-    page_obd_indicators[6] = add_page_indicators(ui_ScreenPageSpeed);
+    page_obd_indicators[SIM_PAGE_GEAR] = add_page_indicators(ui_ScreenPageGear);
+    page_obd_indicators[SIM_PAGE_RPM] = add_page_indicators(ui_ScreenPageRpm);
+    page_obd_indicators[SIM_PAGE_SPEED] = add_page_indicators(ui_ScreenPageSpeed);
     ui_ScreenPageTemp_screen_init();
-    page_obd_indicators[0] = add_page_indicators(ui_ScreenPageTemp);
+    page_obd_indicators[SIM_PAGE_TEMP] = add_page_indicators(ui_ScreenPageTemp);
     ui_ScreenPageTempCustom_screen_init();
     ui_ScreenPageInfo_screen_init();
-    page_obd_indicators[1] = add_page_indicators(ui_ScreenPageInfo);
+    page_obd_indicators[SIM_PAGE_INFO] = add_page_indicators(ui_ScreenPageInfo);
     ui_ScreenPageInfoCustom_screen_init();
     ui_ScreenPageNeedle_screen_init();
-    page_obd_indicators[2] = add_page_indicators(ui_ScreenPageNeedle);
+    page_obd_indicators[SIM_PAGE_NEEDLE] = add_page_indicators(ui_ScreenPageNeedle);
     ui_ScreenPageOilPressure_screen_init();
-    page_obd_indicators[3] = add_page_indicators(ui_ScreenPageOilPressure);
+    page_obd_indicators[SIM_PAGE_CHART] = add_page_indicators(ui_ScreenPageOilPressure);
     ui_ScreenPageNeedleConfig_screen_init();
     ui_ScreenPageChartConfig_screen_init();
     ui_ScreenPageChartAlarm_screen_init();
     ui_ScreenPageFuel_screen_init();
+    page_obd_indicators[SIM_PAGE_FUEL] = add_page_indicators(ui_ScreenPageFuel);
     ui_ScreenPageTripOverview_screen_init();
+    page_obd_indicators[SIM_PAGE_TRIP_OVERVIEW] = add_page_indicators(ui_ScreenPageTripOverview);
+    ui_ScreenPageTripIntervals_screen_init();
+    page_obd_indicators[SIM_PAGE_TRIP_INTERVALS] = add_page_indicators(ui_ScreenPageTripIntervals);
     ui_ScreenPageTripHistory_screen_init();
+    page_obd_indicators[SIM_PAGE_TRIP_HISTORY] = add_page_indicators(ui_ScreenPageTripHistory);
     ui_ScreenPageRpmWarn_screen_init();
     ui_ScreenPageEasterEgg_screen_init();
     ui_ScreenPageBLEScan_screen_init();

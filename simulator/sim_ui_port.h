@@ -27,6 +27,7 @@ typedef enum {
     SIM_PAGE_FUEL,
     SIM_PAGE_TRIP_OVERVIEW,
     SIM_PAGE_TRIP_HISTORY,
+    SIM_PAGE_TRIP_INTERVALS,
     SIM_PAGE_COUNT
 } sim_page_id_t;
 
