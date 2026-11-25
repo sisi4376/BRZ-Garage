@@ -41,7 +41,8 @@ class GaugeDisplayRoundingTest(unittest.TestCase):
         device = (ROOT / "main/export_path/screens/ui_ScreenPageEasterEgg.c").read_text(encoding="utf-8")
         self.assertIn('"%lu km"', device)
         self.assertIn("data.odometer_x10_km / 10U", device)
-        self.assertNotIn("ui_round_div", device)
+        odometer_refresh = device.split("void ui_device_odometer_refresh(void)", 1)[1].split("static void", 1)[0]
+        self.assertNotIn("ui_round_div", odometer_refresh)
 
 
 if __name__ == "__main__":

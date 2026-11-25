@@ -34,7 +34,7 @@ def generate():
             if difference:
                 raise ValueError(f"Page {page} differs from LVGL in rectangle {difference}")
 
-        for source, page in [("gear", 4), ("speed", 5)]:
+        for source, page in [("gear", 4), ("speed", 5), ("device", 12)]:
             with Image.open(frames / f"{source}.bmp") as bmp:
                 assert bmp.size == (SIDE, SIDE)
                 bmp.convert("RGB").save(ASSETS / f"page-{page}.png", optimize=True)

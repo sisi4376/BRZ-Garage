@@ -1026,6 +1026,7 @@ static void my_timerMain_impl(lv_timer_t * timer)
             lv_label_set_text(ui_LabelEasterEggInfo, s_last_easteregg_info);
         }
         ui_device_odometer_refresh();
+        ui_device_fuel_level_refresh(obd_data_get_fuel_level_x100());
     }
 
     /* OTA mode screen: refresh connection status */

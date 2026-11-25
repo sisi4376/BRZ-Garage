@@ -108,6 +108,7 @@ extern lv_obj_t * ui_ImageEggBlackEar;
 extern lv_obj_t * ui_LabelEasterEggInfo;  // dynamically updated device info label
 extern lv_obj_t * ui_LabelEasterEggOdometer;
 void ui_device_odometer_refresh(void);
+void ui_device_fuel_level_refresh(int16_t level_x100);
 void ui_event_easter_egg_ota_button(lv_event_t * e);  // OTA mode button handler
 // CUSTOM VARIABLES
 

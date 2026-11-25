@@ -5,6 +5,7 @@
 // Modified: EasterEgg page replaced with Device Info page
 
 #include "../ui.h"
+#include "../ui_rounding.h"
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/elm327_ble_client.h"
 #include "bsp_obd_dsp/espnow_link.h"
@@ -16,6 +17,22 @@
 #ifndef OBD_GAUGE_FIRMWARE_VERSION
 #define OBD_GAUGE_FIRMWARE_VERSION "3.2.9"
 #endif
+
+static lv_obj_t *fuel_level_label;
+static int16_t displayed_fuel_percent;
+
+void ui_device_fuel_level_refresh(int16_t level_x100)
+{
+    if (!fuel_level_label) return;
+
+    int16_t percent = level_x100 >= 0 && level_x100 <= 10000
+        ? (int16_t)ui_round_div_u64((uint16_t)level_x100, 100U) : -1;
+    if (percent == displayed_fuel_percent) return;
+
+    if (percent < 0) lv_label_set_text(fuel_level_label, "--%");
+    else lv_label_set_text_fmt(fuel_level_label, "%d%%", (int)percent);
+    displayed_fuel_percent = percent;
+}
 
 void ui_device_odometer_refresh(void)
 {
@@ -30,9 +47,52 @@ void ui_device_odometer_refresh(void)
 
     /* Total odometer is the one deliberate exception to display rounding:
      * show only completed whole kilometres. */
-    lv_label_set_text_fmt(ui_LabelEasterEggOdometer, "%lu km",
-                          (unsigned long)(data.odometer_x10_km / 10U));
+    unsigned long kilometres = data.odometer_x10_km / 10U;
+    const lv_font_t *font = kilometres < 10000000UL
+        ? &ui_font_FontTypoderSize36 : &ui_font_FontTypoderSize28;
+    if (lv_obj_get_style_text_font(ui_LabelEasterEggOdometer, LV_PART_MAIN) != font)
+        lv_obj_set_style_text_font(ui_LabelEasterEggOdometer, font, LV_PART_MAIN);
+    lv_label_set_text_fmt(ui_LabelEasterEggOdometer, "%lu km", kilometres);
     lv_obj_clear_flag(ui_LabelEasterEggOdometer, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void create_fuel_level_row(lv_obj_t *parent)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 10, LV_PART_MAIN);
+    lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -55);
+
+    lv_color_t ink = lv_color_hex(0xD8E0E8);
+    lv_obj_t *pump = lv_obj_create(row);
+    lv_obj_remove_style_all(pump);
+    lv_obj_clear_flag(pump, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(pump, 29, 29);
+
+    static const lv_point_t body[] = {{3, 26}, {3, 3}, {18, 3}, {18, 26}};
+    static const lv_point_t window[] = {{7, 7}, {14, 7}, {14, 13}, {7, 13}, {7, 7}};
+    static const lv_point_t base[] = {{1, 26}, {20, 26}};
+    static const lv_point_t hose[] = {{18, 17}, {22, 17}, {22, 23}, {27, 23}, {27, 10}, {22, 5}};
+    const struct { const lv_point_t *points; uint16_t count; } strokes[] = {
+        {body, 4}, {window, 5}, {base, 2}, {hose, 6},
+    };
+    for (unsigned i = 0; i < sizeof(strokes) / sizeof(strokes[0]); ++i) {
+        lv_obj_t *line = lv_line_create(pump);
+        lv_line_set_points(line, strokes[i].points, strokes[i].count);
+        lv_obj_set_style_line_color(line, ink, LV_PART_MAIN);
+        lv_obj_set_style_line_width(line, 2, LV_PART_MAIN);
+        lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
+    }
+
+    fuel_level_label = lv_label_create(row);
+    lv_obj_set_style_text_font(fuel_level_label, &ui_font_FontTypoderSize28, LV_PART_MAIN);
+    lv_obj_set_style_text_color(fuel_level_label, ink, LV_PART_MAIN);
+    displayed_fuel_percent = -2;
+    ui_device_fuel_level_refresh(-1);
 }
 
 void ui_ScreenPageEasterEgg_screen_init(void)
@@ -93,17 +153,19 @@ void ui_ScreenPageEasterEgg_screen_init(void)
     lv_obj_set_style_text_line_space(ui_LabelEasterEggInfo, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_align(ui_LabelEasterEggInfo, LV_ALIGN_CENTER, 0, 0);
 
-    // Phone-synchronized odometer: keep the existing fixed position.
+    // Odometer and remaining fuel sit on separate rows below the version block.
     ui_LabelEasterEggOdometer = lv_label_create(ui_ScreenPageEasterEgg);
     lv_label_set_text(ui_LabelEasterEggOdometer, "");
+    lv_label_set_long_mode(ui_LabelEasterEggOdometer, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(ui_LabelEasterEggOdometer, 320);
     lv_obj_set_style_text_align(ui_LabelEasterEggOdometer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_text_font(ui_LabelEasterEggOdometer, &ui_font_FontTypoderSize20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ui_LabelEasterEggOdometer, &ui_font_FontTypoderSize36, LV_PART_MAIN);
     lv_obj_set_style_text_color(ui_LabelEasterEggOdometer, lv_color_hex(0xD8E0E8), LV_PART_MAIN);
     lv_obj_set_style_text_opa(ui_LabelEasterEggOdometer, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(ui_LabelEasterEggOdometer, LV_ALIGN_BOTTOM_MID, 0, -102);
     lv_obj_add_flag(ui_LabelEasterEggOdometer, LV_OBJ_FLAG_HIDDEN);
     ui_device_odometer_refresh();
+    create_fuel_level_row(ui_ScreenPageEasterEgg);
 
     /* OTA is intentionally not exposed on the gauge UI.  The phone's explicit
      * parked confirmation remains the only supported way to enter OTA mode. */

@@ -43,6 +43,7 @@ static SOCKET g_elm = INVALID_SOCKET;
 static bool g_elm_online = false;
 static bool g_force_demo = false;
 static bool g_manual_data = false;
+static int16_t g_demo_fuel_level_x100 = 6380;
 static char g_elm_host[64] = "127.0.0.1";
 static int g_elm_port = 35000;
 static DWORD g_last_elm_retry;
@@ -120,6 +121,8 @@ static void read_page_command(void)
     }
     if (sscanf(command, "page %d", &page) == 1) {
         show_page(page);
+    } else if (sscanf(command, "fuel %d", &page) == 1) {
+        if (page >= -1 && page <= 10000) g_demo_fuel_level_x100 = (int16_t)page;
     } else if (sscanf(command, "rpmwarn %d", &page) == 1) {
         sim_ui_set_rpm_warn_threshold((uint16_t)page);
     } else if (sscanf(command, "data %d %d %d", &rpm, &speed, &gear) == 3) {
@@ -467,6 +470,8 @@ static void update_ui(void)
     ui_fuel_page_refresh();
     ui_trip_overview_refresh();
     ui_trip_history_refresh();
+    if (sim_ui_current_page() == SIM_PAGE_DEVICE)
+        ui_device_fuel_level_refresh(g_elm_online ? -1 : g_demo_fuel_level_x100);
 }
 
 static const struct { disp_item_t item; int value; } info_samples[] = {
@@ -609,7 +614,7 @@ static bool check_speed_and_rpm_readouts(void)
     return true;
 }
 
-static bool export_speed_and_rpm_frames(void)
+static bool export_fixed_editor_frames(void)
 {
     g_data.rpm = 5888;
     g_data.speed = 128;
@@ -622,7 +627,12 @@ static bool export_speed_and_rpm_frames(void)
 
     sim_ui_show_page(SIM_PAGE_SPEED);
     lv_refr_now(NULL);
-    return write_framebuffer("speed.bmp");
+    if (!write_framebuffer("speed.bmp")) return false;
+
+    sim_ui_show_page(SIM_PAGE_DEVICE);
+    update_ui();
+    lv_refr_now(NULL);
+    return write_framebuffer("device.bmp");
 }
 
 /* Export each data source with the production LVGL screen and font objects.
@@ -656,7 +666,7 @@ static int export_editor_frames(void)
         }
     }
     return check_three_slot_readouts() && check_five_slot_readouts() &&
-           check_single_signal_readouts() && check_speed_and_rpm_readouts() && export_speed_and_rpm_frames() ? 0 : 1;
+           check_single_signal_readouts() && check_speed_and_rpm_readouts() && export_fixed_editor_frames() ? 0 : 1;
 }
 
 int main(int argc, char **argv)
