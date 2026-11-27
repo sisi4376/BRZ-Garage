@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class OdometerPidContractTest(unittest.TestCase):
     def test_pid_a6_capability_and_decode_remain_available_while_polling_is_paused(self):
         source = (ROOT / "main/bsp_obd_dsp/elm327_ble_client.c").read_text(encoding="utf-8")
-        self.assertIn("factory odometer (A6) polling", source)
-        self.assertIn("temporarily disabled to reserve adapter bandwidth", source)
-        self.assertIn("d[0] & 0x04u", source)
+        # Grouped polling is exercised by test_firmware_poll_schedule. Check
+        # live decoder code here so edits to the scheduler comments are harmless.
+        self.assertIn("s_odometer_pid_support = (d[0] & 0x04u) ? 1 : 0", source)
         self.assertIn("case 0xA6", source)
         self.assertIn("((uint32_t)d[0] << 24)", source)
         self.assertIn("obd_data_set_factory_odometer_x10_km(raw)", source)

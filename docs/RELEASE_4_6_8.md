@@ -2,8 +2,8 @@
 
 - [Android BRZ Garage 4.6.8 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk.sha256)）。已有用户可覆盖安装，停车并保持仪表供电，再进入“仪表固件更新”升级至 4.1.6-beta.1。
 - [Windows x64 一键烧录包 r4（固件 4.1.6-beta.1）](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-Flasher-v4.1.6-beta.1-r4-Windows-x64.zip)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-Flasher-v4.1.6-beta.1-r4-Windows-x64.zip.sha256)）。首次安装时完整解压，连接 USB，再运行 `Start-Flasher.cmd` 并按提示核对板型和备份。
-- 可选数据采集工具：[Android OBD Studio beta.13](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk.sha256)）、[Windows OBD Studio 1.6](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe.sha256)）。
-- 手动 OTA 可用 [独立固件镜像](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/obd_brz_gauge.bin)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/obd_brz_gauge.bin.sha256)） 和 [固件清单](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/latest.json)。鸿蒙提供 0.6.5 源码。
+- 可选数据采集工具为 [Android OBD Studio beta.13](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk.sha256)）、[Windows OBD Studio 1.6](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe.sha256)）。
+- 手动 OTA 可用 [独立固件镜像](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/obd_brz_gauge.bin)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/obd_brz_gauge.bin.sha256)） 和 [固件清单](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/latest.json)。鸿蒙提供 0.6.5 源码，本版无公开 HAP。
 
 ## 从 v4.6.7 到 v4.6.8
 
@@ -43,3 +43,9 @@
 - Android OBD Studio beta.13 的一键流程先逐条探测 `0100` 至 `01FF`，依据有效实时响应确定后续清单，并保存支持位图、每次探测的原始回包和有效 PID 列表。先采集有效 PID 五分钟，再用所选车型轮询五分钟。探测和初始化时间另计。
 - 识别标准响应及带序号分帧，探测遇到 `NO DATA` 时继续，超时、断线或提前停止时保留已采片段。两段沿用分开的 JSONL 和摘要，可覆盖安装并保留旧录制。
 - Windows OBD Studio 1.6 使用上一版已发布的相同程序。Windows 一键烧录工具 r4 更新内置固件与校验清单。鸿蒙 0.6.5 源码和固件资源沿用上一版，当前无公开 HAP。
+
+## 验证与来源
+
+- 已完成 55 项发布回归检查，覆盖仪表页面与滚动手势、GPS 与 GNSS 授时、A/B 轮询、OTA 续传、Android 数据迁移、OBD Studio 通信与采集、Windows 烧录包格式。A6 里程回归用例更新为检查实际解析代码，已复测通过。原生 LVGL 模拟器验证了不同数据组合的预览，浏览器验证了可用 GPS 位置和保存恢复。
+- 两个 APK 已校验覆盖安装签名。主 App 内置、独立 OTA 与 Windows 一键烧录包使用同一份 4.1.6-beta.1 应用镜像，SHA-256 为 `f8c405ead2da9e8c4972a2e7db58a5ff852eaee28330cf65c6f77312afb5a530`。配套发布构建源码提交为 [`0579399cd0c2`](https://github.com/sisi4376/BRZ-Garage/commit/0579399cd0c24a77b319c735a1b5b59ec76fcf41)。
+- 本版仍为 Beta。最终构建的实机蓝牙设置回读、上电启动页和朝向、真机 OTA、首次 USB 烧录、车载 GPS 及 Android Studio 实车探测仍待验证。现有记录可继续使用，安装新版 App 后需另行升级仪表。
