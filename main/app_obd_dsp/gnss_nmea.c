@@ -45,6 +45,34 @@ static void diagnostic_field(char *dest, size_t size, const char *value)
     dest[n] = '\0';
 }
 
+/* Convert NMEA degrees and decimal minutes to signed decimal degrees x 100000. */
+static bool coordinate(const char *value, const char *hemisphere, bool latitude, int32_t *out)
+{
+    size_t degrees = latitude ? 2 : 3;
+    size_t whole = degrees + 2;
+    size_t n = strlen(value);
+    if (n < whole || !digits(value, whole) || strlen(hemisphere) != 1) return false;
+    if (n > whole && (value[whole] != '.' || n == whole + 1 ||
+                      !digits(value + whole + 1, n - whole - 1))) return false;
+    bool negative = hemisphere[0] == (latitude ? 'S' : 'W');
+    if (!negative && hemisphere[0] != (latitude ? 'N' : 'E')) return false;
+    unsigned deg = 0;
+    for (size_t i = 0; i < degrees; ++i) deg = deg * 10 + value[i] - '0';
+    unsigned minutes = pair(value + degrees);
+    unsigned limit = latitude ? 90 : 180;
+    if (deg > limit || minutes >= 60) return false;
+    unsigned micro_minutes = minutes * 1000000;
+    unsigned place = 100000;
+    for (size_t i = whole + 1; i < n; ++i, place /= 10) {
+        if (deg == limit && value[i] != '0') return false;
+        micro_minutes += (value[i] - '0') * place;
+    }
+    if (deg == limit && minutes) return false;
+    int32_t scaled = deg * 100000 + (micro_minutes + 300) / 600;
+    *out = negative ? -scaled : scaled;
+    return true;
+}
+
 static gnss_nmea_result_t parse(gnss_nmea_t *s, int64_t now, uint64_t *epoch)
 {
     char *p = s->line;
@@ -79,6 +107,12 @@ static gnss_nmea_result_t parse(gnss_nmea_t *s, int64_t now, uint64_t *epoch)
     diagnostic_field(s->date, sizeof(s->date), count > 9 ? field[9] : "");
     s->status = count > 2 && field[2][0] ? field[2][0] : '-';
     s->mode = count > 12 && field[12][0] ? field[12][0] : '-';
+    /* Position validity is independent of the date and clock confirmation. */
+    const char *mode = count > 12 ? field[12] : "";
+    bool measured = !*mode || (mode[1] == '\0' && strchr("ADFRP", mode[0]));
+    s->position_valid = count >= 7 && !strcmp(field[2], "A") && measured &&
+                        coordinate(field[3], field[4], true, &s->latitude_e5) &&
+                        coordinate(field[5], field[6], false, &s->longitude_e5);
     uint64_t value;
     if (count < 10 || strcmp(field[2], "A") ||
         (count > 12 && (!strcmp(field[12], "N") || !strcmp(field[12], "E") || !strcmp(field[12], "S"))) ||

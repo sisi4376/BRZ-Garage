@@ -21,6 +21,28 @@
 #define I2C_TIMEOUT_MS 10
 static const char *TAG = "gnss_time";
 static bool s_started;
+static portMUX_TYPE position_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t position_us;
+static int32_t latitude_e5, longitude_e5;
+
+bool gnss_position_read(int32_t *lat, int32_t *lon)
+{
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&position_mux);
+    bool valid = position_us && now - position_us <= 5000000;
+    if (valid) { *lat = latitude_e5; *lon = longitude_e5; }
+    portEXIT_CRITICAL(&position_mux);
+    return valid;
+}
+
+static void publish_position(const gnss_nmea_t *s)
+{
+    int64_t stamp = s && s->position_valid ? esp_timer_get_time() : 0;
+    portENTER_CRITICAL(&position_mux);
+    if (stamp) { latitude_e5 = s->latitude_e5; longitude_e5 = s->longitude_e5; }
+    position_us = stamp;
+    portEXIT_CRITICAL(&position_mux);
+}
 
 typedef struct {
     i2c_master_dev_handle_t command, data;
@@ -68,7 +90,6 @@ static int read_i2c(receiver_t *r, uint8_t *buf, bool *backlog)
     uint8_t query[] = {0x08,0x00,0x51,0xAA,0x04,0,0,0}, size[4];
     if (i2c_master_transmit(r->command, query, sizeof(query), I2C_TIMEOUT_MS) != ESP_OK) return -1;
     vTaskDelay(pdMS_TO_TICKS(100));
-    if (nvs_trip_time_is_valid()) return 0;
     if (i2c_master_receive(r->data, size, sizeof(size), I2C_TIMEOUT_MS) != ESP_OK) return -1;
     uint32_t available = (uint32_t)size[0] | (uint32_t)size[1] << 8 |
                          (uint32_t)size[2] << 16 | (uint32_t)size[3] << 24;
@@ -78,11 +99,9 @@ static int read_i2c(receiver_t *r, uint8_t *buf, bool *backlog)
     *backlog = available > 512;
     uint8_t request[] = {0x00,0x20,0x51,0xAA,(uint8_t)count,(uint8_t)(count >> 8),0,0};
     vTaskDelay(pdMS_TO_TICKS(100));
-    if (nvs_trip_time_is_valid()) return 0;
     if (i2c_master_transmit(r->command, request, sizeof(request), I2C_TIMEOUT_MS) != ESP_OK) return -1;
     vTaskDelay(pdMS_TO_TICKS(100));
     for (unsigned off = 0; off < count; ) {
-        if (nvs_trip_time_is_valid()) return 0;
         unsigned n = count - off > 64 ? 64 : count - off;
         if (i2c_master_receive(r->data, buf + off, n, I2C_TIMEOUT_MS) != ESP_OK) return -1;
         off += n;
@@ -128,14 +147,14 @@ static void log_diagnostic(const receiver_t *r)
         r->backlog_resets, r->read_errors, r->apply_retries, r->last_apply_error);
 }
 
-static void listen(receiver_t *r)
+static bool listen(receiver_t *r)
 {
     uint8_t buf[512];
     int64_t start = esp_timer_get_time();
     int64_t last_diag = start;
     bool present = false;
     unsigned failures = 0;
-    while (!nvs_trip_time_is_valid()) {
+    for (;;) {
         int64_t now = esp_timer_get_time();
         if (now - last_diag >= 10000000LL) {
             log_diagnostic(r);
@@ -166,7 +185,8 @@ static void listen(receiver_t *r)
             r->received += (unsigned)count;
             /* Discard old mailbox data, so an old fix cannot set today's clock. */
             if (backlog) { ++r->backlog_resets; memset(&r->parser, 0, sizeof(r->parser)); }
-            else for (int i = 0; i < count && !nvs_trip_time_is_valid(); ++i) {
+            else for (int i = 0; i < count; ++i) {
+                unsigned previous_rmc = r->parser.rmc_count;
                 uint64_t epoch = 0;
                 gnss_nmea_result_t result = gnss_nmea_feed(&r->parser, buf[i], esp_timer_get_time(), &epoch);
                 if (result != GNSS_NMEA_NONE) {
@@ -174,23 +194,26 @@ static void listen(receiver_t *r)
                     present = true;
                     r->last_sentence_us = esp_timer_get_time();
                 }
-                if (result == GNSS_NMEA_TIME) {
+                if (r->parser.rmc_count != previous_rmc) publish_position(&r->parser);
+                if (result == GNSS_NMEA_TIME && !nvs_trip_time_is_valid()) {
                     /* A busy recorder wins: no wait for its mutex. Retry with
                      * a NEW sentence rather than applying a stale queued time. */
                     esp_err_t err = nvs_trip_apply_gnss_time(epoch, NULL);
                     if (err == ESP_OK) {
                         log_diagnostic(r);
-                        ESP_LOGI(TAG, "GNSS time accepted; acquisition complete for this boot");
-                        return;
+                        ESP_LOGI(TAG, "GNSS time accepted");
+                    } else {
+                        ++r->apply_retries;
+                        r->last_apply_error = (int)err;
                     }
-                    ++r->apply_retries;
-                    r->last_apply_error = (int)err;
                 }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(r->uart ? 20 : 50));
     }
+    publish_position(NULL);
     log_diagnostic(r);
+    return present;
 }
 
 static void gnss_task(void *arg)
@@ -199,21 +222,24 @@ static void gnss_task(void *arg)
     receiver_t r = {0};
     /* Core startup has completed before creating this low-priority task. */
     vTaskDelay(pdMS_TO_TICKS(2000));
-    if (!nvs_trip_time_is_valid() && open_i2c(&r)) {
-        listen(&r);
-        close_receiver(&r);
-    }
-    const int bauds[] = {9600,115200};
-    for (unsigned i = 0; i < sizeof(bauds) / sizeof(bauds[0]) && !nvs_trip_time_is_valid(); ++i) {
-        if (open_uart(&r, bauds[i])) { listen(&r); close_receiver(&r); }
-    }
-    ESP_LOGI(TAG, "GNSS task finished (%s)", nvs_trip_time_is_valid() ? "clock synchronized" : "no usable receiver");
+    bool detected = false;
+    do {
+        if (open_i2c(&r)) {
+            detected |= listen(&r);
+            close_receiver(&r);
+        }
+        const int bauds[] = {9600,115200};
+        for (unsigned i = 0; i < sizeof(bauds) / sizeof(bauds[0]); ++i) {
+            if (open_uart(&r, bauds[i])) { detected |= listen(&r); close_receiver(&r); }
+        }
+        if (detected) vTaskDelay(pdMS_TO_TICKS(2000));
+    } while (detected);
     vTaskDelete(NULL);
 }
 
 void gnss_time_start(void)
 {
-    if (s_started || nvs_trip_time_is_valid()) return;
+    if (s_started) return;
     s_started = true;
     /* GNSS is optional; never consume the reserve needed by BLE/OBD. */
     if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 40000 ||
@@ -226,4 +252,5 @@ void gnss_time_start(void)
 }
 #else
 void gnss_time_start(void) {}
+bool gnss_position_read(int32_t *lat, int32_t *lon) { (void)lat; (void)lon; return false; }
 #endif

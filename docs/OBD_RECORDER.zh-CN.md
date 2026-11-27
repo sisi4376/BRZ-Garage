@@ -2,13 +2,13 @@
 
 ## Android 版
 
-安装 [OBD Studio Android 1.0.0-beta.12](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk.sha256)）。点击“扫描并选择 OBD”，从带名称、地址和信号强度的扫描列表中点选适配器，再选择车型，点击“一键采集（各 5 分钟）”，自动完成全部支持的标准 PID 5 分钟及所选车型轮询 5 分钟；每段初始化后开始计时，各保存一份 JSONL 和摘要。中途停止或连接失败时保留已采集片段，不继续下一段；所选设备名称、地址及车型会记住，下次可直接开始。原有手动地址和自定时长在高级手动采集中保留；beta.5 升级后需先扫描选择一次。
+安装 [OBD Studio Android 1.0.0-beta.13](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk.sha256)）。点击“扫描并选择 OBD”，点选适配器并选择车型，再点击“一键探测并采集”。逐条探测 `0100` 至 `01FF` 后，采集有有效回包的 PID 和所选车型轮询，各 5 分钟。两段分别保存 JSONL 和摘要，第一段还保留探测回包和有效 PID 清单。连接、初始化和探测时间另计。中途停止或连接失败时保留已采片段；设备和车型会记住。
 
 独立包名，可与 BRZ Garage 同时安装，支持四车型轮询、全量保留采集、实时数据与曲线、JSONL/摘要导出、电脑版文件导入、倍速循环及 BLE 仪表回放；后台任务通过前台服务运行。功能对应、安装和手机限制见 [Android OBD Studio 使用说明](../android_app/obd_studio/README.md)。手机蓝牙与实车联调尚未完成。
 
 ## Windows 图形版（推荐）
 
-直接双击 [BRZ-OBD-Studio-v1.6.exe](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-v1.6.exe)（支持 ZC6/ZD8 的 6MT、6AT 四车型仪表轮询），无需安装 Python 或联网下载依赖。旧版文件保留，已有录制文件兼容。
+直接双击 [BRZ-OBD-Studio-v1.6.exe](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe)（支持 ZC6/ZD8 的 6MT、6AT 四车型仪表轮询），无需安装 Python 或联网下载依赖。旧版文件保留，已有录制文件兼容。
 
 窗口按 Windows 缩放后的可用屏幕尺寸启动；支持缩小到 640×420，左右区域可独立滚动，中间分隔条可拖动。数据卡片按区域宽度自动切换两列或四列。停止按钮固定在底部，日志默认折叠，可通过“显示运行日志”展开，发生错误时自动展开。
 
@@ -32,7 +32,7 @@ ECU 总里程来自 `01A6`（0.1 km/count），不支持或返回不可用值时
 
 ## 采集模式选择
 
-- **四车型仪表轮询**　四车型模式与仪表固件 4.1.4-beta.6 共用 A/B 排布。两组都查转速、车速和 MAF。A 组另查节气门、负荷、燃油系统状态（已知不支持时改查指令 λ）。B 组另查指令 λ、点火提前角和一项慢数据。慢项依次为进气温度、水温、油温、电压、油箱液位、直接燃油流量和支持位。ZC6 油温 `2101` 和支持位 `0140` 在对应 B 组后单发。同一组连续两次收到不合格回包，该组改为单项查询，另一组独立运行。
+- **四车型仪表轮询**　四车型模式与仪表固件 4.1.6-beta.1 共用 A/B 排布。两组都查转速、车速和 MAF。A 组另查节气门、负荷、燃油系统状态（已知不支持时改查指令 λ）。B 组另查指令 λ、点火提前角和一项慢数据。慢项依次为进气温度、水温、油温、电压、油箱液位、直接燃油流量和支持位。ZC6 油温 `2101` 和支持位 `0140` 在对应 B 组后单发。同一组连续两次收到不合格回包，该组改为单项查询，另一组独立运行。
 - **全部标准 PID · 保留最近值**：继续发现并查询 ECU 声明支持的所有标准实时 PID，不限定为固定 47 个。没有总录制时长限制；不设样本年龄有效期，也不因界面超时清空数值。原始响应表保留每个请求最近一次响应和更新时间。统计摘要标记为 `last_sample_hold`。旧的全量录制文件回放也采用该规则。
 - **仪表常用 PID**：保留原来的精简 PID 循环方式；它与“仪表同款轮询”是不同选项。
 

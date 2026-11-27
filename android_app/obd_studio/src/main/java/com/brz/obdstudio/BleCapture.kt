@@ -184,7 +184,7 @@ class BleCapture(val context: Context,val journal: Journal,val cancelled: ()->Bo
             if(phase=="poll")StudioState.reply(c,buffer.toString("US-ASCII"),journal.time(),complete)
         }
     }
-    fun run(mode: String,extra: List<String>,duration: Double,interval: Long,strictDiscovery:Boolean=false,onPollingStarted: ()->Unit = {}){
+    fun run(mode: String,extra: List<String>,duration: Double,interval: Long,probeAllStandardPids:Boolean=false,onPollingStarted: ()->Unit = {}){
         val gauge=Modes.gauge(mode)
         initializeElm()
         for(c in listOf("ATL0","ATS1","ATH0","ATAT1",if(gauge)"ATST0A" else "ATST19","ATSP6","ATSH7E0")){
@@ -199,18 +199,36 @@ class BleCapture(val context: Context,val journal: Journal,val cancelled: ()->Bo
             while(duration==0.0||journal.time()-started<duration){check();val slot=poll.slot;val commands=poll.commands(journal.time());journal.emit("poll_slot",mapOf("slot" to slot,"commands" to org.json.JSONArray(commands)))
                 for(c in commands){if(duration>0&&journal.time()-started>=duration)return;poll.observe(c,query(c,if(c=="0140")"discovery" else "poll"))};Thread.sleep(1)}
         } else {
-            val pids=mutableSetOf<Int>()
-            for(base in 0..224 step 32){var block:Set<Int>?=null;repeat(if(base==0)3 else 1){if(block==null){block=supportedBlock(query("01%02X".format(base),"discovery"),base);if(block==null)Thread.sleep(150)}}
-                check(!strictDiscovery||block!=null){"无法读取 PID 支持位图 01%02X，请检查车辆供电或使用高级手动采集".format(base)}
-                val values=block.orEmpty();pids.addAll(values.filter{it<=255&&it%32!=0});if(base+32 !in values)break}
-            check(!strictDiscovery||pids.isNotEmpty()){"ECU 未声明可采集的标准 PID，未开始全量计时"}
-            if(pids.isEmpty()){pids.addAll(Modes.core);StudioState.message("支持位图不可用，尝试仪表常用 PID")}
-            val commands=((if(mode=="all")pids else pids.intersect(Modes.core.toSet())).sorted().map{"01%02X".format(it)}+(if(mode=="zc6")listOf("2101")else emptyList())+extra).distinct()
+            val commands = if (probeAllStandardPids) {
+                probeStandardPids(interval)
+            } else {
+                val pids=mutableSetOf<Int>()
+                for(base in 0..224 step 32){var block:Set<Int>?=null;repeat(if(base==0)3 else 1){if(block==null){block=supportedBlock(query("01%02X".format(base),"discovery"),base);if(block==null)Thread.sleep(150)}}
+                    val values=block.orEmpty();pids.addAll(values.filter{it<=255&&it%32!=0});if(base+32 !in values)break}
+                if(pids.isEmpty()){pids.addAll(Modes.core);StudioState.message("支持位图不可用，尝试仪表常用 PID")}
+                ((if(mode=="all")pids else pids.intersect(Modes.core.toSet())).sorted().map{"01%02X".format(it)}+(if(mode=="zc6")listOf("2101")else emptyList())+extra).distinct()
+            }
             check(commands.isNotEmpty()){"没有可采集的 PID"};journal.emit("poll_plan",mapOf("commands" to org.json.JSONArray(commands)))
             StudioState.message("正在录制 · ${commands.size} 个请求"+(if(mode=="all")" · 保留最近值" else ""))
             onPollingStarted();val started=journal.time()
             while(duration==0.0||journal.time()-started<duration)for(c in commands){check();if(duration>0&&journal.time()-started>=duration)return;query(c);Thread.sleep(interval)}
         }
+    }
+    private fun probeStandardPids(interval: Long): List<String> {
+        val valid = mutableListOf<String>()
+        StudioState.message("正在逐项探测 01xx PID · 0/256")
+        journal.emit("pid_probe_start", mapOf("first" to "0100", "last" to "01FF", "total" to 256))
+        for (pid in 0..0xFF) {
+            val command = "01%02X".format(pid)
+            val bitmap = pid % 32 == 0
+            val reply = query(command, if (bitmap) "discovery" else "probe")
+            if (!bitmap && hasMode01Data(pid, command, reply)) valid.add(command)
+            if ((pid + 1) % 16 == 0) StudioState.message("PID 探测 ${pid + 1}/256 · 有效数据 ${valid.size} 项")
+            Thread.sleep(interval)
+        }
+        journal.emit("pid_probe_end", mapOf("tested" to 256, "valid" to org.json.JSONArray(valid)))
+        check(valid.isNotEmpty()) { "已探测 256 项，ECU 未返回有效实时数据" }
+        return valid
     }
     private fun releaseLink(){generation++;connected=false;try{gatt?.disconnect()}finally{gatt?.close();gatt=null;events.clear();rx.clear()}}
     override fun close(){try{releaseLink()}finally{callbackThread.quitSafely()}}

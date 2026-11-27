@@ -36,13 +36,16 @@ static int16_t nvs_chart_alarm_get(uint8_t item) { return item * 10; }
 ''' + '\n'.join(host.function(source, name) for name in ('put_le16', 'trip_crc16', 'build_gauge_settings_wire')) + r'''
 int main(void) {
     cfg.refuel_detect_threshold_ml = 10000; cfg.brightness_day = 75;
-    for (unsigned page = 0; page <= 8; page++) for (unsigned rotation = 0; rotation <= 3; rotation++) {
+    for (unsigned page = 0; page < GAUGE_PAGE_ID_LIMIT; page++) for (unsigned rotation = 0; rotation <= 3; rotation++) {
         cfg.default_page = page; cfg.default_orientation = rotation;
-        assert(build_gauge_settings_wire() == 108);
-        const uint8_t *b = s_gauge_settings_value;
-        assert(b[0] == 3 && b[1] == 7 && b[2] == 108 && b[3] == 0);
+        uint8_t *b = s_gauge_settings_value;
+        assert(build_gauge_settings_wire(b, true) == 108);
+        assert(b[0] == 3 && b[1] == 63 && b[2] == 108 && b[3] == 0);
         assert(b[6] == page && b[7] == 75 && b[104] == rotation && b[105] == 0);
         assert((b[102] | b[103] << 8) == 10000);
+        assert((b[106] | b[107] << 8) == trip_crc16(b, 106));
+        assert(build_gauge_settings_wire(b, false) == 108);
+        assert(b[1] == 47 && b[6] <= 8 && (page > 8 || b[6] == page));
         assert((b[106] | b[107] << 8) == trip_crc16(b, 106));
     }
     return 0;
@@ -89,7 +92,7 @@ int main(void) {
     assert(nvs_boot_setting_set(3, 1) != ESP_OK);
     assert(memcmp(&s_cfg, &flash, sizeof(s_cfg)) == 0);
     fail = false;
-    for (unsigned page = 0; page <= 8; page++) {
+    for (unsigned page = 0; page < GAUGE_PAGE_ID_LIMIT; page++) {
         for (unsigned orientation = 0; orientation <= 3; orientation++) {
             assert(nvs_boot_setting_set(2, page) == ESP_OK);
             assert(nvs_boot_setting_set(3, orientation) == ESP_OK);
@@ -105,7 +108,7 @@ int main(void) {
     }
     unsigned previous = writes;
     assert(nvs_boot_setting_set(0, 0) == ESP_ERR_INVALID_ARG);
-    assert(nvs_boot_setting_set(2, 9) == ESP_ERR_INVALID_ARG);
+    assert(nvs_boot_setting_set(2, GAUGE_PAGE_ID_LIMIT) == ESP_ERR_INVALID_ARG);
     assert(nvs_boot_setting_set(3, 4) == ESP_ERR_INVALID_ARG);
     assert(nvs_boot_setting_set(3, 255) == ESP_ERR_INVALID_ARG);
     assert(writes == previous);

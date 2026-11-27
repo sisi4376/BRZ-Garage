@@ -204,6 +204,15 @@ void ui_intro_set_step(int step);
 // SCREEN: ui_ScreenPageInfo
 void ui_ScreenPageInfo_screen_init(void);
 extern lv_obj_t * ui_ScreenPageInfo;
+void ui_ScreenPageQuad_screen_init(void);
+extern lv_obj_t *ui_ScreenPageQuad;
+extern lv_obj_t *ui_LabelQuadName[4];
+extern lv_obj_t *ui_LabelQuadValue[4];
+extern lv_obj_t *ui_LabelQuadUnit[4];
+void ui_info_gps_text(const char *text);
+void ui_temp_gps_text(unsigned slot, const char *text);
+void ui_gps_readout(lv_obj_t *gps, lv_obj_t *reading, const char *text);
+void ui_format_gps_text(char *text, size_t size, int32_t lat, int32_t lon);
 extern lv_obj_t * ui_LabelInfoCLT;
 extern lv_obj_t * ui_LabelInfoIAT;
 extern lv_obj_t * ui_LabelInfoLoad;

@@ -1,3 +1,7 @@
+# 2026-11-27 BRZ Garage 4.6.8 Beta
+
+本版发布 Android 4.6.8、仪表 4.1.6-beta.1、Windows r4 烧录包和 Android OBD Studio beta.13。新增仪表编排和 GPS 显示并修复 OTA 续传。见[完整更新与下载](docs/RELEASE_4_6_8.md)。
+
 # 2026-11-24 BRZ Garage 4.6.7 Beta
 
 本版发布仪表 4.1.4-beta.6、Android OBD Studio beta.12 与 Windows OBD Studio 1.6。用户已验证新版轮询。见[完整更新与下载](docs/RELEASE_4_6_7.md)。

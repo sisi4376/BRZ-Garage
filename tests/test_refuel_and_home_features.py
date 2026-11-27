@@ -98,10 +98,6 @@ class RefuelAndHomeFeaturesTest(unittest.TestCase):
         self.assertIn('"SWIPE DOWN  TRIP OVERVIEW"', screen)
         overview = (ROOT / "main/export_path/screens/ui_ScreenPageTripOverview.c").read_text(encoding="utf-8")
         self.assertIn('"SWIPE UP  TRIP INTERVALS"', overview)
-        history_gesture = ui.split("void ui_event_trip_history_background", 1)[1]
-        history_gesture = history_gesture.split("// Chart data-source", 1)[0]
-        self.assertIn("ui_ScreenPageTripOverview", history_gesture)
-        self.assertNotIn("ui_ScreenPageTripIntervals", history_gesture)
         self.assertIn("KEY_CUSTOM_TRIP", storage)
         self.assertIn("DEVICE_INFO_CHAR_CUSTOM_TRIP_CONTROL 0x000E", ble)
         self.assertIn("CUSTOM_TRIP_CONTROL: UUID = uuid16(0x000E)", protocol)

@@ -1,10 +1,12 @@
 #pragma once
 #include "app_obd_dsp/fuel_estimator.h"
+#include "bsp_obd_dsp/gauge_layout.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 typedef int esp_err_t;
+#define ESP_OK 0
 
 #define TRIP_MERGE_TIMEOUT_LOCKED_MIN 15U
 #define MULTIGAUGE_LOCKED_ROLE 0U
@@ -40,7 +42,8 @@ typedef struct {
     uint8_t rc_enabled;
     uint16_t trip_merge_timeout_min;
     uint8_t default_orientation;
-    uint8_t copy_items[19][5];
+    uint8_t page_order[GAUGE_PAGE_COUNT];
+    uint8_t copy_items[GAUGE_COPY_SLOTS][GAUGE_COPY_FIELDS];
 } nvs_user_cfg_t;
 esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value);
 

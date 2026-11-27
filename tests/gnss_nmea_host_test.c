@@ -64,5 +64,15 @@ int main(void)
     assert(!s.collecting && s.malformed == 1);
     assert(sentence(&s, "GPGGA,123456,,,,,0", 0, &epoch) == GNSS_NMEA_PRESENT);
     assert(sentence(&s, "XXRMC,000000,A,,,,,,,121026", 0, &epoch) == GNSS_NMEA_NONE);
+    sentence(&s, "GNRMC,000007,A,3112.345,S,12130.000,W,0,0,121026,,,A", 7000000, &epoch);
+    assert(s.position_valid && s.latitude_e5 == -3120575 && s.longitude_e5 == -12150000);
+    sentence(&s, "GNRMC,000008,A,9000.01,N,12130,E,0,0,121026,,,A", 8000000, &epoch);
+    assert(!s.position_valid);
+    sentence(&s, "GNRMC,000009,A,0000,N,00000,E,0,0,121026,,,A", 9000000, &epoch);
+    assert(s.position_valid && !s.latitude_e5 && !s.longitude_e5);
+    sentence(&s, "GNRMC,000010,V,0000,N,00000,E,0,0,121026,,,N", 10000000, &epoch);
+    assert(!s.position_valid);
+    sentence(&s, "GNRMC,,A,3112.345,N,12130.000,E,,,,,,A", 11000000, &epoch);
+    assert(s.position_valid && !s.candidate_epoch);
     puts("PASS: corruption, oversized frames and foreign serial traffic rejected");
 }

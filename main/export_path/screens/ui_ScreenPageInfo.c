@@ -1,4 +1,5 @@
 #include "../ui.h"
+#include <stdio.h>
 #include <string.h>
 
 lv_obj_t *ui_ScreenPageInfo  = NULL;
@@ -10,6 +11,33 @@ lv_obj_t *ui_LabelInfoOil    = NULL;  // oil temp °C (SSM 22 10 17)
 lv_obj_t *ui_LabelInfoValue[5] = {NULL, NULL, NULL, NULL, NULL};
 lv_obj_t *ui_LabelInfoName[5]  = {NULL, NULL, NULL, NULL, NULL};
 lv_obj_t *ui_LabelInfoUnit[5]  = {NULL, NULL, NULL, NULL, NULL};
+
+static lv_obj_t *gps_value;
+
+void ui_format_gps_text(char *text, size_t size, int32_t lat, int32_t lon)
+{
+    snprintf(text, size, "%.2f %c  %.2f %c",
+             (double)(lat < 0 ? -lat : lat) / 100000, lat < 0 ? 'S' : 'N',
+             (double)(lon < 0 ? -lon : lon) / 100000, lon < 0 ? 'W' : 'E');
+}
+
+void ui_gps_readout(lv_obj_t *gps, lv_obj_t *reading, const char *text)
+{
+    if (!text) {
+        lv_obj_add_flag(gps, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(reading, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (text[0] == '\0') text = "--";
+    lv_obj_add_flag(reading, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(gps, LV_OBJ_FLAG_HIDDEN);
+    if (strcmp(lv_label_get_text(gps), text)) lv_label_set_text(gps, text);
+}
+
+void ui_info_gps_text(const char *text)
+{
+    ui_gps_readout(gps_value, ui_LabelInfoValue[4], text);
+}
 
 // Fit the actual formatted reading to one column, including signed decimals.
 static void fit_info_value(lv_event_t *event)
@@ -33,14 +61,14 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
                                    lv_obj_t **unit_out,
                                    const char *name, lv_color_t name_color,
                                    const char *unit,
-                                   lv_coord_t cx, lv_coord_t cy)
+                                   lv_coord_t cx, lv_coord_t cy, lv_coord_t label_offset)
 {
     // Name label
     lv_obj_t *lbl_name = lv_label_create(parent);
     lv_label_set_text(lbl_name, name);
     lv_obj_set_style_text_font(lbl_name, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_name, name_color, LV_PART_MAIN);
-    lv_obj_align(lbl_name, LV_ALIGN_CENTER, cx, cy - 38);
+    lv_obj_align(lbl_name, LV_ALIGN_CENTER, cx, cy - label_offset);
     if (name_out) *name_out = lbl_name;
 
     // Value label (returned so caller can update it)
@@ -58,7 +86,7 @@ static lv_obj_t *create_info_tile(lv_obj_t *parent,
     lv_label_set_text(lbl_unit, unit);
     lv_obj_set_style_text_font(lbl_unit, &ui_font_FontTypoderSize28, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_unit, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_align(lbl_unit, LV_ALIGN_CENTER, cx, cy + 38);
+    lv_obj_align(lbl_unit, LV_ALIGN_CENTER, cx, cy + label_offset);
     if (unit_out) *unit_out = lbl_unit;
 
     return lbl_val;
@@ -125,25 +153,25 @@ void ui_ScreenPageInfo_screen_init(void)
     ui_LabelInfoCLT  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[0], &ui_LabelInfoUnit[0],
                                         "CLT", lv_color_hex(0x44AAFF), "°C",
-                                        -96, -84);
+                                        -96, -84, 38);
     ui_LabelInfoOil  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[1], &ui_LabelInfoUnit[1],
                                         "OIL", lv_color_hex(0xFF7722), "°C",
-                                        +96, -84);
+                                        +96, -84, 38);
 
     ui_LabelInfoLoad = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[2], &ui_LabelInfoUnit[2],
                                         "LOAD", lv_color_hex(0xFFCC00), "%",
-                                        -96, +30);
+                                        -96, +30, 38);
     ui_LabelInfoTPS  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[3], &ui_LabelInfoUnit[3],
                                         "TPS", lv_color_hex(0xFF8844), "%",
-                                        +96, +30);
+                                        +96, +30, 38);
 
     ui_LabelInfoIAT  = create_info_tile(ui_ScreenPageInfo,
                                         &ui_LabelInfoName[4], &ui_LabelInfoUnit[4],
                                         "IAT", lv_color_hex(0x44FF88), "°C",
-                                        0, +144);
+                                        0, +144, 38);
 
     ui_LabelInfoValue[0] = ui_LabelInfoCLT;
     ui_LabelInfoValue[1] = ui_LabelInfoOil;
@@ -152,7 +180,42 @@ void ui_ScreenPageInfo_screen_init(void)
     ui_LabelInfoValue[4] = ui_LabelInfoIAT;
 
 
+    gps_value = lv_label_create(ui_ScreenPageInfo);
+    lv_label_set_text(gps_value, "");
+    lv_obj_set_style_text_font(gps_value, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+    lv_obj_set_style_text_align(gps_value, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(gps_value, lv_color_white(), LV_PART_MAIN);
+    lv_obj_align(gps_value, LV_ALIGN_CENTER, 0, 146);
+    lv_obj_add_flag(gps_value, LV_OBJ_FLAG_HIDDEN);
+
     // Touch events
     lv_obj_move_foreground(ring);   // bring the ring to the front
     lv_obj_add_event_cb(ui_ScreenPageInfo, ui_event_info_background, LV_EVENT_GESTURE, NULL);
+}
+
+lv_obj_t *ui_ScreenPageQuad;
+lv_obj_t *ui_LabelQuadName[4];
+lv_obj_t *ui_LabelQuadValue[4];
+lv_obj_t *ui_LabelQuadUnit[4];
+
+void ui_ScreenPageQuad_screen_init(void)
+{
+    ui_ScreenPageQuad = lv_obj_create(NULL);
+    lv_obj_clear_flag(ui_ScreenPageQuad, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(ui_ScreenPageQuad, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    ui_helpers_style_screen_bg(ui_ScreenPageQuad);
+    lv_obj_t *ring = ui_helpers_create_ring(ui_ScreenPageQuad, 8);
+
+    // Leave the upper band clear for OBD and TIME.
+    create_hdiv(ui_ScreenPageQuad, 0, 400);
+    create_vdiv(ui_ScreenPageQuad, 0, 0, 318);
+    for (int slot = 0; slot < 4; ++slot) {
+        const lv_coord_t x = slot % 2 == 0 ? -96 : 96;
+        const lv_coord_t y = slot < 2 ? -69 : 69;
+        ui_LabelQuadValue[slot] = create_info_tile(ui_ScreenPageQuad, &ui_LabelQuadName[slot],
+                                                   &ui_LabelQuadUnit[slot], "", lv_color_hex(0xFFFFFF),
+                                                   "", x, y, 46);
+    }
+    lv_obj_move_foreground(ring);
+    lv_obj_add_event_cb(ui_ScreenPageQuad, ui_event_info_background, LV_EVENT_GESTURE, NULL);
 }

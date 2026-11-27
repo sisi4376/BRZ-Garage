@@ -22,7 +22,7 @@ class StudioService:Service(){
         val stop=PendingIntent.getService(this,2,Intent(this,StudioService::class.java).setAction("STOP"),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val elapsed=if(StudioState.pollingStartedNs>0)(System.nanoTime()-StudioState.pollingStartedNs)/1_000_000_000L else -1L
         val detail=if(StudioState.quickStage>0) "${StudioState.quickStage}/2 · ${StudioState.quickLabel} · "+
-            if(elapsed<0)"准备中"else "${elapsed.coerceAtMost(300)/60}:${(elapsed.coerceAtMost(300)%60).toString().padStart(2,'0')} / 5:00"
+            if(elapsed<0)StudioState.status else "${elapsed.coerceAtMost(300)/60}:${(elapsed.coerceAtMost(300)%60).toString().padStart(2,'0')} / 5:00"
             else "点击打开；使用停止按钮保存并断开蓝牙"
         return Notification.Builder(this,"obd-studio").setSmallIcon(R.drawable.studio_icon).setContentTitle("OBD Studio 正在运行")
             .setContentText(detail).setOnlyAlertOnce(true).setContentIntent(open).setOngoing(true)
@@ -60,7 +60,7 @@ class StudioService:Service(){
                             if(index>1){StudioState.message("第 1 段已保存，正在切换车型轮询…");Thread.sleep(1000)}
                             record(address,stage.profile,emptyList(),stage.seconds,30L,intent,job,index,name)
                         }
-                        StudioState.message("一键采集完成 · 两段各 5 分钟，录制和摘要已分别保存")
+                        StudioState.message("一键采集完成 · 01xx 探测和两段录制已保存")
                     }
                     "RECORD"->record(intent.getStringExtra("address")?:error("未选择 ELM"),intent.getStringExtra("profile")?:"zd8-mt",
                         intent.getStringArrayListExtra("extra").orEmpty(),intent.getDoubleExtra("duration",0.0),intent.getLongExtra("interval",30L),intent,job,0,"")
@@ -88,7 +88,7 @@ class StudioService:Service(){
         val journal=Journal(file,mode,address);var completed=false;var failure:Exception?=null
         journal.emit("capture_stage",mapOf("job" to job,"stage" to index,"obd_name" to name,"vehicle" to intent.getStringExtra("profile"),"seconds" to duration))
         try {
-            BleCapture(this,journal){cancelled}.use{capture->capture.connect(address);capture.run(mode,extras,duration,interval,index>0){
+            BleCapture(this,journal){cancelled}.use{capture->capture.connect(address);capture.run(mode,extras,duration,interval,probeAllStandardPids=index==1){
                 StudioState.pollingStartedNs=System.nanoTime();journal.emit("polling_started",mapOf("seconds" to duration))
             }}
             completed=true

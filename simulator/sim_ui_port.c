@@ -118,6 +118,7 @@ static nvs_fuel_snapshot_t s_sim_fuel = {
 };
 
 static nvs_user_cfg_t s_sim_cfg = {
+    .page_order = GAUGE_DEFAULT_ORDER,
     .protocol = 0,
     .theme_cfg = { .theme = 0 },
     .ble_device_name = "ELM327-emulator",
@@ -177,6 +178,7 @@ static lv_obj_t *page_object(int page)
     case SIM_PAGE_TRIP_OVERVIEW: return ui_ScreenPageTripOverview;
     case SIM_PAGE_TRIP_HISTORY: return ui_ScreenPageTripHistory;
     case SIM_PAGE_TRIP_INTERVALS: return ui_ScreenPageTripIntervals;
+    case SIM_PAGE_QUAD: return ui_ScreenPageQuad;
     default: return NULL;
     }
 }
@@ -187,7 +189,7 @@ const char *sim_ui_page_name(int page)
         "GEAR + RPM", "RPM (LEGACY)", "SPEED", "TEMP", "INFO", "NEEDLE", "CHART",
         "DEVICE", "BLE SCAN", "SETTINGS", "MULTI-GAUGE", "OBD PROTOCOL",
         "LOGO", "YELLOWLINE", "TEMP SOURCE", "INFO SOURCE", "NEEDLE SOURCE",
-        "CHART SOURCE", "CHART ALARM", "FUEL", "TRIP OVERVIEW", "TRIP HISTORY", "TRIP INTERVALS"
+        "CHART SOURCE", "CHART ALARM", "FUEL", "TRIP OVERVIEW", "TRIP HISTORY", "TRIP INTERVALS", "QUAD INFO"
     };
     return page >= 0 && page < SIM_PAGE_COUNT ? names[page] : "UNKNOWN";
 }
@@ -252,13 +254,12 @@ void _ui_screen_change(lv_obj_t **target, lv_scr_load_anim_t animation, int spee
     lv_scr_load_anim(*target, animation, (uint32_t)speed, (uint32_t)delay, false);
 }
 
-static uint8_t sim_order[GAUGE_PAGE_COUNT] = GAUGE_DEFAULT_ORDER;
 static int sim_active_page;
 int ui_active_page(void) { return sim_active_page; }
 static const int sim_carousel[] = {
     SIM_PAGE_TEMP, SIM_PAGE_INFO, SIM_PAGE_CHART, SIM_PAGE_NEEDLE, SIM_PAGE_GEAR,
     SIM_PAGE_SPEED, SIM_PAGE_FUEL, SIM_PAGE_TRIP_HISTORY, SIM_PAGE_TRIP_OVERVIEW,
-    SIM_PAGE_DEVICE
+    SIM_PAGE_QUAD, SIM_PAGE_DEVICE
 };
 
 bool sim_ui_set_layout(const uint8_t *bytes)
@@ -271,17 +272,17 @@ bool sim_ui_set_layout(const uint8_t *bytes)
             crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
     }
     if (crc != (bytes[GAUGE_LAYOUT_WIRE_SIZE-2] | (bytes[GAUGE_LAYOUT_WIRE_SIZE-1] << 8)) || !gauge_layout_unpack(bytes, &layout)) return false;
-    memcpy(sim_order, layout.pages, sizeof(sim_order));
+    memcpy(s_sim_cfg.page_order, layout.pages, sizeof(s_sim_cfg.page_order));
     memcpy(s_sim_cfg.temp_display_map, layout.items, 3);
     memcpy(s_sim_cfg.info_display_map, layout.items + 3, 5);
     memcpy(s_sim_cfg.copy_items, layout.items + 10, sizeof(s_sim_cfg.copy_items));
     s_sim_cfg.needle_source_idx = layout.items[8];
     s_sim_cfg.chart_source_idx = layout.items[9];
-    if (sim_active_page != GAUGE_PAGE_SYSTEM && gauge_page_index(sim_order, sim_active_page) < 0 &&
+    if (sim_active_page != GAUGE_PAGE_SYSTEM && gauge_page_index(s_sim_cfg.page_order, sim_active_page) < 0 &&
         s_page == sim_carousel[gauge_page_type(sim_active_page)]) {
-        sim_active_page = sim_order[0] == GAUGE_PAGE_UNUSED ? GAUGE_PAGE_SYSTEM : sim_order[0];
+        sim_active_page = s_sim_cfg.page_order[0] == GAUGE_PAGE_UNUSED ? GAUGE_PAGE_SYSTEM : s_sim_cfg.page_order[0];
         int type = gauge_page_type(sim_active_page);
-        sim_ui_show_page(sim_carousel[type == GAUGE_PAGE_SYSTEM ? 9 : type]);
+        sim_ui_show_page(sim_carousel[type == GAUGE_PAGE_SYSTEM ? GAUGE_TYPE_QUAD + 1 : type]);
     }
     ui_needle_apply_source();
     ui_chart_apply_source();
@@ -300,15 +301,15 @@ void sim_ui_handle_gesture(const char *direction)
     int next = s_page;
     if (left || right) {
         int carousel_page = s_page == SIM_PAGE_TRIP_INTERVALS ? SIM_PAGE_TRIP_OVERVIEW : s_page;
-        for (int i = 0; i <= 9; ++i) {
+        for (int i = 0; i <= GAUGE_TYPE_QUAD + 1; ++i) {
             if (sim_carousel[i] != carousel_page) continue;
-            int current = i == 9 ? GAUGE_PAGE_SYSTEM : i;
+            int current = i == GAUGE_TYPE_QUAD + 1 ? GAUGE_PAGE_SYSTEM : i;
             if (gauge_page_type(sim_active_page) == current) current = sim_active_page;
-            sim_active_page = gauge_page_step(sim_order, current, left);
+            sim_active_page = gauge_page_step(s_sim_cfg.page_order, current, left);
             int type = gauge_page_type(sim_active_page);
             if (type == 2) ui_chart_apply_source();
             if (type == 3) ui_needle_apply_source();
-            int screen = sim_carousel[type == GAUGE_PAGE_SYSTEM ? 9 : type];
+            int screen = sim_carousel[type == GAUGE_PAGE_SYSTEM ? GAUGE_TYPE_QUAD + 1 : type];
             if (screen != s_page) sim_ui_show_page(screen);
             return;
         }
@@ -337,7 +338,10 @@ void sim_ui_handle_gesture(const char *direction)
     case SIM_PAGE_OBD_PROTOCOL: if (left || right) next = SIM_PAGE_TEMP; break;
     case SIM_PAGE_RPM_WARN: if (up || left || right) next = SIM_PAGE_GEAR; break;
     case SIM_PAGE_TEMP_SOURCE: if (up || left || right) next = SIM_PAGE_TEMP; break;
-    case SIM_PAGE_INFO_SOURCE: if (up || left || right) next = SIM_PAGE_INFO; break;
+    case SIM_PAGE_QUAD: if (down) next = SIM_PAGE_INFO_SOURCE; break;
+    case SIM_PAGE_INFO_SOURCE:
+        if (up || left || right) next = gauge_page_type(sim_active_page) == GAUGE_TYPE_QUAD ? SIM_PAGE_QUAD : SIM_PAGE_INFO;
+        break;
     case SIM_PAGE_NEEDLE_SOURCE: next = SIM_PAGE_NEEDLE; break;
     case SIM_PAGE_CHART_SOURCE:
     case SIM_PAGE_CHART_ALARM: next = SIM_PAGE_CHART; break;
@@ -349,7 +353,7 @@ void sim_ui_handle_gesture(const char *direction)
 const nvs_user_cfg_t *nvs_cfg_get(void) { return &s_sim_cfg; }
 esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value)
 {
-    if (command == 2 && value <= 8) s_sim_cfg.default_page = value;
+    if (command == 2 && value < GAUGE_PAGE_ID_LIMIT) s_sim_cfg.default_page = value;
     else if (command == 3 && value <= 3) s_sim_cfg.default_orientation = value;
     else return -1;
     return 0;
@@ -596,6 +600,8 @@ void sim_ui_create_pages(void)
     ui_ScreenPageTempCustom_screen_init();
     ui_ScreenPageInfo_screen_init();
     page_obd_indicators[SIM_PAGE_INFO] = add_page_indicators(ui_ScreenPageInfo);
+    ui_ScreenPageQuad_screen_init();
+    page_obd_indicators[SIM_PAGE_QUAD] = add_page_indicators(ui_ScreenPageQuad);
     ui_ScreenPageInfoCustom_screen_init();
     ui_ScreenPageNeedle_screen_init();
     page_obd_indicators[SIM_PAGE_NEEDLE] = add_page_indicators(ui_ScreenPageNeedle);

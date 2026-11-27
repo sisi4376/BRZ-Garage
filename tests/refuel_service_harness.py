@@ -6,8 +6,7 @@ def write_harness(root: Path, destination: Path):
     source = (root / 'android_app/app/src/main/java/com/brz/gauge/trips/TripSyncService.kt').read_text(encoding='utf8')
     methods = source.split('    private fun sameRefuelWindow', 1)[1].split('    private fun readRefuelOrSettings()', 1)[0]
     methods = '    private fun sameRefuelWindow' + methods
-    packet = source.split('            TripBleProtocol.REFUEL_DATA -> {', 1)[1].split('            TripBleProtocol.GAUGE_SETTINGS -> {', 1)[0]
-    packet = packet.rsplit('}', 1)[0]
+    packet = source.split('            TripBleProtocol.REFUEL_DATA -> {', 1)[1].split('\n            }\n', 1)[0]
     custom = '    private fun receiveCustomTripReceipt' + source.split('    private fun receiveCustomTripReceipt', 1)[1].split('    private fun requestRefuelDelete()', 1)[0]
     destination.write_text('''package com.brz.gauge.trips
 import android.content.Context

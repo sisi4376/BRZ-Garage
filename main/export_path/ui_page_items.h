@@ -7,7 +7,7 @@ int ui_active_page(void);
 static inline int ui_copy_slot(int type)
 {
     int id = ui_active_page();
-    return id >= 9 && id < GAUGE_PAGE_SYSTEM && gauge_page_type(id) == type
+    return gauge_page_is_copy(id) && gauge_page_type(id) == type
         ? gauge_copy_slot(id) : -1;
 }
 

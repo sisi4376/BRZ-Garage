@@ -83,13 +83,13 @@ class StudioActivity:Activity(){
     }
     private fun render(){
         content.removeAllViews();shownValues.clear();raw=null;trend=null;notes=null;logs=null
-        start.text=if(page==1)"启动仪表回放"else if(advancedCapture)"开始手动录制"else "一键采集（各 5 分钟）"
+        start.text=if(page==1)"启动仪表回放"else if(advancedCapture)"开始手动录制"else "一键探测并采集"
         when(page){
             0->{
                 content.addView(text(if(address.isBlank())"尚未选择 OBD，请先扫描并选择设备"else "已选 OBD：${obdName.ifBlank{"未命名设备"}}\n$address"))
                 content.addView(button(if(scanning)"结束扫描并选择 OBD"else "扫描并选择 OBD"){if(scanning)finishScan()else permissions{scan()}}.apply{isEnabled=!StudioState.active})
                 spinner("车型",Modes.labels.take(4).map{it.substringBefore(" ·")},vehicleIndex){vehicleIndex=it;capturePrefs.edit().putInt("vehicle",it).apply()}
-                content.addView(text("一键流程：全部支持的标准 PID 采集 5 分钟 → 所选车型轮询采集 5 分钟。记住所选设备与车型，下次可直接一键采集。两段各保存一份 JSONL 和摘要；连接、初始化和支持位识别不计入 5 分钟。"))
+                content.addView(text("一键流程：逐条探测 0100–01FF → 采集有有效回包的 PID 5 分钟 → 车型轮询 5 分钟。每段保存 JSONL 和摘要，探测不占用采集时间。"))
                 content.addView(CheckBox(this).apply{text="高级手动采集";setTextColor(Color.WHITE);isChecked=advancedCapture;isEnabled=!StudioState.active;setOnCheckedChangeListener{_,v->advancedCapture=v;capturePrefs.edit().putBoolean("advanced",v).apply();render()}})
                 if(advancedCapture){
                 field("手动蓝牙地址（填写后优先于扫描选择）",manualAddress){manualAddress=it}

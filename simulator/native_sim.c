@@ -453,11 +453,37 @@ static void update_ui(uint32_t fuel_dt_ms)
         uint8_t item = ui_page_item(cfg, temp ? 0 : 1, slot);
         lv_obj_t *name = temp ? ui_LabelTempName[slot] : ui_LabelInfoName[slot];
         lv_obj_t *unit = temp ? ui_LabelTempUnit[slot] : ui_LabelInfoUnit[slot];
+        if (temp || slot == 4) {
+            char gps_text[32] = "";
+            const char *gps_readout = NULL;
+            if (item == GAUGE_ITEM_GPS) {
+                if (!g_elm_online) ui_format_gps_text(gps_text, sizeof(gps_text), 3123040, 12147370);
+                gps_readout = gps_text;
+                lv_label_set_text(name, "GPS");
+                lv_label_set_text(unit, "");
+                lv_obj_set_style_text_color(name, lv_color_hex(0x44FF88), 0);
+                if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(0x44FF88), 0);
+            }
+            if (temp) ui_temp_gps_text(slot, gps_readout);
+            else ui_info_gps_text(gps_readout);
+            if (gps_readout) {
+                continue;
+            }
+        }
         if (temp) lv_obj_set_style_bg_color(ui_LabelTempDot[slot], lv_color_hex(ui_disp_item_color(item)), 0);
         lv_label_set_text(name, ui_disp_item_name(item));
         lv_label_set_text(unit, ui_info_slot_unit(item));
         lv_obj_set_style_text_color(name, lv_color_hex(ui_disp_item_color(item)), 0);
         disp_item_set_text(temp ? ui_LabelTempValue[slot] : ui_LabelInfoValue[slot], item, raw[item], true);
+    }
+    int slot = ui_copy_slot(GAUGE_TYPE_QUAD);
+    const uint8_t *quad_items = cfg->copy_items[slot >= 0 ? slot : 0];
+    for (int i = 0; i < 4; ++i) {
+        uint8_t item = quad_items[i];
+        lv_label_set_text(ui_LabelQuadName[i], ui_disp_item_name(item));
+        lv_obj_set_style_text_color(ui_LabelQuadName[i], lv_color_hex(ui_disp_item_color(item)), LV_PART_MAIN);
+        lv_label_set_text(ui_LabelQuadUnit[i], ui_info_slot_unit(item));
+        disp_item_set_text(ui_LabelQuadValue[i], item, raw[item], true);
     }
     uint8_t needle = ui_page_item(cfg, 3, 0), chart = ui_page_item(cfg, 2, 0);
     disp_item_set_text(ui_NeedleValueLabel, needle, raw[needle], true);
@@ -696,8 +722,10 @@ static bool check_fuel_readout_layout(void)
  * The last pass is a mixed layout used to check the phone's cell boundaries. */
 static int export_editor_frames(void)
 {
-    const int pages[] = {SIM_PAGE_TEMP, SIM_PAGE_INFO, SIM_PAGE_CHART, SIM_PAGE_NEEDLE};
-    const uint8_t check_sources[] = {5, 2, 8, 7, 5, 11, 6, 12};
+    const int pages[] = {SIM_PAGE_TEMP, SIM_PAGE_INFO, SIM_PAGE_CHART, SIM_PAGE_NEEDLE, SIM_PAGE_QUAD};
+    const int frame_ids[] = {0, 1, 2, 3, GAUGE_TYPE_QUAD};
+    const uint8_t quad_sources[] = {5, 7, 6, 8};
+    const uint8_t check_sources[] = {5, GAUGE_ITEM_GPS, 8, 7, 5, 11, 6, GAUGE_ITEM_GPS};
     for (unsigned source = 0; source <= DISP_ITEM_COUNT; ++source) {
         bool mixed = source == DISP_ITEM_COUNT;
         nvs_user_cfg_t cfg = *nvs_cfg_get();
@@ -705,6 +733,8 @@ static int export_editor_frames(void)
             cfg.temp_display_map[i] = mixed ? check_sources[i] : source;
         for (int i = 0; i < 5; ++i)
             cfg.info_display_map[i] = mixed ? check_sources[3 + i] : source;
+        for (int i = 0; i < 4; ++i)
+            cfg.copy_items[0][i] = mixed ? quad_sources[i] : source;
         cfg.chart_source_idx = cfg.needle_source_idx = mixed ? DISP_ITEM_CLT : source;
         nvs_cfg_set(&cfg);
         ui_chart_apply_source();
@@ -714,14 +744,31 @@ static int export_editor_frames(void)
             update_demo(1000U * (sample + 1));
             update_ui(0);
         }
-        for (unsigned page = 0; page < (mixed ? 2U : 4U); ++page) {
+        for (unsigned page = 0; page < sizeof(pages) / sizeof(pages[0]); ++page) {
+            if (mixed && (pages[page] == SIM_PAGE_CHART || pages[page] == SIM_PAGE_NEEDLE)) continue;
             sim_ui_show_page(pages[page]);
             lv_refr_now(NULL);
             char name[48];
-            snprintf(name, sizeof(name), "page-%u-%u.bmp", page, source);
+            snprintf(name, sizeof(name), "page-%d-%u.bmp", frame_ids[page], source);
             if (!write_framebuffer(name)) return 1;
         }
     }
+    nvs_user_cfg_t cfg = *nvs_cfg_get();
+    nvs_user_cfg_t gps_cfg = cfg;
+    memset(gps_cfg.temp_display_map, GAUGE_ITEM_GPS, sizeof(gps_cfg.temp_display_map));
+    gps_cfg.info_display_map[4] = GAUGE_ITEM_GPS;
+    nvs_cfg_set(&gps_cfg);
+    update_ui(0);
+    sim_ui_show_page(SIM_PAGE_TEMP);
+    lv_refr_now(NULL);
+    if (!write_framebuffer("temp-gps.bmp")) return 1;
+    sim_ui_show_page(SIM_PAGE_INFO);
+    lv_refr_now(NULL);
+    if (!write_framebuffer("info-gps.bmp")) return 1;
+    cfg.temp_display_map[1] = DISP_ITEM_IAT;
+    cfg.info_display_map[4] = DISP_ITEM_IAT;
+    nvs_cfg_set(&cfg);
+    update_ui(0);
     return check_three_slot_readouts() && check_five_slot_readouts() &&
            check_single_signal_readouts() && check_speed_and_rpm_readouts() &&
            export_fixed_editor_frames() && check_fuel_readout_layout() ? 0 : 1;

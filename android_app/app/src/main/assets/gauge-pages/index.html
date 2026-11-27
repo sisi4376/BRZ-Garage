@@ -3,8 +3,15 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; script-src 'self' file:; style-src 'self' file:">
 <title>仪表页面设置</title><link rel="stylesheet" href="pages.css"></head>
 <body><main><header><button id="back" hidden>‹ 仪表设置</button><h1>仪表页面设置</h1><p id="status"></p></header>
-<section class="preview"><div class="stage"><button id="prev" aria-label="上一页">‹</button><div id="dial" role="img" aria-label="仪表预览"><canvas width="466" height="466"></canvas><img alt="仪表 LVGL 画面" hidden></div><button id="next" aria-label="下一页">›</button></div>
+<section class="preview"><div class="stage"><button id="prev" aria-label="上一页">‹</button><div class="dial-shell"><div id="dial" role="img" aria-label="仪表预览"><canvas width="466" height="466"></canvas><img alt="仪表 LVGL 画面" hidden></div><div id="portTrack"><span id="port" role="img" aria-label="充电口" title="充电口"></span></div></div><button id="next" aria-label="下一页">›</button></div>
 <div class="caption"><strong id="title"></strong><span id="position"></span></div><small>默认主题 · LVGL 原生画面 · 示例数据</small><div><button id="subpage" hidden></button></div><p id="previewError" hidden>仪表预览图未能加载。</p></section>
+<section class="boot-settings">
+<div class="slot"><span>默认启动页</span><button id="setStartup" aria-pressed="false" title="将当前预览的表盘设置为默认启动页"><span id="startupStar" aria-hidden="true">☆</span>设置为默认启动页</button></div>
+<label class="slot" for="orientation">仪表朝向<select id="orientation">
+<option value="-1" disabled>等待读取</option>
+</select></label>
+<p id="bootStatus" class="boot-hint" aria-live="polite"></p>
+</section>
 <section><div class="heading"><h2>页面顺序</h2><select id="add" aria-label="添加页面"></select></div><div id="pages"></div></section>
 <section id="edit"><div class="heading"><h2 id="editTitle"></h2></div><div id="items"></div><div class="actions"><button id="up">上移</button><button id="down">下移</button><button id="remove">移除页面</button></div></section>
 <p class="foot">版本与设置固定为第 1 页。左右滑动切换表盘。添加时，新表盘插入当前编号，选中第 1 页时插入第 2 页。</p>

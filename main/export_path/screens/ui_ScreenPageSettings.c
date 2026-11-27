@@ -4,17 +4,18 @@
 // Swipe down (LV_DIR_BOTTOM) opens the multi-gauge page (see ui_event_settings_background).
 
 #include "../ui.h"
+#include <stdio.h>
 #include <string.h>
 #include "bsp_obd_dsp/nvs_storage.h"
 #include "bsp_obd_dsp/display_port.h"
 #include "app_obd_dsp/vehicle_profiles.h"
 #include "esp_system.h"
 
-// Page names for the boot-page roller. Order must match the default-page
-// switch in ui.c. (Brake temp moved into the CHART page.)
-// 0=TEMP 1=INFO 2=CHART 3=NEEDLE 4=GEAR+RPM 5=SPEED 6=FUEL 7=TRIP HISTORY 8=TRIP OVERVIEW
-static const char *page_names = "3-SLOT INFO\n5-SLOT INFO\nCHART\nNEEDLE\nGEAR + RPM\nSPEED\nFUEL\nTRIP HISTORY\nTRIP OVERVIEW";
-#define BOOT_PAGE_COUNT 9
+static const char *const page_names[] = {
+    "3-SLOT", "5-SLOT", "CHART", "NEEDLE", "GEAR+RPM",
+    "SPEED", "FUEL", "TRIP LOG", "TRIP TOTAL", "4-SLOT"
+};
+static uint8_t s_boot_page_ids[GAUGE_PAGE_COUNT + 1];
 static const char *vehicle_names = "ZC6 6MT\nZD8 6MT\nZC6 6AT\nZD8 6AT";
 static const uint8_t s_vehicle_profile_indices[VEHICLE_PROFILE_SELECTABLE_COUNT] = {
     VEHICLE_PROFILE_ZC6_INDEX,
@@ -46,11 +47,34 @@ static uint16_t s_trip_gap_min = TRIP_MERGE_TIMEOUT_LOCKED_MIN;
 static const uint16_t s_trip_gap_options[] = {5, 15, 30, 60, 120, 240, 480};
 #endif
 
+static void refresh_startup_roller(void)
+{
+    const nvs_user_cfg_t *cfg = nvs_cfg_get();
+    uint8_t startup = gauge_startup_page(cfg->page_order, cfg->default_page);
+    char options[(GAUGE_PAGE_COUNT + 1) * 18] = "01 VERSION";
+    size_t length = strlen(options);
+    unsigned count = 1, selected = 0;
+    s_boot_page_ids[0] = GAUGE_PAGE_SYSTEM;
+    for (int i = 0; i < GAUGE_PAGE_COUNT && cfg->page_order[i] != GAUGE_PAGE_UNUSED; ++i) {
+        uint8_t id = cfg->page_order[i];
+        if (id >= GAUGE_PAGE_ID_LIMIT || id == GAUGE_PAGE_SYSTEM) continue;
+        if (id == startup) selected = count;
+        s_boot_page_ids[count++] = id;
+        length += snprintf(options + length, sizeof(options) - length,
+                           "\n%02u %s", count, page_names[gauge_page_type(id)]);
+    }
+    lv_roller_set_options(s_roller_page, options, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_visible_row_count(s_roller_page, 1);
+    lv_roller_set_selected(s_roller_page, selected, LV_ANIM_OFF);
+}
+
 // Callbacks
 static void on_page_roller_change(lv_event_t *e)
 {
-    nvs_boot_setting_set(2, lv_roller_get_selected(s_roller_page));
-    lv_roller_set_selected(s_roller_page, nvs_cfg_get()->default_page, LV_ANIM_OFF);
+    (void)e;
+    unsigned index = lv_roller_get_selected(s_roller_page);
+    if (nvs_boot_setting_set(2, s_boot_page_ids[index]) != ESP_OK)
+        refresh_startup_roller();
 }
 
 static void on_orientation_change(lv_event_t *e)
@@ -63,7 +87,7 @@ static void on_orientation_change(lv_event_t *e)
 static void refresh_boot_settings(lv_event_t *e)
 {
     (void)e;
-    lv_roller_set_selected(s_roller_page, nvs_cfg_get()->default_page, LV_ANIM_OFF);
+    refresh_startup_roller();
     lv_roller_set_selected(s_roller_orientation, nvs_cfg_get()->default_orientation, LV_ANIM_OFF);
 }
 
@@ -170,9 +194,7 @@ void ui_ScreenPageSettings_screen_init(void)
     s_roller_page = lv_roller_create(ui_ScreenPageSettings);
     lv_obj_set_style_clip_corner(s_roller_page, true, 0);
     lv_obj_clear_flag(s_roller_page, LV_OBJ_FLAG_GESTURE_BUBBLE); // don't trigger page swipe while scrolling
-    lv_roller_set_options(s_roller_page, page_names, LV_ROLLER_MODE_NORMAL);
-    lv_roller_set_visible_row_count(s_roller_page, 1);
-    lv_roller_set_selected(s_roller_page, (cfg->default_page < BOOT_PAGE_COUNT) ? cfg->default_page : 0, LV_ANIM_OFF);
+    refresh_startup_roller();
     lv_obj_set_width(s_roller_page, 140);
     lv_obj_set_height(s_roller_page, 30);   // explicit: font is applied by style_dark_roller below
     ui_helpers_style_dark_roller(s_roller_page, &ui_font_FontTypoderSize20);

@@ -13,6 +13,7 @@
 #include "ota_wifi_server.h"
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -67,15 +68,15 @@ static const char *TAG = "ota_wifi";
 #define OTA_SOCKET_RCVBUF        32768     // keep lwIP bookkeeping bounded
 #define OTA_FLASH_WRITE_CHUNK 4096         // internal scratch buffer used for flash-safe writes
 #define OTA_PROGRESS_STEP   (64 * 1024)    // report to BLE callback every 64KB
-#define OTA_IDLE_TIMEOUT_US       (3 * 60 * 1000000LL)  // no phone/update activity: return to normal mode
-#define OTA_ERROR_REBOOT_US       (30 * 1000000LL)      // show the error briefly, then restore normal mode
+#define OTA_IDLE_TIMEOUT_MS       (3U * 60U * 1000U)  // no phone/update activity: return to normal mode
+#define OTA_ERROR_REBOOT_MS       (30U * 1000U)      // show the error briefly, then restore normal mode
 #define OTA_INSTALL_ACK_DELAY_MS  5000      // keep SoftAP alive until final HTTP 200 reaches the phone
 #define OTA_INSTALL_STACK_SIZE    6144      // internal stack; flash/cache operations cannot use PSRAM
 // HTTPD task stack size is measured in bytes. 4 KB is the default and enough
 // for these handlers; flash operations must run from an internal-RAM task.
 #define OTA_WIFI_STACK_SIZE 8192
 
-static ota_wifi_state_t s_state = OTA_WIFI_STATE_IDLE;
+static _Atomic(ota_wifi_state_t) s_state = OTA_WIFI_STATE_IDLE;
 static ota_wifi_status_cb_t s_status_cb = NULL;
 static httpd_handle_t s_httpd = NULL;
 static esp_netif_t *s_ap_netif = NULL;
@@ -86,9 +87,10 @@ static bool s_netif_owned = false;
 static bool s_event_loop_owned = false;
 static bool s_wifi_owned = false;
 static wifi_mode_t s_prev_wifi_mode = WIFI_MODE_NULL;
-static volatile int64_t s_last_activity_us = 0;
+static atomic_uint s_last_activity_ms;
 static volatile bool s_normal_reboot_scheduled = false;
-static volatile bool s_install_scheduled = false;
+/* Only the owner may shut down HTTP or install and reboot. */
+static atomic_bool s_finishing;
 static uint8_t s_flash_write_buf[OTA_FLASH_WRITE_CHUNK];
 
 // OTA 接收状态
@@ -321,9 +323,14 @@ static void wifi_runtime_cleanup(bool restore_mode)
 /* Status notifications (also updates the idle-activity timestamp)    */
 /* ------------------------------------------------------------------ */
 
+static void record_activity(void)
+{
+    atomic_store(&s_last_activity_ms, (uint32_t)(esp_timer_get_time() / 1000));
+}
+
 static void notify_status(ota_wifi_state_t state, const char *message, uint32_t received, uint32_t expected)
 {
-    s_last_activity_us = esp_timer_get_time();   // any state change counts as activity
+    record_activity();
     s_state = state;
     if (s_status_cb) {
         s_status_cb(state, message, received, expected);
@@ -517,9 +524,12 @@ static esp_err_t send_err(httpd_req_t *req, const char *err)
 }
 
 /* Periodic status report while receiving (throttled by OTA_PROGRESS_STEP). */
-static void report_progress(void)
+static void record_received_bytes(uint32_t received)
 {
-    if (s_recv.received_size % OTA_PROGRESS_STEP == 0) {
+    uint32_t previous = s_recv.received_size;
+    s_recv.received_size = received;
+    record_activity();
+    if (previous / OTA_PROGRESS_STEP != received / OTA_PROGRESS_STEP) {
         notify_status(OTA_WIFI_STATE_RECEIVING, "receiving",
                       s_recv.received_size, s_recv.expected_size);
     }
@@ -614,9 +624,10 @@ static void reboot_normal_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(500));
-    ota_wifi_server_stop();
-    vTaskDelay(pdMS_TO_TICKS(150));
-    esp_restart();
+    if (ota_wifi_server_stop()) {
+        vTaskDelay(pdMS_TO_TICKS(150));
+        esp_restart();
+    }
     vTaskDelete(NULL);
 }
 
@@ -628,7 +639,7 @@ static esp_err_t cancel_handler(httpd_req_t *req)
     if (!validate_token(req)) {
         return send_err(req, "unauthorized");
     }
-    if (s_install_scheduled) {
+    if (atomic_load(&s_finishing)) {
         return send_json_response(req, 200,
                                   "{\"ok\":true,\"message\":\"firmware already installing\"}");
     }
@@ -665,7 +676,8 @@ static void firmware_install_task(void *arg)
         s_httpd = NULL;
         esp_err_t stop_err = httpd_stop(server);
         if (stop_err != ESP_OK) {
-            ESP_LOGW(TAG, "httpd stop before install failed: %s", esp_err_to_name(stop_err));
+            ESP_LOGE(TAG, "httpd stop before install failed: %s; rebooting", esp_err_to_name(stop_err));
+            esp_restart();
         }
     }
     esp_err_t wifi_stop_err = esp_wifi_stop();
@@ -711,7 +723,6 @@ static void firmware_install_task(void *arg)
                       expected_size, expected_size);
     }
     recv_reset();
-    s_install_scheduled = false;
     vTaskDelay(pdMS_TO_TICKS(300));
     esp_restart();
     vTaskDelete(NULL);
@@ -733,7 +744,7 @@ static esp_err_t firmware_handler(httpd_req_t *req)
     if (!validate_token(req)) {
         return send_err(req, "unauthorized");
     }
-    if (s_install_scheduled) {
+    if (atomic_load(&s_finishing)) {
         return send_err(req, "firmware install already scheduled");
     }
 
@@ -932,11 +943,7 @@ static esp_err_t firmware_handler(httpd_req_t *req)
         sha_update(data, data_len);
         chunk_received += data_len;
         remaining -= received;
-        s_recv.received_size = chunk_offset + chunk_received;
-        // 只在64KB边界报告进度，避免频繁回调阻塞接收循环
-        if (s_recv.received_size % OTA_PROGRESS_STEP == 0) {
-            report_progress();
-        }
+        record_received_bytes(chunk_offset + chunk_received);
     }
     free(recv_buf);
     if (decode_buf) free(decode_buf);
@@ -950,7 +957,7 @@ static esp_err_t firmware_handler(httpd_req_t *req)
                  (unsigned long)s_recv.received_size, is_last, recv_duration_ms, recv_calls);
     }
 
-    if (failed) {
+    if (failed || (remaining > 0 && (is_last || chunk_received == 0))) {
         /* Keep every byte that was already acknowledged into PSRAM.  A phone
          * can lose a TCP request while it changes from BLE to the no-internet
          * SoftAP; discarding the whole image here made that harmless radio
@@ -992,16 +999,16 @@ static esp_err_t firmware_handler(httpd_req_t *req)
     // The network phase is complete.  Schedule installation on a separate task
     // that waits for this handler to return and for the final TCP response to be
     // acknowledged before it tears down the AP and starts flash work.
+    if (atomic_exchange(&s_finishing, true)) return send_err(req, "OTA closing");
     notify_status(OTA_WIFI_STATE_RECEIVING, "firmware installing", expected_size, expected_size);
-    s_install_scheduled = true;
     BaseType_t created = xTaskCreate(firmware_install_task, "ota_install",
                                      OTA_INSTALL_STACK_SIZE, NULL,
                                      tskIDLE_PRIORITY + 3, NULL);
     if (created != pdPASS) {
-        s_install_scheduled = false;
         recv_reset();
         notify_status(OTA_WIFI_STATE_ERROR, "firmware install task unavailable",
                       expected_size, expected_size);
+        atomic_store(&s_finishing, false);
         return send_err(req, "no memory for firmware install task");
     }
     return send_json_response(
@@ -1016,6 +1023,7 @@ static esp_err_t bootmedia_prepare_handler(httpd_req_t *req)
     if (!validate_token(req)) {
         return send_err(req, "unauthorized");
     }
+    if (atomic_load(&s_finishing)) return send_err(req, "OTA closing");
     if (!boot_media_mount()) {
         return send_err(req, "mount failed");
     }
@@ -1086,6 +1094,7 @@ static esp_err_t bootmedia_handler(httpd_req_t *req)
     if (!validate_token(req)) {
         return send_err(req, "unauthorized");
     }
+    if (atomic_load(&s_finishing)) return send_err(req, "OTA closing");
 
     char sha_hex[65] = {0};
     char size_str[16] = {0};
@@ -1289,11 +1298,7 @@ static esp_err_t bootmedia_handler(httpd_req_t *req)
         sha_update(data, data_len);
         chunk_received += data_len;
         remaining -= received;
-        s_recv.received_size = chunk_offset + chunk_received;
-        // 只在64KB边界报告进度，避免频繁回调阻塞接收循环
-        if (s_recv.received_size % OTA_PROGRESS_STEP == 0) {
-            report_progress();
-        }
+        record_received_bytes(chunk_offset + chunk_received);
     }
     free(recv_buf);
     if (decode_buf) free(decode_buf);
@@ -1341,6 +1346,7 @@ static esp_err_t bootmedia_handler(httpd_req_t *req)
         return send_err(req, "sha mismatch");
     }
 
+    if (atomic_exchange(&s_finishing, true)) return send_err(req, "OTA closing");
     notify_status(OTA_WIFI_STATE_RECEIVING, "bootmedia installing", total_size, total_size);
     esp_err_t response_err = send_json_response(
         req, 200, "{\"ok\":true,\"message\":\"bootmedia received, installing\"}");
@@ -1382,7 +1388,7 @@ static esp_err_t bootmedia_handler(httpd_req_t *req)
 }
 
 /* ------------------------------------------------------------------ */
-/* Idle watchdog: auto-stop after OTA_IDLE_TIMEOUT_US without activity */
+/* Idle watchdog: auto-stop after OTA_IDLE_TIMEOUT_MS without activity */
 /* ------------------------------------------------------------------ */
 
 static void ota_timeout_task(void *arg)
@@ -1392,13 +1398,14 @@ static void ota_timeout_task(void *arg)
         if (s_state == OTA_WIFI_STATE_IDLE) {
             break;   // stopped externally
         }
-        int64_t idle_us = esp_timer_get_time() - s_last_activity_us;
-        bool error_timeout = s_state == OTA_WIFI_STATE_ERROR && idle_us > OTA_ERROR_REBOOT_US;
-        bool session_timeout = idle_us > OTA_IDLE_TIMEOUT_US;
-        if (error_timeout || session_timeout) {
+        uint32_t last_ms = atomic_load(&s_last_activity_ms);
+        uint32_t idle_ms = (uint32_t)(esp_timer_get_time() / 1000) - last_ms;
+        bool error_timeout = s_state == OTA_WIFI_STATE_ERROR && idle_ms > OTA_ERROR_REBOOT_MS;
+        bool session_timeout = idle_ms > OTA_IDLE_TIMEOUT_MS;
+        if ((error_timeout || session_timeout) && !atomic_load(&s_finishing)) {
             ESP_LOGW(TAG, "WiFi OTA %s timeout; rebooting into normal acquisition mode",
                      error_timeout ? "error" : "idle");
-            ota_wifi_server_stop();
+            if (!ota_wifi_server_stop()) break;
             /* BLE controller memory may already have been released and the OBD
              * client is intentionally paused.  Stopping only the AP would leave
              * the gauge alive but unable to record.  OTA mode is deliberately
@@ -1425,7 +1432,7 @@ bool ota_wifi_server_start(ota_wifi_info_t *info, ota_wifi_status_cb_t callback)
 
     s_status_cb = callback;
     s_normal_reboot_scheduled = false;
-    s_install_scheduled = false;
+    atomic_store(&s_finishing, false);
     notify_status(OTA_WIFI_STATE_STARTING, "starting", 0, 0);
     rs485_brake_temp_pause();
 
@@ -1691,26 +1698,30 @@ bool ota_wifi_server_start(ota_wifi_info_t *info, ota_wifi_status_cb_t callback)
     // receiving these generated credentials.  Do not emit an intermediate
     // READY callback here; it cannot contain the SSID/password and wastes a
     // BLE controller notification buffer.
+    record_activity();
     s_state = OTA_WIFI_STATE_READY;
-    s_last_activity_us = esp_timer_get_time();
     ESP_LOGI(TAG, "WiFi OTA started: SSID=%s IP=%s", s_ap_ssid, info->ip);
 
     // 启动空闲超时 watchdog
-    s_last_activity_us = esp_timer_get_time();
     xTaskCreate(ota_timeout_task, "ota_timeout", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
     return true;
 }
 
-void ota_wifi_server_stop(void)
+bool ota_wifi_server_stop(void)
 {
-    if (s_state == OTA_WIFI_STATE_IDLE) return;
+    if (atomic_exchange(&s_finishing, true)) return false;
+    if (s_state == OTA_WIFI_STATE_IDLE) return true;
 
-    recv_reset();
-
+    /* httpd_stop joins the server task. A handler blocked in recv can still
+     * receive bytes until it returns, so keep its buffer and hash alive. */
     if (s_httpd) {
-        httpd_stop(s_httpd);
+        if (httpd_stop(s_httpd) != ESP_OK) {
+            ESP_LOGE(TAG, "HTTP shutdown failed; reboot with receive buffers intact");
+            return true;
+        }
         s_httpd = NULL;
     }
+    recv_reset();
 
     if (!s_wifi_owned && s_prev_wifi_mode != WIFI_MODE_NULL) {
         esp_err_t err = esp_wifi_set_mode(s_prev_wifi_mode);
@@ -1748,6 +1759,7 @@ void ota_wifi_server_stop(void)
     s_prev_wifi_mode = WIFI_MODE_NULL;
     s_state = OTA_WIFI_STATE_IDLE;
     ESP_LOGI(TAG, "WiFi OTA stopped");
+    return true;
 }
 
 ota_wifi_state_t ota_wifi_server_get_state(void)

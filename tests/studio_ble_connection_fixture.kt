@@ -68,7 +68,13 @@ class BluetoothGatt(val callback:BluetoothGattCallback){
         FakeBle.commands.add(command)
         val target=if(FakeBle.uartOnFirst)0 else 1
         if(!FakeBle.writeError && subscribed==services[0].characteristics[target].uuid && (FakeBle.requiredType==0||c.writeType==FakeBle.requiredType) && !(FakeBle.silentPoll&&command=="010C")){
-            val bytes=if(command=="ATZ")"ELM327 v2.1\r"+(if(FakeBle.partial)""else ">")else if(FakeBle.rejectEcho)"?\r>"else "OK\r>"
+            val bytes = when {
+                command == "ATZ" -> "ELM327 v2.1\r" + if (FakeBle.partial) "" else ">"
+                FakeBle.rejectEcho -> "?\r>"
+                command.startsWith("01") && FakeBle.mode01Replies != null ->
+                    FakeBle.mode01Replies?.get(command) ?: "NO DATA\r>"
+                else -> "OK\r>"
+            }
             callback.onCharacteristicChanged(this,services[0].characteristics[target],bytes.toByteArray())};return true
     }
     fun disconnect(){}
@@ -78,8 +84,9 @@ object FakeBle {
     val target=BluetoothDevice("81:23:45:67:89:BA")
     var connections=0;var closed=0;var failFirst=false;var indicate=false;var writeError=false;var cccd=true;var old:BluetoothGatt?=null
     var multiNotify=false;var uartOnFirst=false;var requiredType=0;var writeProperties=12;var partial=false;var rejectEcho=false;var silentPoll=false
+    var mode01Replies: Map<String, String>? = null
     val commands=mutableListOf<String>()
-    fun reset(){connections=0;closed=0;failFirst=false;indicate=false;writeError=false;cccd=true;old=null;multiNotify=false;uartOnFirst=false;requiredType=0;writeProperties=12;partial=false;rejectEcho=false;silentPoll=false;commands.clear()}
+    fun reset(){connections=0;closed=0;failFirst=false;indicate=false;writeError=false;cccd=true;old=null;multiNotify=false;uartOnFirst=false;requiredType=0;writeProperties=12;partial=false;rejectEcho=false;silentPoll=false;mode01Replies=null;commands.clear()}
 }
 fun main(args:Array<String>){
     val dir=File(args[0]);var checks=0
@@ -128,6 +135,27 @@ fun main(args:Array<String>){
     FakeBle.reset();FakeBle.silentPoll=true
     Journal(File(dir,"poll-timeout.jsonl"),"all",FakeBle.target.address).use{j->BleCapture(Context(),j){false}.use{c->c.connect(FakeBle.target.address);c.initializeElm();check(runCatching{c.query("010C")}.isFailure)}}
     check(FakeBle.connections==1&&FakeBle.commands==listOf("ATZ","ATE0","010C"));checks++
+    FakeBle.reset()
+    StudioState.reset("all")
+    FakeBle.mode01Replies = mapOf(
+        "0100" to "41 00 08 00 00 00\r>",
+        "010C" to "41 0C 00 00\r>",
+        "010D" to "41 0C 00 00\r>",
+        "0110" to "41 10 00\r>",
+        "016D" to "00D\r0: 41 6D 1B 01 90 00\r1: 21 00 01 90 00 19 00\r>",
+        "017A" to "009\r0: 41 7A 01 00 16 00\r>",
+        "01A6" to "41 A6 FF FF FF FF\r>",
+        "01FF" to "41 FF 01\r>",
+    )
+    Journal(File(dir, "probe-all.jsonl"), "all", FakeBle.target.address).use { journal ->
+        BleCapture(Context(), journal) { false }.use { capture ->
+            capture.connect(FakeBle.target.address)
+            capture.run("all", emptyList(), 0.02, 0, probeAllStandardPids = true) {
+                check(FakeBle.commands.filter { it.startsWith("01") } == (0..255).map { "01%02X".format(it) })
+                checks++
+            }
+        }
+    }
     val previous=Thread.getDefaultUncaughtExceptionHandler();var forwarded:Throwable?=null
     Thread.setDefaultUncaughtExceptionHandler{_,error->forwarded=error}
     try {

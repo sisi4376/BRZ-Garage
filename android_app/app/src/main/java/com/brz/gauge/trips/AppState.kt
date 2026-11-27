@@ -467,6 +467,12 @@ class AppState(context: Context) {
         prefs.edit().putString(deviceKey("pending_display_$command", device), value).apply()
     }
 
+    internal fun queueGaugeLayout(layout: GaugeLayout, startupPage: Int?, device: String) {
+        prefs.edit().putString(deviceKey("pending_display_4", device), layout.encode()).apply {
+            if (startupPage != null) putString(deviceKey("pending_display_2", device), startupPage.toString())
+        }.apply()
+    }
+
     fun adoptUnboundDisplay(device: String) {
         if (device.isBlank()) return
         val edit = prefs.edit()

@@ -269,9 +269,7 @@ static void boot_enter_default_page(void)
     lv_obj_t **target_scr = NULL;
     void (*target_init)(void) = NULL;
     // Default page: 0=Temp,1=Info,2=Chart,3=Needle,4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
-    int page = gauge_page_index(pg_cfg->page_order, pg_cfg->default_page) >= 0 ?
-               pg_cfg->default_page : pg_cfg->page_order[0];
-    if (page == GAUGE_PAGE_UNUSED) page = GAUGE_PAGE_SYSTEM;
+    int page = gauge_startup_page(pg_cfg->page_order, pg_cfg->default_page);
     ui_select_gauge_page(page);
     switch(gauge_page_type(page)) {
         case GAUGE_PAGE_SYSTEM: target_scr = &ui_ScreenPageEasterEgg; target_init = ui_ScreenPageEasterEgg_screen_init; break;
@@ -283,6 +281,7 @@ static void boot_enter_default_page(void)
         case 5: target_scr = &ui_ScreenPageSpeed; target_init = ui_ScreenPageSpeed_screen_init; break;
         case 6: target_scr = &ui_ScreenPageFuel;  target_init = ui_ScreenPageFuel_screen_init;  break;
         case 7: target_scr = &ui_ScreenPageTripHistory; target_init = ui_ScreenPageTripHistory_screen_init; break;
+        case GAUGE_TYPE_QUAD: target_scr = &ui_ScreenPageQuad; target_init = ui_ScreenPageQuad_screen_init; break;
         case 8: target_scr = &ui_ScreenPageTripOverview; target_init = ui_ScreenPageTripOverview_screen_init; break;
         default: target_scr = &ui_ScreenPageTemp; target_init = ui_ScreenPageTemp_screen_init;  break;
     }
@@ -702,7 +701,7 @@ void ui_ext_status_indicators_update(bool obd_connected, bool obd_data_valid, bo
     lv_obj_t *act = lv_scr_act();
     // Keep these fixed top-layer indicators on every driving/trip data page.
     // Settings/scan/boot-animation pages deliberately retain their original layout.
-    bool on_gauge_page = (act == ui_ScreenPageTemp || act == ui_ScreenPageInfo ||
+    bool on_gauge_page = (act == ui_ScreenPageTemp || act == ui_ScreenPageInfo || act == ui_ScreenPageQuad ||
                            act == ui_ScreenPageOilPressure || act == ui_ScreenPageNeedle ||
                            act == ui_ScreenPageGear || act == ui_ScreenPageRpm ||
                            act == ui_ScreenPageSpeed || act == ui_ScreenPageFuel ||

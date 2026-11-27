@@ -4,11 +4,11 @@
 
 [![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5%2B-E7352C)](https://docs.espressif.com/projects/esp-idf/)
 [![Firmware](https://img.shields.io/badge/Firmware-4.1.4--beta.3-00C853)](CHANGELOG.md)
-[![Android](https://img.shields.io/badge/BRZ_Garage-4.6.7-3DDC84)](CHANGELOG.md)
+[![Android](https://img.shields.io/badge/BRZ_Garage-4.6.8-3DDC84)](CHANGELOG.md)
 [![Status](https://img.shields.io/badge/Status-Public_Beta-orange)](#beta-公测版说明)
 [![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
 
-[下载 v4.6.7 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.7) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
+[下载 v4.6.8 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.8) · [查看更新日志](CHANGELOG.md) · [提交问题反馈](https://github.com/sisi4376/BRZ-Garage/issues/new) · [第一次烧录](#准备清单) · [💰支持项目💰](https://afdian.com/a/4822y)
 
 > ⭐ 如果这个项目对你有帮助，欢迎在 [GitHub 项目页面](https://github.com/sisi4376/BRZ-Garage) 右上角点一个 **Star**！
 >
@@ -19,9 +19,9 @@
 
 ## Beta 公测版说明
 
-本版采用A/B 分组轮询，每组读取转速、车速和 MAF；完整更新、直接下载入口与验证限制见 [4.6.7 发布说明](docs/RELEASE_4_6_7.md)。
+本版加入仪表页面编排、GPS 显示及无线升级修复。完整更新、下载与验证限制见 [4.6.8 发布说明](docs/RELEASE_4_6_8.md)。
 
-当前完整 **Beta 公测**版本为 Android App **4.6.7（179）** 与仪表固件 **4.1.4-beta.6**，含 Windows r4 一键烧录包。鸿蒙原生版提供 **0.6.5（605）源码**，内置 4.1.4-beta.3；整体界面与设备行为仍待真机验收，本次不提供公开 HAP 下载。
+当前完整 **Beta 公测**版本为 Android App **4.6.8（201）** 与仪表固件 **4.1.6-beta.1**，含 Windows r4 一键烧录包。鸿蒙原生版提供 **0.6.5（605）源码**，内置 4.1.4-beta.3；整体界面与设备行为仍待真机验收，本次不提供公开 HAP 下载。
 
 > [!WARNING]
 > **BRZ Garage 现处于 Beta 公测阶段。烧录和调试仪表需要一定的动手与排障能力，AI 编程助手可以协助完成构建、烧录和问题定位。** 功能、界面、通信协议和本地数据结构仍可能调整；测试版本也可能出现兼容性问题、连接失败、程序异常或数据丢失。请在停车状态下完成配置与固件更新，并提前保留重要数据。仪表读数和推算结果仅供驾驶参考，不能替代原厂仪表或专业诊断设备。有软件开发经验的用户也欢迎协助改进本项目。
@@ -36,7 +36,7 @@
 >
 > ❗ Android App 目前主要在 HarmonyOS 6 上测试，其他 Android 系统可能存在厂商兼容性差异；暂不支持 iOS；
 >
-> ❌ 本项目不能远程访问或控制车辆；GNSS 仅用于授时，不提供轨迹或导航；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G（推荐）；
+> ❌ 本项目不能远程访问或控制车辆；GNSS 支持授时。固件 4.1.6-beta.1 支持在三槽位任意一格或五槽位底格选择 GPS，经纬度同一行显示并保留两位小数。无定位模块、定位失效或超过 5 秒未更新时，GPS 显示 `--`。仪表不提供轨迹或导航；如需为未来 GPS 扩展预留硬件，请选择 ESP32-S3-Touch-AMOLED-1.75-G（推荐）；
 >
 > ❌ 当前不建议外接锂电，也未采用保险盒常电供电方案，以避免额外的电气与蓄电池风险；
 >
@@ -175,8 +175,8 @@ flowchart LR
 | 📊 **用车记账统计** | 统一记录加油、保养和包含“维修”在内的日常花费；趋势图逐月显示近 12 个月金额，明细则从第一条记录连续展示至今，并提供日常小类别占比。 |
 | 🗓️ **清晰的月度归档** | 行程和各类账目按月份分隔，记账月份同时显示记录数量与小计，长时间使用后仍便于查找。 |
 | 📱 **自动连接与后台同步** | 绑定后可由系统 BLE 唤醒 App，优先为仪表授时，再同步车辆快照和历史行程；驾驶时常驻通知会直接显示时长与已行驶里程。 |
-| ⚙️ **仪表启动与等待通知** | 手机“仪表设置”可选择仪表默认启动页与默认朝向（0°、90°、180°、270°，相对原安装方向），保存后下次上电生效；需升级仪表固件至 4.1.3。Android 未连接仪表时，常驻卡片显示“停车中”、已启用的里程与估算续航（最近同步数据）；“通知管理”提供系统通知设置入口及年审、保险、保养分项提醒开关，前台自动连接服务保持运行。 |
-| 🎚️ **仪表页面设置（Android 试用版）** | “版本与设置”固定为第 1 页，其余页面可以全部移除或重新添加，最多编排 20 个。三槽位信息、五槽位信息、图表和指针可重复添加，每份独立选值；专用表盘每种限一份。固件 4.1.5-layout.5 的三槽位信息页使用仪表原有的 Conthrax 字体，沿左侧圆弧排列大字代号，中间显示读数，右侧单位放大并纵向对齐，顶部为 OBD 和 TIME 指示灯留出空间。固件 4.1.5-layout.6 的五槽位信息页也使用 Conthrax 大字显示代号、读数和单位，较长读数自动缩小以完整显示。固件 4.1.5-layout.7 将指针刻度盘扩大到 432 像素，趋势图扩大到 384 × 198 像素，两页均使用 Conthrax 大字读数。固件 4.1.5-layout.8 将转速与车速的主读数从 56 像素增至 64 像素。固件 4.1.5-layout.9 放大“版本与设置”页的总里程，下方显示车辆通过 OBD 回报的剩余油量百分比，暂无读数时显示「--%」。固件 4.1.5-layout.10 将油量百分比放大至 32 像素，显示值降至 25% 或更低时以黄色提示。固件 4.1.5-layout.11 放大油量页的瞬时、本次行程和累计油耗，单位独立显示。在“仪表设置 → 仪表页面设置”可离线编辑，左右滑动预览默认主题的 LVGL 画面，重连后自动同步。Android 4.6.8-layout.13 的油量和行程预览使用当前固件的 LVGL 画面，行程表盘支持上下翻页。新增表盘插入当前编号，选中第 1 页时插入第 2 页。Android 4.6.8-layout.12 的挡位与转速预览以 BRZ ZD8 6MT 的同一车速生成当前转速和降挡标记。重复表盘与仅保留版本页需配套固件 4.1.5-layout.2。 |
+| ⚙️ **仪表启动与等待通知** | 在手机“仪表设置”的“基本信息”下进入“仪表页面设置”，选中表盘后点「设置为默认启动页」。仪表朝向按充电口相对表盘的位置选择。固件原始朝向对应充电口在右侧，预览上的充电口标记随选项移动。同步后在仪表下次上电时生效。基础启动设置需固件 4.1.3 或更新版本，Android 4.6.8 搭配固件 4.1.6-beta.1，可将“版本与设置”或新增的同类表盘实例设为启动页。Android 未连接仪表时，常驻卡片显示“停车中”、已启用的里程与估算续航（最近同步数据）；“通知管理”提供系统通知设置入口及年审、保险、保养分项提醒开关，前台自动连接服务保持运行。 |
+| 🎚️ **仪表页面设置** | 版本与设置固定为第 1 页，其余可增删、重排，最多编排 20 个可编辑页。三槽位、四槽位、五槽位信息及指针、图表可独立重复添加，专用表盘每种限一份。新增表盘插入当前编号，选中第 1 页时插入第 2 页。在“仪表设置 → 仪表页面设置”可离线编辑，左右滑动查看原生 LVGL 预览，行程表盘支持上下翻页，重连后自动同步。三槽位和五槽位使用加大的原有 Conthrax 字体，指针和趋势图使用更大的绘图区。固件还放大转速、车速、油耗和总里程读数，版本与设置页显示燃油余量，25% 或以下以黄色提示。 |
 | 🎛️ **手机端车辆管理** | 在 App 中切换 ZD8/ZC6、调整 10%～100% 日间亮度、校准车辆里程、控制首页卡片，并把设置发送到仪表后回读确认。新版设置按“车辆 / 驾驶 / 应用”归类，应用栏底部保留经典设置入口。 |
 | ✨ **统一的新版界面** | 首页、驾驶足迹、记账、设置、详情页和弹窗采用统一的圆角卡片、状态主视觉与导航层级；App 恢复原有系统字体显示方式；新版首页仍可在车辆设置中回退到经典布局。 |
 | 💬 **问题反馈** | 在“设置 → 应用”中生成脱敏诊断摘要并打开 [GitHub Issues](https://github.com/sisi4376/BRZ-Garage/issues/new)；提交前可以检查和修改全部内容，也可复制反馈模板，不会自动上传车辆记录、账目或完整蓝牙地址。 |
@@ -205,7 +205,7 @@ flowchart LR
 
 #### Windows 一键烧录（免安装开发环境）
 
-在上方完整版本下载页的 **Assets** 中下载 Windows 烧录包（`BRZ-Garage-Flasher-…-Windows-x64.zip`）及同名 `.zip.sha256` 校验文件，然后：
+下载 [Windows x64 一键烧录包 r4](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-Flasher-v4.1.6-beta.1-r4-Windows-x64.zip)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-Flasher-v4.1.6-beta.1-r4-Windows-x64.zip.sha256)），然后：
 
 1. 将 ZIP **完整解压**，用 USB 数据线连接仪表。
 2. 双击 `Start-Flasher.cmd`，等待自动识别 USB 串口并确认开发板型号。工具每 2 秒监测插拔、显示设备名称并排除蓝牙虚拟串口；多个 USB 候选设备需要手动选择。
@@ -262,9 +262,9 @@ cd C:\path\to\BRZ_OBD
 
 ### 2. 安装 BRZ Garage
 
-前往 [v4.6.7 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.7) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
+前往 [v4.6.8 Beta 公测版](https://github.com/sisi4376/BRZ-Garage/releases/tag/v4.6.8) 下载并安装 **BRZ Garage**。完成第一次烧录后，可直接通过 App 更新内置仪表固件。
 
-[BRZ Garage 4.6.7 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk.sha256)）。安装后从“仪表固件更新”升级至 4.1.4-beta.6。
+[BRZ Garage 4.6.8 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk.sha256)）。安装后从“仪表固件更新”升级至 4.1.6-beta.1。
 
 - 覆盖安装新版 APK 即可保留历史数据，**不要先卸载旧版**；
 - 首次启动先阅读并分别确认安全/数据与版权/许可声明；确认前 App 不会申请权限、连接仪表或启动后台服务；
@@ -316,6 +316,8 @@ cd C:\path\to\BRZ_OBD
 
 更新时 App 会校验仪表型号、屏幕、Flash、双 OTA 分区和文件 SHA-256。传输短暂中断时会尝试断点续传；新固件无法正常启动时，引导程序会自动回滚。NVS 设置、累计统计、未同步行程和开机媒体不会被主动擦除。
 
+使用 4.1.4-beta.6 仪表时，如果无线更新在约 75% 处重启，请先覆盖安装 Android 4.6.8，再从固件页升级到内置的 4.1.6-beta.1。新版 App 会在续传时对齐旧仪表所需的分块边界。
+
 > [!CAUTION]
 > 固件检查和更新可能暂停 OBD 采集与行程记录。严禁在行驶中使用这些功能。
 
@@ -337,7 +339,7 @@ cd C:\path\to\BRZ_OBD
 
 ## 当前边界
 
-Windows 数据采集工具 [OBD Studio 1.6](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-v1.6.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-v1.6.exe.sha256)） 与 [Android OBD Studio beta.12](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-OBD-Studio-Android-v1.0.0-beta.12.apk.sha256)） 支持四车型 A/B 分组轮询、实时点火提前角、录制和回放。安卓版从扫描结果选择设备及车型后，可一键依次采集全部支持的标准 PID 和车型轮询，各五分钟。见[采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。
+Windows 数据采集工具 [OBD Studio 1.6](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-v1.6.exe.sha256)） 与 [Android OBD Studio beta.13](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-OBD-Studio-Android-v1.0.0-beta.13.apk.sha256)） 支持四车型 A/B 分组轮询、实时点火提前角、录制和回放。安卓版选好设备与车型后，可逐条探测全部 256 个标准 PID，再采集有效 PID 和车型轮询，各五分钟。见[采集与回放说明](docs/OBD_RECORDER.zh-CN.md)。
 
 - ZD8 6MT 是目前唯一完成实车验证的车型；ZC6 6MT 已实现单路 OBD/PID 和 FA20 Toyota Mode 21 机油温度读取，但仍需要更多实车验证。
 - 挡位、油耗、里程和加减速度是推算结果，只适合驾驶回顾，不能替代原厂仪表或专业诊断设备。

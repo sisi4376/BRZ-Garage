@@ -50,8 +50,8 @@ void ota_wifi_server_release_bt(void);
 // 返回 true 表示启动成功，info 中填充 WiFi 信息
 bool ota_wifi_server_start(ota_wifi_info_t *info, ota_wifi_status_cb_t callback);
 
-// 停止 WiFi OTA 服务
-void ota_wifi_server_stop(void);
+// Returns true if the caller owns the exit and should reboot.
+bool ota_wifi_server_stop(void);
 
 // 获取当前状态
 ota_wifi_state_t ota_wifi_server_get_state(void);

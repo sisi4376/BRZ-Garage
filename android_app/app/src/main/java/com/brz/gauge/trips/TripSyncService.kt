@@ -942,13 +942,13 @@ class TripSyncService : Service() {
                     completeOperation()
                     brightnessVerificationValue = brightnessWriteValue
                     brightnessWriteValue = null
-                    continueAfterGattIdle { read(TripBleProtocol.GAUGE_SETTINGS) }
+                    continueAfterGattIdle { read(gaugeSettingsCharacteristic()) }
                 }
                 TripBleProtocol.VEHICLE_PROFILE_CONTROL -> {
                     completeOperation()
                     vehicleProfileVerificationValue = vehicleProfileWriteValue
                     vehicleProfileWriteValue = null
-                    continueAfterGattIdle { read(TripBleProtocol.GAUGE_SETTINGS) }
+                    continueAfterGattIdle { read(gaugeSettingsCharacteristic()) }
                 }
                 TripBleProtocol.ODOMETER_CONFIG -> {
                     completeOperation()
@@ -972,7 +972,7 @@ class TripSyncService : Service() {
                     } else if (refuelControl == 4) {
                         refuelThresholdVerificationMl = refuelThresholdWriteMl
                         refuelThresholdWriteMl = null
-                        continueAfterGattIdle { read(TripBleProtocol.GAUGE_SETTINGS) }
+                        continueAfterGattIdle { read(gaugeSettingsCharacteristic()) }
                     }
                 }
                 TripBleProtocol.CUSTOM_TRIP_CONTROL -> {
@@ -1177,7 +1177,7 @@ class TripSyncService : Service() {
                 layoutWritten = null
                 readOdometerOrManifest("仪表页面已回读确认")
             }
-            TripBleProtocol.GAUGE_SETTINGS -> {
+            TripBleProtocol.GAUGE_SETTINGS, TripBleProtocol.GAUGE_SETTINGS_EXT -> {
                 val parsed = TripBleProtocol.parseGaugeSettings(bytes)
                 if (parsed == null) {
                     retryCurrentOperation("仪表设置快照暂时不完整")
@@ -1459,11 +1459,15 @@ class TripSyncService : Service() {
         }
         if (!startPendingCustomTripSync()) readRefuelOrSettings()
     }
+    private fun gaugeSettingsCharacteristic() =
+        if (info?.getCharacteristic(TripBleProtocol.GAUGE_SETTINGS_EXT) != null) TripBleProtocol.GAUGE_SETTINGS_EXT
+        else TripBleProtocol.GAUGE_SETTINGS
+
     private fun readSettingsAfterVehicle() {
         if (!settingsReadForConnection &&
-            info?.getCharacteristic(TripBleProtocol.GAUGE_SETTINGS) != null) {
+            info?.getCharacteristic(gaugeSettingsCharacteristic()) != null) {
             settingsReadForConnection = true
-            continueAfterGattIdle { read(TripBleProtocol.GAUGE_SETTINGS) }
+            continueAfterGattIdle { read(gaugeSettingsCharacteristic()) }
         } else {
             settingsReadForConnection = true
             readManifestOrIdle()
@@ -1506,11 +1510,15 @@ class TripSyncService : Service() {
     private fun startPendingDisplay(): Boolean {
         if (address.isBlank() || address != state.address || !settingsReadForConnection) return false
         state.adoptUnboundDisplay(address)
-        for (command in 1..4) {
+        val settings = state.gaugeSettings()
+        // A newly added startup page must be present before its boot setting is written.
+        for (command in listOf(1, 3, 4, 2)) {
             if (command in displayDeferred) continue
             val value = state.pendingDisplay(command, address) ?: continue
             if (command == 4) {
                 val layout = GaugeLayout.decode(value) ?: continue
+                if (layout.usesFourSlots && settings?.fourSlotLayoutSupported != true) continue
+                if (layout.usesThreeSlotGps && settings?.threeSlotGpsSupported != true) continue
                 val layoutId = layoutCharacteristic() ?: continue
                 val first = if (layoutId == TripBleProtocol.PAGE_LAYOUT) layout.chunk(0)
                     else layout.legacyPacket() ?: continue
@@ -1522,7 +1530,11 @@ class TripSyncService : Service() {
             } else {
                 val setting = TripBleProtocol.DisplaySetting(command, value.toIntOrNull() ?: continue)
                 if (!setting.valid || info?.getCharacteristic(TripBleProtocol.BRIGHTNESS_CONTROL) == null ||
-                    (command != 1 && state.gaugeSettings()?.bootSettingsSupported != true)) continue
+                    (command != 1 && settings?.bootSettingsSupported != true)) continue
+                if (command == 2 && setting.value > 8) {
+                    if (settings?.anyStartupPageSupported != true) continue
+                    if (setting.value != GaugeLayout.SYSTEM_PAGE && state.pendingDisplay(4, address) != null) continue
+                }
                 brightnessWriteValue = setting
                 busy = true
                 continueAfterGattIdle { write(TripBleProtocol.BRIGHTNESS_CONTROL, setting.packet()) }
@@ -1726,7 +1738,7 @@ class TripSyncService : Service() {
         if (!settingsReadForConnection) {
             publish("正在确认仪表是否支持删除第一个节点以前的数据…")
             settingsReadForConnection = true
-            continueAfterGattIdle { read(TripBleProtocol.GAUGE_SETTINGS) }
+            continueAfterGattIdle { read(gaugeSettingsCharacteristic()) }
             return true
         }
         if (state.gaugeSettings()?.refuelDiscardOldestSupported != true) {

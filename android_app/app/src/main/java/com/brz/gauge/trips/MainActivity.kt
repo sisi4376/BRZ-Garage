@@ -5443,7 +5443,7 @@ class MainActivity : Activity() {
         content.removeAllViews()
         navigation.removeAllViews()
         navigation.visibility = View.GONE
-        val body = page("仪表设置", "启动页、朝向、亮度与同步状态")
+        val body = page("仪表设置", "页面、亮度与设备参数")
         settingsBackPill(body) { showTab(3) }
         settingsSubpageHero(
             body,
@@ -5453,15 +5453,8 @@ class MainActivity : Activity() {
             if (state.connected) "● 当前已连接" else "○ 当前未连接",
             bookkeepingMaintenance,
         )
-        val pages = card(body, "页面预览与编排")
-        add(pages, button("仪表页面设置") {
-            startActivity(Intent(this, GaugePagesActivity::class.java))
-        }, 6)
-        val notice = card(body, "当前可调整")
-        add(notice, label("可离线修改启动页、朝向、亮度和页面编排。重连并完成数据同步后，仪表会回读确认。启动页和朝向下次上电生效。", 13f, ink, true), 8)
-        add(notice, label("车型与自动加油识别阈值已归入车辆设置。", 11f, muted), 7)
         val settings = state.gaugeSettings()
-        val received = card(body, "同步状态")
+        val received = card(body, "基本信息")
         settingsReadOnlyRow(received, "仪表固件",
             state.firmwareVersion?.let { "v$it" }, bookkeepingMaintenance)
         add(received, label(if (settings == null) {
@@ -5470,14 +5463,18 @@ class MainActivity : Activity() {
         } else "已读取仪表设置 · ${date(state.gaugeSettingsAt)} · 协议 v${settings.version}",
             12f, if (settings == null) muted else ink, settings != null), 10)
 
+        settingsListGroup(body, listOf(
+            settingsListRow(SettingsIconView.Icon.DISPLAY, "仪表页面设置", "表盘编排、默认启动页和仪表朝向",
+                bookkeepingMaintenance, action = { startActivity(Intent(this, GaugePagesActivity::class.java)) }),
+        ))
+
         val basic = card(body, "基本设置")
         frozenChoice(basic, "OBD 协议", obdProtocolNames(), settings?.protocol)
         frozenValue(basic, "ELM327 名称", settings?.obdName?.ifEmpty { "未设置" })
         frozenValue(basic, "ELM327 MAC", settings?.obdMac?.let(::formatMac))
         frozenChoice(basic, "主题", listOf("DEFAULT", "AMBER", "OCEAN"), settings?.theme)
         editableBrightness(basic, state.pendingDisplay(1)?.toIntOrNull() ?: settings?.brightness)
-        editableGaugeBootChoice(basic, "默认启动页", gaugePageNames(), state.pendingDisplay(2)?.toIntOrNull() ?: settings?.defaultPage, 2, settings)
-        editableGaugeBootChoice(basic, "默认朝向", listOf("0°（原安装方向）", "90°（顺时针）", "180°（倒置）", "270°（顺时针）"), state.pendingDisplay(3)?.toIntOrNull() ?: settings?.defaultOrientation, 3, settings)
+        add(basic, label("车型与自动加油识别阈值已归入车辆设置。", 11f, muted), 7)
 
         val warning = card(body, "提醒设置")
         frozenValue(warning, "转速黄线", settings?.rpmWarning?.let { "$it rpm" })
@@ -5485,13 +5482,6 @@ class MainActivity : Activity() {
         frozenSwitch(warning, "多表联动闪烁", settings?.rpmWarnLinked)
         frozenValue(warning, "刹车温度提醒", settings?.brakeTempWarningC?.let { "$it °C" })
         frozenValue(warning, "机油压力提醒", settings?.oilPressureWarningX10?.let { fmt("%.1f bar", it / 10.0) })
-
-        val display = card(body, "页面显示")
-        val itemNames = displayItemNames()
-        repeat(3) { index -> frozenChoice(display, "三槽位信息项目 ${index + 1}", itemNames, settings?.tempDisplayItems?.getOrNull(index)) }
-        repeat(5) { index -> frozenChoice(display, "五槽位信息项目 ${index + 1}", itemNames, settings?.infoDisplayItems?.getOrNull(index)) }
-        frozenChoice(display, "指针页数据", itemNames, settings?.needleItem)
-        frozenChoice(display, "图表页数据", itemNames, settings?.chartItem)
 
         val chart = card(body, "图表报警阈值")
         repeat(12) { index ->
@@ -5552,24 +5542,6 @@ class MainActivity : Activity() {
             else -> "未知值 ($selected)"
         }
         settingsReadOnlyRow(parent, name, value)
-    }
-    private fun editableGaugeBootChoice(parent: LinearLayout, title: String, names: List<String>, value: Int?, command: Int, settings: TripBleProtocol.GaugeSettings?) {
-        val pending = state.pendingDisplay(command) != null
-        add(parent, label(title, 12f, muted), 12)
-        add(parent, primaryBookkeepingAction(names.getOrNull(value ?: -1) ?: "等待仪表数据", bookkeepingMaintenance) {
-            AlertDialog.Builder(this).setTitle(title)
-                .setSingleChoiceItems(names.toTypedArray(), value ?: -1) { dialog, which ->
-                    dialog.dismiss()
-                    TripSyncService.setGaugeBootSetting(this, command, which)
-                    toast("已保存到手机，同步后下次上电生效")
-                    gaugeSettingsPage()
-                }.setNegativeButton("取消", null).show()
-        }, 5)
-        add(parent, label(when {
-            settings != null && !settings.bootSettingsSupported -> "请升级仪表固件以同步启动设置。"
-            pending -> "已保存到手机 · 待仪表回读确认"
-            else -> "可离线修改，同步后下次上电生效。"
-        }, 11f, muted), 5)
     }
     private fun editableBrightness(parent: LinearLayout, value: Int?) {
         add(parent, label("日间亮度", 12f, muted), 12)
@@ -5670,7 +5642,6 @@ class MainActivity : Activity() {
             else -> raw.toString()
         }
     }
-    private fun gaugePageNames() = listOf("三槽位信息", "五槽位信息", "图表", "指针", "挡位 + 转速", "车速", "油量", "行程历史", "行程总览")
     private fun obdProtocolNames() = listOf("自动", "SAE J1850 PWM", "SAE J1850 VPW", "ISO 9141-2", "ISO 14230-4 KWP（慢）", "ISO 14230-4 KWP（快）", "CAN 11bit / 500k", "CAN 29bit / 500k", "CAN 11bit / 250k", "CAN 29bit / 250k")
     private fun permissions(bind: Boolean) {
         bindAfterPermission = bind

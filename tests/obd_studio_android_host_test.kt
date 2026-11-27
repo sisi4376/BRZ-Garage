@@ -55,7 +55,12 @@ fun main(args:Array<String>){
             lines.map { org.json.JSONObject(it) }
                 .filter { it.optString("kind") == "reply" && it.optString("phase") == "poll" && it.optBoolean("complete") }
                 .forEach { r ->
-                    StudioState.reply(r.getString("command"), unhex(r.getString("hex")).toString(Charsets.US_ASCII), r.getDouble("t"))
+                    val command = r.getString("command")
+                    val reply = unhex(r.getString("hex")).toString(Charsets.US_ASCII)
+                    if (command.length == 4 && command.startsWith("01")) {
+                        equal(hasMode01Data(command.takeLast(2).toInt(16), command, reply), true)
+                    }
+                    StudioState.reply(command, reply, r.getDouble("t"))
                     StudioState.snapshot().rows.forEach { it.rawDisplayText(it.wall) }
                 }
         }

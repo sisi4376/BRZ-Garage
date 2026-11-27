@@ -13,6 +13,7 @@ SOURCES = 13
 TEMP_CELLS = [(0, 0, 466, 192), (0, 192, 466, 278), (0, 278, 466, 466)]
 INFO_CELLS = [(0, 0, 233, 206), (233, 0, 466, 206), (0, 206, 233, 320),
               (233, 206, 466, 320), (0, 320, 466, 466)]
+QUAD_CELLS = [(0, 0, 233, 233), (233, 0, 466, 233), (0, 233, 233, 466), (233, 233, 466, 466)]
 
 
 def generate():
@@ -22,15 +23,18 @@ def generate():
                        cwd=frames, check=True, timeout=60)
 
         def frame(page, source):
-            with Image.open(frames / f"page-{page}-{source}.bmp") as bmp:
+            name = {0: "temp-gps", 1: "info-gps"}[page] if source == SOURCES else f"page-{page}-{source}"
+            with Image.open(frames / f"{name}.bmp") as bmp:
                 assert bmp.size == (SIDE, SIDE)
                 return bmp.convert("RGB")
 
-        for page, cells, sources in [(0, TEMP_CELLS, [5, 2, 8]), (1, INFO_CELLS, [7, 5, 11, 6, 12])]:
+        for page, cells, sources in [(0, TEMP_CELLS, [5, SOURCES, 8]), (1, INFO_CELLS, [7, 5, 11, 6, SOURCES]),
+                                     (9, QUAD_CELLS, [5, 7, 6, 8])]:
             composite = Image.new("RGB", (SIDE, SIDE))
             for box, source in zip(cells, sources):
                 composite.paste(frame(page, source).crop(box), box)
-            difference = ImageChops.difference(composite, frame(page, SOURCES)).getbbox()
+            with Image.open(frames / f"page-{page}-{SOURCES}.bmp") as reference:
+                difference = ImageChops.difference(composite, reference.convert("RGB")).getbbox()
             if difference:
                 raise ValueError(f"Page {page} differs from LVGL in rectangle {difference}")
 
@@ -45,9 +49,9 @@ def generate():
                 assert bmp.size == (SIDE, SIDE)
                 bmp.convert("RGB").save(ASSETS / f"{target}.png", optimize=True)
 
-        for page in range(4):
+        for page in (0, 1, 2, 3, 9):
             atlas = Image.new("RGB", (4 * SIDE, 4 * SIDE))
-            for source in range(SOURCES):
+            for source in range(SOURCES + (page in (0, 1))):
                 atlas.paste(frame(page, source), (source % 4 * SIDE, source // 4 * SIDE))
             atlas.save(ASSETS / f"lvgl-{page}.png", optimize=True)
 

@@ -6,8 +6,8 @@ android {
         applicationId = "com.brz.obdstudio"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.0.0-beta.12"
+        versionCode = 13
+        versionName = "1.0.0-beta.13"
     }
     signingConfigs {
         getByName("debug") {

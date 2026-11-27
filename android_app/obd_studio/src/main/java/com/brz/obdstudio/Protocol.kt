@@ -39,6 +39,47 @@ fun supportedBlock(reply: String, base: Int): Set<Int>? {
 private val groupWidths = mapOf(3 to 2, 4 to 1, 5 to 1, 12 to 2, 13 to 1,
     14 to 1, 15 to 1, 16 to 2, 17 to 1, 47 to 1, 66 to 2, 68 to 2, 92 to 1, 94 to 2)
 
+private fun numberedPayload(lines: List<String>, length: Int): ByteArray {
+    val data = ByteArray(length)
+    var pos = 0
+    lines.drop(1).forEachIndexed { row, line ->
+        require(pos < length && line.startsWith(row.toString(16) + ":", ignoreCase = true))
+        val chunk = unhex(line.substring(line.indexOf(':') + 1))
+        val capacity = if (row == 0) 6 else 7
+        val used = min(length - pos, capacity)
+        require(chunk.size in used..capacity)
+        chunk.copyInto(data, pos, 0, used)
+        pos += used
+    }
+    require(pos == length)
+    return data
+}
+
+fun hasMode01Data(pid: Int, command: String, response: String): Boolean {
+    val lines = body(response, command).lines().map(String::trim).filter(String::isNotEmpty)
+    fun matches(data: ByteArray): Boolean {
+        if (data.size < 3 || data[0] != 0x41.toByte() || data[1] != pid.toByte()) return false
+        val width = if (pid % 32 == 0) 4 else groupWidths[pid]
+        if (width != null && data.size != width + 2) return false
+        return pid != 0xA6 || (data.size == 6 && data.drop(2).any { it != 0xFF.toByte() })
+    }
+    return lines.indices.any { index ->
+        val line = lines[index]
+        runCatching {
+            if (line.length == 3) {
+                val length = line.toInt(16)
+                require(length in 3..0xFFF)
+                val frameCount = 1 + length / 7
+                val end = index + 1 + frameCount
+                require(end <= lines.size)
+                matches(numberedPayload(lines.subList(index, end), length))
+            } else {
+                matches(unhex(line))
+            }
+        }.getOrDefault(false)
+    }
+}
+
 fun splitGroup(command: String, response: String): Map<String,String> {
     if (!command.startsWith("01") || command.length !in 6..14 || command.length % 2 != 0) return emptyMap()
     val lines = response.trim().removeSuffix(">").lines().map(String::trim).filter(String::isNotEmpty)
@@ -48,19 +89,7 @@ fun splitGroup(command: String, response: String): Map<String,String> {
             require(lines.first().length == 3)
             val length = lines.first().toInt(16)
             require(length in 3..24)
-            val data = ByteArray(length)
-            var pos = 0
-            lines.drop(1).forEachIndexed { row, line ->
-                require(pos < length && line.startsWith(row.toString(16) + ":", ignoreCase = true))
-                val chunk = unhex(line.substring(2))
-                val capacity = if (row == 0) 6 else 7
-                val used = min(length - pos, capacity)
-                require(chunk.size in used..capacity)
-                chunk.copyInto(data, pos, 0, used)
-                pos += used
-            }
-            require(pos == length)
-            data
+            numberedPayload(lines, length)
         }
         require(payload.firstOrNull() == 0x41.toByte())
         val expected = command.drop(2).chunked(2).toSet()

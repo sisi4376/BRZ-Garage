@@ -1,9 +1,26 @@
 package com.brz.gauge.trips
 
 internal data class GaugeLayout(val pages: List<Int>, val items: List<Int>) {
-    val valid get() = pages.size <= 20 && pages.all { it in 0..84 } &&
-        pages.distinctBy { if (it < 9) it else 9 + (it - 9) % 19 }.size == pages.size &&
-        items.size == 105 && items.all { it in 0..12 }
+    private fun copySlot(page: Int) = if (page >= 86) page - 86 else (page - 9) % 19
+
+    val usesFourSlots get() = pages.any { it >= 86 }
+    val usesThreeSlotGps get() = items.indices.any { items[it] == 13 &&
+        (it < 3 || (it >= 10 && (it - 10) % 5 < 3)) }
+
+    private fun gpsFieldAllowed(index: Int): Boolean {
+        if (index < 10) return index < 3 || index == 7
+        val field = (index - 10) % 5
+        if (field == 3) return false
+        val slot = (index - 10) / 5
+        val allowedPages = if (field == 4) 28..46 else 9..27
+        return pages.none { it >= 9 && copySlot(it) == slot && it !in allowedPages }
+    }
+
+    val valid get() = pages.size <= 20 && pages.all { it in 0..104 && it != 85 } &&
+        pages.distinctBy { if (it < 9) it else 9 + copySlot(it) }.size == pages.size &&
+        items.size == 105 && items.indices.all { i ->
+            items[i] in 0..12 || (items[i] == 13 && gpsFieldAllowed(i))
+        }
 
     fun encode() = pages.joinToString(",") + "/" + items.joinToString(",")
 
@@ -22,7 +39,7 @@ internal data class GaugeLayout(val pages: List<Int>, val items: List<Int>) {
     }
 
     fun legacyPacket(): ByteArray? {
-        if (!valid || pages.isEmpty() || pages.any { it > 11 }) return null
+        if (!valid || 13 in items || pages.isEmpty() || pages.any { it > 11 }) return null
         val bytes = ByteArray(19)
         bytes[0] = 1
         fun nibble(offset: Int, index: Int, value: Int) {
@@ -38,6 +55,9 @@ internal data class GaugeLayout(val pages: List<Int>, val items: List<Int>) {
     }
 
     companion object {
+        const val SYSTEM_PAGE = 85
+        fun isPageId(id: Int) = id in 0..104
+
         private fun withCrc(bytes: ByteArray): ByteArray {
             val end = bytes.size - 2
             val crc = TripBleProtocol.crc16(bytes, end)

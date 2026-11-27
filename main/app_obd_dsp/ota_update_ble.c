@@ -886,9 +886,6 @@ void ota_update_ble_on_disconnect(uint16_t conn_id)
     // Don't abort WiFi OTA when BLE disconnects — the user switches from BLE to
     // WiFi for the actual transfer, and BLE disconnecting is a normal part of that
     // flow. The WiFi OTA server handles its own timeout/error cleanup internally.
-    if (ota_wifi_server_get_state() == OTA_WIFI_STATE_IDLE) {
-        ota_wifi_server_stop();
-    }
     ota_abort_current();
 }
 

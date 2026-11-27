@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "app_obd_dsp/gnss_nmea.h"
+#define portMUX_TYPE int
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(p) assert(!(*(p))++)
+#define portEXIT_CRITICAL(p) assert((*(p))-- == 1)
 #define UART_NUM_2 2
 #define GPIO_NUM_18 18
 #define GPIO_PULLUP_ONLY 1
@@ -41,9 +45,17 @@ static unsigned fifo_size, fifo_offset;
 static bool reading_length;
 static int64_t esp_timer_get_time(void) { return now_us; }
 static bool nvs_trip_time_is_valid(void) { return valid; }
+bool gnss_position_read(int32_t *, int32_t *);
+static bool fix_after_sync;
 static void vTaskDelay(int ticks) {
     now_us += (int64_t)ticks * 1000; record_ms += ticks;
     if (mode == 4 && now_us >= 14000000) valid = true;
+    int32_t lat, lon;
+    if (valid && now_us >= 16000000 && gnss_position_read(&lat, &lon)) {
+        assert(lat == 3120575 && lon == 12150000);
+        fix_after_sync = true;
+    }
+    if (now_us > 26000000) assert(!gnss_position_read(&lat, &lon));
     assert(now_us < 60000000);
 }
 static void vTaskDelete(void *task) { assert(!task); ++deleted; }
@@ -74,11 +86,11 @@ static void uart_flush_input(int p) { assert(p == 2); }
 static int uart_get_buffered_data_len(int p, size_t *n) { assert(p == 2); *n = 0; return 0; }
 static void make_sentence(void) {
     int second = now_us / 1000000;
-    if (second == last_second) return;
+    if (second == last_second || second >= 20) return;
     last_second = second;
     char body[160];
-    char status = mode == 4 || second < 9 ? 'V' : 'A';
-    snprintf(body, sizeof(body), "GNRMC,0000%02d.00,%c,1,N,1,E,0,0,121026,,,%c", second, status, status == 'A' ? 'A' : 'N');
+    char status = (mode == 4 && second < 15) || second < 9 ? 'V' : 'A';
+    snprintf(body, sizeof(body), "GNRMC,0000%02d.00,%c,3112.345,N,12130.000,E,0,0,121026,,,%c", second, status, status == 'A' ? 'A' : 'N');
     unsigned checksum = 0;
     for (char *p = body; *p; ++p) checksum ^= (unsigned char)*p;
     fifo_size = snprintf(fifo, sizeof(fifo), "$%s*%02X\r\n", body, checksum);
@@ -124,19 +136,38 @@ static int i2c_master_receive(int dev, uint8_t *buf, unsigned n, int timeout) {
 int main(void)
 {
     for (mode = 0; mode <= 5; ++mode) {
-        valid = false; now_us = record_ms = 0; last_second = -1;
+        valid = fix_after_sync = false; now_us = record_ms = 0; last_second = -1;
         applies = attempts = deleted = writes = 0; fifo_size = fifo_offset = 0;
-        gnss_task(NULL);
-        assert(!installed && !handles && deleted == 1);
+        if (mode == 0 || mode == 5) {
+            gnss_task(NULL);
+            assert(deleted == 1);
+        } else {
+            receiver_t receiver = {0};
+            vTaskDelay(2000);
+            if (mode == 3) assert(open_i2c(&receiver));
+            else assert(open_uart(&receiver, mode == 2 ? 115200 : 9600));
+            assert(listen(&receiver));
+            close_receiver(&receiver);
+        }
+        assert(!installed && !handles);
+        assert(fix_after_sync == (mode >= 1 && mode <= 4));
         assert(record_ms == now_us / 1000 && record_ms >= 2000);
         if (mode == 1 || mode == 2 || mode == 3) assert(applies == 1 && valid && attempts == 2);
         else assert(!applies);
         if (mode == 0) assert(now_us < 15000000 && !writes && !valid);
-        if (mode == 4) assert(valid && now_us < 15000000);
+        if (mode == 4) assert(valid && now_us >= 20000000);
         if (mode == 5) assert(writes == 3 && !valid);
     }
-    valid = true; gnss_time_start(); assert(!starts);
-    valid = false; small_heap = 1; gnss_time_start(); assert(!starts);
+    gnss_nmea_t fix = {.position_valid = true, .latitude_e5 = -12345, .longitude_e5 = 456789};
+    int32_t lat, lon;
+    publish_position(&fix);
+    assert(gnss_position_read(&lat, &lon) && lat == -12345 && lon == 456789);
+    now_us += 5000001;
+    assert(!gnss_position_read(&lat, &lon));
+    publish_position(&fix);
+    publish_position(NULL);
+    assert(!gnss_position_read(&lat, &lon));
+    valid = true; small_heap = 1; gnss_time_start(); assert(!starts);
     small_heap = 0; s_started = false;
     gnss_time_start(); gnss_time_start(); assert(starts == 1);
     puts("PASS: absent hardware, both UART baud rates, onboard I2C, busy recorder, phone cancellation, failed I2C, heap reserve and cleanup");

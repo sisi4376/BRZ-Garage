@@ -34,7 +34,7 @@ class DataTransferTest(unittest.TestCase):
         names = ['TransferSchema', 'TransferMerge', 'TransferArchive', 'TransferMigrations', 'TransferStore',
                  'TripDatabase', 'TripRecord', 'FuelDatabase', 'FuelRecord', 'ExpenseDatabase', 'ExpenseRecord', 'MaintenanceSchedule', 'LedgerReminders',
                  'CustomTripDatabase', 'CustomTripInterval', 'RefuelIntervalDatabase', 'RefuelInterval',
-                 'VehicleState', 'TripBleProtocol', 'SupportedVehicleModel', 'PollHealth', 'AppState', 'CurrentDriving', 'GaugeBluetoothAddress',
+                 'VehicleState', 'TripBleProtocol', 'GaugeLayout', 'SupportedVehicleModel', 'PollHealth', 'AppState', 'CurrentDriving', 'GaugeBluetoothAddress',
                  'MileageEstimator', 'RangeEstimator', 'VehicleDisplayName', 'LicensePlateGenerator', 'DeadlineTracking', 'VehicleRegistration']
         with tempfile.TemporaryDirectory(prefix='brz-transfer-') as temp:
             harness = Path(temp) / 'RefuelServiceHarness.kt'

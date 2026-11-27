@@ -5,28 +5,16 @@
 extern lv_obj_t *ui_ScreenPageInfoCustom;
 static lv_obj_t *s_info_rollers[5] = {NULL, NULL, NULL, NULL, NULL};
 
-static const char *k_data_options =
-    "CLT\n"
-    "IAT\n"
-    "OIL\n"
-    "LOAD\n"
-    "TPS\n"
-    "RPM\n"
-    "SPEED\n"
-    "BAT\n"
-    "OILP\n"
-    "BKT\n"
-    "BOOST\n"
-    "AFR\n"
-    "IGN";
+#define INFO_OPTIONS "CLT\nIAT\nOIL\nLOAD\nTPS\nRPM\nSPEED\nBAT\nOILP\nBKT\nBOOST\nAFR\nIGN"
 
 static void on_info_map_changed(lv_event_t *e)
 {
     uintptr_t idx = (uintptr_t)lv_event_get_user_data(e);
-    if (idx >= 5) return;
+    int type = gauge_page_type(ui_active_page()) == GAUGE_TYPE_QUAD ? GAUGE_TYPE_QUAD : 1;
+    if (idx >= (type == GAUGE_TYPE_QUAD ? 4U : 5U)) return;
 
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    ui_set_page_item(&cfg, 1, idx, (uint8_t)lv_roller_get_selected(s_info_rollers[idx]));
+    ui_set_page_item(&cfg, type, idx, (uint8_t)lv_roller_get_selected(s_info_rollers[idx]));
     nvs_cfg_set(&cfg);
 }
 
@@ -40,7 +28,7 @@ static void create_row(lv_obj_t *parent, int idx, const char *title, lv_coord_t 
 
     s_info_rollers[idx] = lv_roller_create(parent);
     lv_obj_clear_flag(s_info_rollers[idx], LV_OBJ_FLAG_GESTURE_BUBBLE); // scrolling the selection must not trigger the page gesture
-    lv_roller_set_options(s_info_rollers[idx], k_data_options, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_options(s_info_rollers[idx], idx == 4 ? INFO_OPTIONS "\nGPS" : INFO_OPTIONS, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_visible_row_count(s_info_rollers[idx], 1);
     lv_obj_set_width(s_info_rollers[idx], 170);
     lv_obj_set_height(s_info_rollers[idx], 38);
@@ -73,10 +61,13 @@ void ui_ScreenPageInfoCustom_screen_init(void)
     create_row(ui_ScreenPageInfoCustom, 1, "SLOT 2", -38);
     create_row(ui_ScreenPageInfoCustom, 2, "SLOT 3", 6);
     create_row(ui_ScreenPageInfoCustom, 3, "SLOT 4", 50);
-    create_row(ui_ScreenPageInfoCustom, 4, "SLOT 5", 94);
+    int type = gauge_page_type(ui_active_page()) == GAUGE_TYPE_QUAD ? GAUGE_TYPE_QUAD : 1;
+    int slots = type == GAUGE_TYPE_QUAD ? 4 : 5;
+    if (slots == 5)
+        create_row(ui_ScreenPageInfoCustom, 4, "SLOT 5", 94);
 
-    for (int i = 0; i < 5; ++i) {
-        lv_roller_set_selected(s_info_rollers[i], ui_page_item(cfg, 1, i), LV_ANIM_OFF);
+    for (int i = 0; i < slots; ++i) {
+        lv_roller_set_selected(s_info_rollers[i], ui_page_item(cfg, type, i), LV_ANIM_OFF);
     }
 
     lv_obj_t *hint = lv_label_create(ui_ScreenPageInfoCustom);

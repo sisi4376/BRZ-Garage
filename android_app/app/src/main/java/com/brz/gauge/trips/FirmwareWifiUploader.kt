@@ -228,7 +228,8 @@ class FirmwareWifiUploader(
             while (offset < bytes.size) {
                 try {
                     ensureCurrentNetwork(network, generation)
-                    val length = minOf(CHUNK_BYTES, bytes.size - offset)
+                    // Older receivers refresh their idle timer at exact 64 KiB boundaries.
+                    val length = minOf(CHUNK_BYTES - offset % CHUNK_BYTES, bytes.size - offset)
                     offset = postChunk(network, bytes, offset, length)
                     resumeOffset.set(offset)
                     reconnectAttempts = 0

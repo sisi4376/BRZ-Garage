@@ -11,6 +11,12 @@ lv_obj_t *ui_LabelTempValue[3]    = {NULL, NULL, NULL};
 lv_obj_t *ui_LabelTempName[3]     = {NULL, NULL, NULL};
 lv_obj_t *ui_LabelTempUnit[3]     = {NULL, NULL, NULL};
 lv_obj_t *ui_LabelTempDot[3]      = {NULL, NULL, NULL};  // colored dot at row start (color refreshed per data item)
+static lv_obj_t *s_gps_values[3];
+
+void ui_temp_gps_text(unsigned slot, const char *text)
+{
+    ui_gps_readout(s_gps_values[slot], ui_LabelTempValue[slot], text);
+}
 
 // Helper: colored circle dot
 static lv_obj_t *create_color_dot(lv_obj_t *parent, lv_color_t color, lv_coord_t x, lv_coord_t y)
@@ -59,6 +65,12 @@ static void make_row(unsigned slot, lv_coord_t y, lv_coord_t inset, lv_color_t c
     lv_obj_set_style_text_letter_space(value, -2, LV_PART_MAIN);
     lv_obj_align(value, LV_ALIGN_CENTER, 7, y);
     lv_obj_add_event_cb(value, fit_value, LV_EVENT_SIZE_CHANGED, NULL);
+
+    lv_obj_t *gps = s_gps_values[slot] = lv_label_create(parent);
+    lv_obj_set_style_text_font(gps, &ui_font_FontTypoderSize24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(gps, lv_color_white(), LV_PART_MAIN);
+    lv_obj_align(gps, LV_ALIGN_CENTER, 46, y);
+    lv_obj_add_flag(gps, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *unit = ui_LabelTempUnit[slot] = lv_label_create(parent);
     lv_label_set_text(unit, "°C");

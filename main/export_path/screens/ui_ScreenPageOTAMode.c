@@ -143,7 +143,7 @@ void ui_ScreenPageOTAMode_screen_init(void)
 static void exit_ota_mode(void)
 {
     ESP_LOGI(TAG, "Exiting OTA mode, stopping WiFi server");
-    ota_wifi_server_stop();
+    if (!ota_wifi_server_stop()) return;
     rs485_brake_temp_resume();
 
     ESP_LOGI(TAG, "Rebooting to restore BLE (BT controller was released for the OTA radio)");

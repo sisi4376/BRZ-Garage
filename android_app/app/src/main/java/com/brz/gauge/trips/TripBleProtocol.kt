@@ -15,6 +15,7 @@ object TripBleProtocol {
     val LEGACY_LAYOUT = uuid16(0x0010)
     val PAGE_LAYOUT = uuid16(0x0011)
     val GAUGE_SETTINGS: UUID = uuid16(0x0007)
+    val GAUGE_SETTINGS_EXT: UUID = uuid16(0x0012)
     val BRIGHTNESS_CONTROL: UUID = uuid16(0x0008)
     val VEHICLE_PROFILE_CONTROL: UUID = uuid16(0x0009)
     val ODOMETER_CONFIG: UUID = uuid16(0x000A)
@@ -73,6 +74,9 @@ object TripBleProtocol {
         val bootSettingsSupported: Boolean get() = version >= 3 && defaultOrientation != null
         val readOnly: Boolean get() = flags and 0x01 != 0
         val tripMergeLocked: Boolean get() = flags and 0x02 != 0
+        val fourSlotLayoutSupported: Boolean get() = flags and 0x08 != 0
+        val threeSlotGpsSupported: Boolean get() = flags and 0x20 != 0
+        val anyStartupPageSupported: Boolean get() = bootSettingsSupported && flags and 0x10 != 0
         val refuelDiscardOldestSupported: Boolean get() = flags and 0x04 != 0
     }
 
@@ -130,7 +134,12 @@ object TripBleProtocol {
         .array()
 
     data class DisplaySetting(val command: Int, val value: Int) {
-        val valid: Boolean get() = when (command) { 1 -> value in 10..100; 2 -> value in 0..8; 3 -> value in 0..3; else -> false }
+        val valid: Boolean get() = when (command) {
+            1 -> value in 10..100
+            2 -> GaugeLayout.isPageId(value)
+            3 -> value in 0..3
+            else -> false
+        }
         val label: String get() = when (command) { 2 -> "仪表默认启动页"; 3 -> "仪表默认朝向"; else -> "亮度" }
         fun matches(settings: GaugeSettings): Boolean = when (command) {
             1 -> settings.brightness == value
@@ -439,7 +448,6 @@ object TripBleProtocol {
         if (value.size !in setOf(104, 106, 108)) return null
         val version = value[0].toInt() and 0xFF
         if (version !in 1..3 || value.size != 102 + version * 2) return null
-        if (version == 3 && ((value[104].toInt() and 0xff) > 3 || value[105].toInt() != 0 || (value[6].toInt() and 0xff) > 8)) return null
         val encodedSize = (value[2].toInt() and 0xFF) or ((value[3].toInt() and 0xFF) shl 8)
         val crcOffset = value.size - 2
         val expectedCrc = (value[crcOffset].toInt() and 0xFF) or
@@ -448,6 +456,10 @@ object TripBleProtocol {
         fun u8(offset: Int) = value[offset].toInt() and 0xFF
         fun u16(offset: Int) = u8(offset) or (u8(offset + 1) shl 8)
         fun s16(offset: Int): Int = u16(offset).let { if (it >= 0x8000) it - 0x10000 else it }
+        if (version == 3) {
+            val validPage = if (u8(1) and 0x10 != 0) GaugeLayout.isPageId(u8(6)) else u8(6) in 0..8
+            if (u8(104) > 3 || u8(105) != 0 || !validPage) return null
+        }
         val nameBytes = value.copyOfRange(46, 78)
         val nameEnd = nameBytes.indexOf(0.toByte()).let { if (it < 0) nameBytes.size else it }
         return GaugeSettings(

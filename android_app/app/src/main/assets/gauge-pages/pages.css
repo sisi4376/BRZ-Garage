@@ -67,13 +67,14 @@ button:focus-visible,select:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  gap: 8px;
+  gap: 14px;
 }
 
 .stage button {
   background: #2e404b;
   color: white;
   border-radius: 100%;
+  flex: 0 0 36px;
   width: 36px;
   height: 36px;
   line-height: 22px;
@@ -87,9 +88,49 @@ button:focus-visible,select:focus-visible {
 .caption {
   display: flex;
   gap: 12px;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
   margin: 12px 0 3px;
+}
+
+.startup-marker {
+  color: #936300;
+  font-size: 16px;
+}
+
+.boot-settings {
+  padding-block: 7px 10px;
+}
+
+.boot-settings .slot > button,
+.boot-settings .slot > select {
+  width: min(65%, 11rem);
+  min-height: 44px;
+  font-size: 13px;
+}
+
+#setStartup {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-inline: 8px;
+}
+
+#startupStar {
+  font-size: 18px;
+  line-height: 1;
+}
+
+#setStartup[aria-pressed="true"] {
+  color: #845b08;
+  background: #fcf2dc;
+}
+
+.boot-hint {
+  margin: 9px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .caption span {
@@ -100,8 +141,39 @@ button:focus-visible,select:focus-visible {
   font-size: 11px;
 }
 
-#dial {
+.dial-shell {
+  position: relative;
   width: min(58vw,230px);
+}
+
+#portTrack {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#port {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  width: 21px;
+  height: 8px;
+  transform: translateX(-50%);
+  border: 2px solid #c8d8df;
+  border-radius: 5px;
+  background: #172731;
+  box-shadow: 0 0 0 1px #172731;
+}
+
+#port::after {
+  content: "";
+  position: absolute;
+  inset: 1px 3px;
+  border-radius: 2px;
+  background: #7b9baa;
+}
+
+#dial {
   aspect-ratio: 1;
   border-radius: 100%;
   overflow: hidden;

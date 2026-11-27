@@ -18,7 +18,8 @@ static const char *k_data_options =
     "BKT\n"
     "BOOST\n"
     "AFR\n"
-    "IGN";
+    "IGN\n"
+    "GPS";
 
 static void on_temp_map_changed(lv_event_t *e)
 {

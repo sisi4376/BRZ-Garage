@@ -264,8 +264,10 @@ fun main() {
     val badSettings = settingsWire.clone(); badSettings[20] = (badSettings[20].toInt() xor 1).toByte()
     check(TripBleProtocol.parseGaugeSettings(badSettings) == null)
     check(!gauge.bootSettingsSupported && gauge.defaultOrientation == null)
-    fun bootSnapshot(page: Int, orientation: Int): ByteArray = settingsWire.copyOf(108).apply {
+    fun bootSnapshot(page: Int, orientation: Int, exact: Boolean = false, gps: Boolean = false): ByteArray = settingsWire.copyOf(108).apply {
         this[0] = 3; this[2] = 108; this[6] = page.toByte()
+        if (exact) this[1] = (this[1].toInt() or 0x10).toByte()
+        if (gps) this[1] = (this[1].toInt() or 0x20).toByte()
         this[104] = orientation.toByte(); this[105] = 0
         val crc = TripBleProtocol.crc16(this, 106)
         this[106] = crc.toByte(); this[107] = (crc shr 8).toByte()
@@ -285,8 +287,29 @@ fun main() {
     check(TripBleProtocol.DisplaySetting(1, 55).packet().contentEquals(brightness))
     check(TripBleProtocol.parseGaugeSettings(bootSnapshot(9, 0)) == null)
     check(TripBleProtocol.parseGaugeSettings(bootSnapshot(0, 4)) == null)
-    check(runCatching { TripBleProtocol.DisplaySetting(2, 9).packet() }.isFailure)
+    for (page in listOf(9, GaugeLayout.SYSTEM_PAGE, 86, 104)) {
+        val current = checkNotNull(TripBleProtocol.parseGaugeSettings(bootSnapshot(page, 1, exact = true)))
+        check(current.anyStartupPageSupported && current.defaultPage == page)
+        check(TripBleProtocol.DisplaySetting(2, page).matches(current))
+        check(TripBleProtocol.DisplaySetting(2, page).packet()[2].toInt() == page)
+    }
+    check(TripBleProtocol.parseGaugeSettings(bootSnapshot(105, 0, exact = true)) == null)
+    check(runCatching { TripBleProtocol.DisplaySetting(2, 105).packet() }.isFailure)
     check(runCatching { TripBleProtocol.DisplaySetting(3, -1).packet() }.isFailure)
+    check(TripBleProtocol.parseGaugeSettings(bootSnapshot(0, 0, gps = true))?.threeSlotGpsSupported == true)
+    check(TripBleProtocol.parseGaugeSettings(bootSnapshot(0, 0))?.threeSlotGpsSupported == false)
+    val base = GaugeLayout.default
+    fun withGps(index: Int, pageIds: List<Int> = base.pages): GaugeLayout =
+        GaugeLayout(pageIds, base.items.toMutableList().apply { this[index] = 13 })
+    for (row in 0..2) {
+        val temp = withGps(row)
+        check(temp.valid && temp.usesThreeSlotGps && GaugeLayout.parse(temp.packet()) == temp)
+        check(withGps(10 + row, listOf(9)).valid)
+        for (other in listOf(28, 47, 66, 86)) check(!withGps(10 + row, listOf(other)).valid)
+    }
+    check(withGps(7).valid && !withGps(7).usesThreeSlotGps)
+    check(withGps(14, listOf(28)).valid && !withGps(14, listOf(9)).valid)
+    for (index in listOf(3, 4, 5, 6, 8, 9, 13)) check(!withGps(index).valid)
     println("PASS: read-only settings snapshot wire format, mappings and CRC rejection")
 
     val manifest = """{"device":{"board":"Waveshare ESP32-S3-Touch-AMOLED-1.75-B","variant":"obd_brz_gauge_amoled175","lcd":"CO5300","screen":{"w":466,"h":466,"bpp":16},"flash_mb":16,"ota_slots":2},"firmware":{"project":"obd_brz_gauge","version":"2.7.0","build_tag":"local"}}"""

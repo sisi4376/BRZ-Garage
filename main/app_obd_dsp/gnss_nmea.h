@@ -8,6 +8,8 @@ typedef struct {
     unsigned sentences, bad_checksum, malformed, rmc_count;
     char last_type[6], utc[20], date[12], status, mode;
     const char *reason;
+    bool position_valid;
+    int32_t latitude_e5, longitude_e5;
     char line[128];
     size_t used;
     bool collecting;

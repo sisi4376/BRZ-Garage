@@ -664,7 +664,7 @@ esp_err_t nvs_storage_init(void)
     if(s_cfg.brightness_day < 10) s_cfg.brightness_day = 100; // valid range 10-100; 0/unset/out-of-range all become 100
     if(s_cfg.default_orientation > 3) s_cfg.default_orientation = 0;
     if (gauge_page_count(s_cfg.page_order) < 0) reset_page_layout();
-    if(s_cfg.default_page > 8) s_cfg.default_page = 6; // 0=Temp..4=Gear+RPM,5=Speed,6=Fuel,7=Trip History,8=Trip Overview
+    if(s_cfg.default_page >= GAUGE_PAGE_ID_LIMIT) s_cfg.default_page = 6;
     if(s_cfg.needle_source_idx >= CHART_ALARM_N) s_cfg.needle_source_idx = 0;
     if(s_cfg.device_role > 2) s_cfg.device_role = ESPNOW_ROLE_STANDALONE; // role: 0=master 1=slave 2=standalone; out-of-range -> standalone
     if(s_cfg.chart_source_idx >= CHART_ALARM_N) s_cfg.chart_source_idx = 8; // chart item out-of-range -> default OILP (old NVS byte 0=CLT is also fine, unify to OILP)
@@ -697,12 +697,13 @@ esp_err_t nvs_storage_init(void)
     }
 #endif
 
-    // Validate TEMP/INFO custom display-item maps: 0..(DISP_ITEM_COUNT-1)
+    // Validate numeric items and GPS on the supported rows.
     for (int i = 0; i < 3; ++i) {
-        if (s_cfg.temp_display_map[i] >= CHART_ALARM_N) s_cfg.temp_display_map[i] = (uint8_t)i;
+        if (s_cfg.temp_display_map[i] >= CHART_ALARM_N && s_cfg.temp_display_map[i] != GAUGE_ITEM_GPS)
+            s_cfg.temp_display_map[i] = (uint8_t)i;
     }
     for (int i = 0; i < 5; ++i) {
-        if (s_cfg.info_display_map[i] >= CHART_ALARM_N) {
+        if (s_cfg.info_display_map[i] >= CHART_ALARM_N && !(i == 4 && s_cfg.info_display_map[i] == GAUGE_ITEM_GPS)) {
             static const uint8_t def_map[5] = {0, 2, 3, 4, 1};
             s_cfg.info_display_map[i] = def_map[i];
         }
@@ -843,10 +844,11 @@ esp_err_t nvs_cfg_set(const nvs_user_cfg_t *cfg)
 esp_err_t nvs_gauge_layout_set(const gauge_layout_t *layout)
 {
     if (!layout || gauge_page_count(layout->pages) < 0) return ESP_ERR_INVALID_ARG;
-    for (int i = 0; i < GAUGE_ITEM_SLOTS; ++i)
-        if (layout->items[i] >= CHART_ALARM_N) return ESP_ERR_INVALID_ARG;
+    if (!gauge_layout_items_valid(layout)) return ESP_ERR_INVALID_ARG;
     nvs_user_cfg_t cfg = s_cfg;
     memcpy(cfg.page_order, layout->pages, sizeof(cfg.page_order));
+    if (gauge_page_index(s_cfg.page_order, cfg.default_page) >= 0)
+        cfg.default_page = gauge_startup_page(cfg.page_order, cfg.default_page);
     memcpy(cfg.temp_display_map, layout->items, 3);
     memcpy(cfg.info_display_map, layout->items + 3, 5);
     memcpy(cfg.copy_items, layout->items + 10, sizeof(cfg.copy_items));
@@ -860,7 +862,7 @@ esp_err_t nvs_gauge_layout_set(const gauge_layout_t *layout)
 
 esp_err_t nvs_boot_setting_set(uint8_t command, uint8_t value)
 {
-    if (!((command == 2 && value <= 8) || (command == 3 && value <= 3)))
+    if (!((command == 2 && value < GAUGE_PAGE_ID_LIMIT) || (command == 3 && value <= 3)))
         return ESP_ERR_INVALID_ARG;
     nvs_user_cfg_t cfg = s_cfg;
     if (command == 2) cfg.default_page = value;

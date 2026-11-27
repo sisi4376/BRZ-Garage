@@ -5,6 +5,7 @@
 // The UI theme is named PINK_CAT (pink cat): main color pink, secondary color purple
 #include "ui_page_items.h"
 #include "ui.h"
+#include "app_obd_dsp/gnss_time.h"
 #include "ui_helpers.h"
 #include "ui_ext.h"
 #include "ui_disp_item.h"
@@ -412,6 +413,23 @@ void ui_chart_apply_source(void)
 // ===== Boot flow state / "NO SIGNAL" overlay =====
 // (boot_goto_ble_scan / boot_enter_default_page / update_no_signal_overlay moved to ui_ext.c)
 
+static void ui_read_gps_text(char *text, size_t size)
+{
+    int32_t lat, lon;
+    text[0] = '\0';
+    if (gnss_position_read(&lat, &lon)) ui_format_gps_text(text, size, lat, lon);
+}
+
+static void ui_update_gps_header(lv_obj_t *name, lv_obj_t *unit, lv_obj_t *dot)
+{
+    if (strcmp(lv_label_get_text(name), "GPS") == 0) return;
+    lv_color_t color = lv_color_hex(0x44FF88);
+    lv_label_set_text(name, "GPS");
+    lv_label_set_text(unit, "");
+    lv_obj_set_style_text_color(name, color, LV_PART_MAIN);
+    if (dot) lv_obj_set_style_bg_color(dot, color, LV_PART_MAIN);
+}
+
 static void ui_update_metric_header(lv_obj_t *name_label,
                                     lv_obj_t *unit_label,
                                     lv_obj_t *dot_label,
@@ -450,7 +468,7 @@ static uint32_t ui_refresh_period_ms_for_screen(lv_obj_t *scr,
         scr == ui_ScreenPageSpeed || scr == ui_ScreenPageNeedle) {
         return 16;
     }
-    if (scr == ui_ScreenPageTemp || scr == ui_ScreenPageInfo ||
+    if (scr == ui_ScreenPageTemp || scr == ui_ScreenPageInfo || scr == ui_ScreenPageQuad ||
         scr == ui_ScreenPageOilPressure || scr == ui_ScreenPageFuel ||
         scr == ui_ScreenPageTripOverview || scr == ui_ScreenPageTripIntervals ||
         scr == ui_ScreenPageLogo ||
@@ -474,7 +492,7 @@ static bool ui_screen_updates_live_data(lv_obj_t *scr)
     return scr == ui_ScreenPageGear || scr == ui_ScreenPageRpm ||
            scr == ui_ScreenPageSpeed || scr == ui_ScreenPageNeedle ||
            scr == ui_ScreenPageTemp || scr == ui_ScreenPageOilPressure ||
-           scr == ui_ScreenPageInfo || scr == ui_ScreenPageFuel ||
+           scr == ui_ScreenPageInfo || scr == ui_ScreenPageQuad || scr == ui_ScreenPageFuel ||
            scr == ui_ScreenPageTripOverview || scr == ui_ScreenPageTripIntervals;
 }
 
@@ -863,38 +881,39 @@ static void my_timerMain_impl(lv_timer_t * timer)
     if (scr == ui_ScreenPageTemp && ui_LabelTempValue[0]) {
         static int32_t s_disp_temp[3] = {0};
         static uint8_t s_last_temp_map[3] = {0xFF, 0xFF, 0xFF};
+        char gps_text[32];
+        bool read_gps = false;
+        bool sweeping = IN_SWEEP;
+        float ratio = sweeping
+            ? LV_MIN((float)(ui_ext_sweep_get_step() - 1) / SWEEP_STEPS_UP, 1.0f)
+            : 0.0f;
 
-        if(IN_SWEEP) {
-            int step = ui_ext_sweep_get_step() - 1; // already incremented
-            float r;
-            if(step <= SWEEP_STEPS_UP) r = (float)step / (float)SWEEP_STEPS_UP;
-            else r = 1.0f;   // hold at max (hold phase)
-
-            for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = ui_page_item(user_cfg, 0, i);
-                disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
-
-                if (s_last_temp_map[i] != map_idx) {
-                    s_last_temp_map[i] = map_idx;
-                    s_disp_temp[i] = 0;  // reset on source switch, avoiding a ramp from the old source's value
-                    ui_update_metric_header(ui_LabelTempName[i], ui_LabelTempUnit[i], ui_LabelTempDot[i], item);
+        for (int i = 0; i < 3; ++i) {
+            uint8_t map_idx = ui_page_item(user_cfg, 0, i);
+            if (map_idx == GAUGE_ITEM_GPS) {
+                if (!read_gps) {
+                    ui_read_gps_text(gps_text, sizeof(gps_text));
+                    read_gps = true;
                 }
+                ui_update_gps_header(ui_LabelTempName[i], ui_LabelTempUnit[i], ui_LabelTempDot[i]);
+                ui_temp_gps_text(i, gps_text);
+                s_last_temp_map[i] = map_idx;
+                continue;
+            }
 
-                int32_t sw = disp_item_sweep_value(item, r);
+            disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
+            if (s_last_temp_map[i] != map_idx) {
+                if (s_last_temp_map[i] == GAUGE_ITEM_GPS) ui_temp_gps_text(i, NULL);
+                s_last_temp_map[i] = map_idx;
+                s_disp_temp[i] = 0;
+                ui_update_metric_header(ui_LabelTempName[i], ui_LabelTempUnit[i], ui_LabelTempDot[i], item);
+            }
+
+            if (sweeping) {
+                int32_t sw = disp_item_sweep_value(item, ratio);
                 disp_item_set_text(ui_LabelTempValue[i], item, sw, true);
                 disp_item_set_value_color(ui_LabelTempValue[i], item, sw, true);
-            }
-        } else {
-            for (int i = 0; i < 3; ++i) {
-                uint8_t map_idx = ui_page_item(user_cfg, 0, i);
-                disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
-
-                if (s_last_temp_map[i] != map_idx) {
-                    s_last_temp_map[i] = map_idx;
-                    s_disp_temp[i] = 0;  // reset on source switch, avoiding a ramp from the old source's value
-                    ui_update_metric_header(ui_LabelTempName[i], ui_LabelTempUnit[i], ui_LabelTempDot[i], item);
-                }
-
+            } else {
                 int32_t value = 0;
                 bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2, &value);
                 disp_item_update(&s_disp_temp[i], ui_LabelTempValue[i], item, value, valid, ANIM_THRESH_TEMP);
@@ -948,9 +967,28 @@ static void my_timerMain_impl(lv_timer_t * timer)
     }
 
     /* Info page update */
-    if (scr == ui_ScreenPageInfo && ui_LabelInfoValue[0]) {
-        static int32_t s_disp_info[5] = {0};
-        static uint8_t s_last_info_map[5] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    if (scr == ui_ScreenPageInfo || scr == ui_ScreenPageQuad) {
+        bool quad = scr == ui_ScreenPageQuad;
+        int type = quad ? GAUGE_TYPE_QUAD : 1;
+        static int32_t values[2][5];
+        int32_t *s_disp_info = values[quad];
+        lv_obj_t **names = quad ? ui_LabelQuadName : ui_LabelInfoName;
+        lv_obj_t **readouts = quad ? ui_LabelQuadValue : ui_LabelInfoValue;
+        lv_obj_t **units = quad ? ui_LabelQuadUnit : ui_LabelInfoUnit;
+        static uint8_t last_maps[2][5] = {
+            {255, 255, 255, 255, 255}, {255, 255, 255, 255, 255}
+        };
+        uint8_t *s_last_info_map = last_maps[quad];
+        bool gps = !quad && ui_page_item(user_cfg, 1, 4) == GAUGE_ITEM_GPS;
+        if (gps) {
+            char text[32];
+            ui_read_gps_text(text, sizeof(text));
+            ui_update_gps_header(ui_LabelInfoName[4], ui_LabelInfoUnit[4], NULL);
+            s_last_info_map[4] = GAUGE_ITEM_GPS;
+            ui_info_gps_text(text);
+        } else if (s_last_info_map[4] == GAUGE_ITEM_GPS) {
+            ui_info_gps_text(NULL);
+        }
 
         if (IN_SWEEP) {
             int step = ui_ext_sweep_get_step() - 1; // already incremented above
@@ -958,34 +996,34 @@ static void my_timerMain_impl(lv_timer_t * timer)
             if (step <= SWEEP_STEPS_UP) r = (float)step / (float)SWEEP_STEPS_UP;
             else r = 1.0f;   // hold at max (hold phase)
 
-            for (int i = 0; i < 5; ++i) {
-                uint8_t map_idx = ui_page_item(user_cfg, 1, i);
+            for (int i = 0; i < (quad || gps ? 4 : 5); ++i) {
+                uint8_t map_idx = ui_page_item(user_cfg, type, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_info_map[i] != map_idx) {
                     s_last_info_map[i] = map_idx;
                     s_disp_info[i] = 0;  // reset on source switch, avoiding a ramp from the old source's value
-                    ui_update_metric_header(ui_LabelInfoName[i], ui_LabelInfoUnit[i], NULL, item);
+                    ui_update_metric_header(names[i], units[i], NULL, item);
                 }
 
                 int32_t sw = disp_item_sweep_value(item, r);
-                disp_item_set_text(ui_LabelInfoValue[i], item, sw, true);
-                disp_item_set_value_color(ui_LabelInfoValue[i], item, sw, true);
+                disp_item_set_text(readouts[i], item, sw, true);
+                disp_item_set_value_color(readouts[i], item, sw, true);
             }
         } else {
-            for (int i = 0; i < 5; ++i) {
-                uint8_t map_idx = ui_page_item(user_cfg, 1, i);
+            for (int i = 0; i < (quad || gps ? 4 : 5); ++i) {
+                uint8_t map_idx = ui_page_item(user_cfg, type, i);
                 disp_item_t item = (disp_item_t)(map_idx % DISP_ITEM_COUNT);
 
                 if (s_last_info_map[i] != map_idx) {
                     s_last_info_map[i] = map_idx;
                     s_disp_info[i] = 0;  // reset on source switch, avoiding a ramp from the old source's value
-                    ui_update_metric_header(ui_LabelInfoName[i], ui_LabelInfoUnit[i], NULL, item);
+                    ui_update_metric_header(names[i], units[i], NULL, item);
                 }
 
                 int32_t value = 0;
                 bool valid = disp_item_read_value(item, clt, iat, oil, load_pct, tps, bat_mv, oilp_x10, brake_x10, usRpm, ucSpeed, boost_x10, afr_x100, ignition_x2, &value);
-                disp_item_update(&s_disp_info[i], ui_LabelInfoValue[i], item, value, valid, ANIM_THRESH_TEMP);
+                disp_item_update(&s_disp_info[i], readouts[i], item, value, valid, ANIM_THRESH_TEMP);
             }
         }
 
@@ -1147,13 +1185,14 @@ static const struct {
     {&ui_ScreenPageFuel, ui_ScreenPageFuel_screen_init},
     {&ui_ScreenPageTripHistory, ui_ScreenPageTripHistory_screen_init},
     {&ui_ScreenPageTripOverview, ui_ScreenPageTripOverview_screen_init},
+    {&ui_ScreenPageQuad, ui_ScreenPageQuad_screen_init},
     {&ui_ScreenPageEasterEgg, ui_ScreenPageEasterEgg_screen_init},
 };
 
 static void gauge_show_page(int page)
 {
     ui_select_gauge_page(page);
-    int screen = page == GAUGE_PAGE_SYSTEM ? 9 : gauge_page_type(page);
+    int screen = page == GAUGE_PAGE_SYSTEM ? GAUGE_TYPE_QUAD + 1 : gauge_page_type(page);
     if (*gauge_screens[screen].screen != lv_scr_act())
         _ui_screen_change(gauge_screens[screen].screen, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, gauge_screens[screen].init);
 }
@@ -1385,7 +1424,7 @@ void ui_event_info_background(lv_event_t * e)
     lv_event_code_t event_code = lv_event_get_code(e);
     if(event_code == LV_EVENT_GESTURE) {
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
-        if (gauge_swipe(1, dir)) return;
+        if (gauge_swipe(lv_scr_act() == ui_ScreenPageQuad ? GAUGE_TYPE_QUAD : 1, dir)) return;
         else if(dir == LV_DIR_BOTTOM) {
             lv_indev_wait_release(lv_indev_get_act());
             if (ui_ScreenPageInfoCustom) { lv_obj_del(ui_ScreenPageInfoCustom); ui_ScreenPageInfoCustom = NULL; }
@@ -1401,7 +1440,10 @@ void ui_event_info_custom_background(lv_event_t * e)
         lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
         if (dir == LV_DIR_TOP || dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) {
             lv_indev_wait_release(lv_indev_get_act());
-            _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
+            if (gauge_page_type(ui_active_page()) == GAUGE_TYPE_QUAD)
+                _ui_screen_change(&ui_ScreenPageQuad, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageQuad_screen_init);
+            else
+                _ui_screen_change(&ui_ScreenPageInfo, LV_SCR_LOAD_ANIM_FADE_ON, 5, 0, &ui_ScreenPageInfo_screen_init);
         }
     }
 }
@@ -1502,6 +1544,7 @@ void ui_init(void)
     // The other default pages are eagerly created above; Info and Trip History are lazy-loaded.
     if (nvs_cfg_get()->default_page == 1 && ui_ScreenPageInfo == NULL) {
         ui_ScreenPageInfo_screen_init();
+    ui_ScreenPageQuad_screen_init();
     }
     if (nvs_cfg_get()->default_page == 7 && ui_ScreenPageTripHistory == NULL) {
         ui_ScreenPageTripHistory_screen_init();

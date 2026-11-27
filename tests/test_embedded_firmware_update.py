@@ -179,11 +179,12 @@ class EmbeddedFirmwareUpdateTest(unittest.TestCase):
         server = (ROOT / "main" / "app_obd_dsp" / "ota_wifi_server.c").read_text(encoding="utf-8")
         self.assertIn("手动进入 OTA 并更新", activity)
         self.assertIn("CHUNK_BYTES = 64 * 1024", uploader)
+        self.assertIn("minOf(CHUNK_BYTES - offset % CHUNK_BYTES, bytes.size - offset)", uploader)
         self.assertIn('get(network, "/ota/status", authenticated = true)', uploader)
         self.assertIn('open(network, "/ota/cancel")', uploader)
         self.assertIn('"firmware waiting for resume"', server)
         self.assertIn('.uri = "/ota/cancel"', server)
-        self.assertIn("OTA_ERROR_REBOOT_US", server)
+        self.assertIn("OTA_ERROR_REBOOT_MS", server)
         self.assertIn("esp_restart();", server)
 
     def test_ota_wifi_loss_reconnects_and_resumes_on_a_fresh_network(self):

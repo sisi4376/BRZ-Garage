@@ -51,6 +51,7 @@
 #define DEVICE_INFO_CHAR_REFUEL_DATA 0x000D
 #define DEVICE_INFO_CHAR_CUSTOM_TRIP_CONTROL 0x000E
 #define DEVICE_INFO_CHAR_HARMONY_TIME_SYNC 0x000F
+#define DEVICE_INFO_CHAR_GAUGE_SETTINGS_EXT 0x0012
 #define VEHICLE_STATE_WIRE_SIZE 84
 #define GAUGE_SETTINGS_WIRE_SIZE 108
 #define BRIGHTNESS_CONTROL_WIRE_SIZE 6
@@ -176,6 +177,8 @@ enum {
     IDX_INFO_CHAR_VAL_HARMONY_TIME_SYNC,
     IDX_INFO_CHAR_LAYOUT,
     IDX_INFO_CHAR_VAL_LAYOUT,
+    IDX_INFO_CHAR_GAUGE_SETTINGS_EXT,
+    IDX_INFO_CHAR_VAL_GAUGE_SETTINGS_EXT,
     IDX_INFO_NB,
 };
 
@@ -218,6 +221,9 @@ static int s_layout_next;
 static uint16_t s_layout_owner;
 
 static uint8_t s_gauge_settings_value[GAUGE_SETTINGS_WIRE_SIZE];
+static uint8_t s_gauge_settings_ext_value[GAUGE_SETTINGS_WIRE_SIZE];
+static uint16_t s_char_uuid_gauge_settings_ext = DEVICE_INFO_CHAR_GAUGE_SETTINGS_EXT;
+static uint16_t s_handle_gauge_settings_ext;
 static uint16_t s_char_uuid_brightness_control = DEVICE_INFO_CHAR_BRIGHTNESS_CONTROL;
 static uint16_t s_handle_brightness_control;
 static uint8_t s_brightness_control_value[BRIGHTNESS_CONTROL_WIRE_SIZE];
@@ -402,21 +408,25 @@ static uint16_t build_vehicle_state_wire(void)
 /* Build a read-only snapshot from the already-loaded RAM configuration. This
  * deliberately performs no NVS reads/writes and does not change any runtime
  * task, page, BLE-to-ELM327, or vehicle acquisition state. */
-static uint16_t build_gauge_settings_wire(void)
+static uint16_t build_gauge_settings_wire(uint8_t *b, bool exact_startup_page)
 {
     nvs_user_cfg_t cfg = *nvs_cfg_get();
-    uint8_t *b = s_gauge_settings_value;
     memset(b, 0, GAUGE_SETTINGS_WIRE_SIZE);
     b[0] = 3;
     b[1] = 0x01U; /* bit 0: this protocol revision is read-only */
     b[1] |= 0x04U; /* bit 2: discard data before the oldest refuel node */
+    b[1] |= 0x08U; /* bit 3: supports four-slot layouts */
+    b[1] |= 0x20U; /* bit 5: supports GPS in all three-slot rows */
+    if (exact_startup_page) b[1] |= 0x10U; /* bit 4: default_page is an exact page ID */
 #if !TRIP_MERGE_TIMEOUT_EDITABLE
     b[1] |= 0x02U; /* bit 1: trip merge timeout is firmware-locked */
 #endif
     put_le16(b + 2, GAUGE_SETTINGS_WIRE_SIZE);
     b[4] = cfg.protocol;
     b[5] = cfg.theme_cfg.theme;
-    b[6] = cfg.default_page;
+    // Keep the original characteristic readable by apps expecting pages 0..8.
+    int legacy_page = gauge_page_type(cfg.default_page);
+    b[6] = exact_startup_page ? cfg.default_page : (legacy_page <= 8 ? legacy_page : 6);
     b[7] = cfg.brightness_day;
     b[8] = cfg.vehicle_profile_idx;
     b[9] = cfg.device_role;
@@ -843,6 +853,14 @@ static const esp_gatts_attr_db_t s_gatt_db_info[IDX_INFO_NB] = {
     {{ESP_GATT_RSP_BY_APP},
      {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_harmony_time_sync, ESP_GATT_PERM_WRITE,
       sizeof(s_harmony_time_sync_value), 0, s_harmony_time_sync_value}},
+    [IDX_INFO_CHAR_GAUGE_SETTINGS_EXT] =
+    {{ESP_GATT_AUTO_RSP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_attr_uuid_char_declare, ESP_GATT_PERM_READ,
+      sizeof(uint8_t), sizeof(uint8_t), (uint8_t *)&s_char_prop_read}},
+    [IDX_INFO_CHAR_VAL_GAUGE_SETTINGS_EXT] =
+    {{ESP_GATT_RSP_BY_APP},
+     {ESP_UUID_LEN_16, (uint8_t *)&s_char_uuid_gauge_settings_ext, ESP_GATT_PERM_READ,
+      sizeof(s_gauge_settings_ext_value), 0, s_gauge_settings_ext_value}},
 };
 
 static int32_t read_rpm(bool *valid)
@@ -1242,6 +1260,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             s_handle_vehicle_state = h[IDX_INFO_CHAR_VAL_VEHICLE_STATE];
             s_handle_layout = h[IDX_INFO_CHAR_VAL_LAYOUT];
             s_handle_gauge_settings = h[IDX_INFO_CHAR_VAL_GAUGE_SETTINGS];
+            s_handle_gauge_settings_ext = h[IDX_INFO_CHAR_VAL_GAUGE_SETTINGS_EXT];
             s_handle_brightness_control = h[IDX_INFO_CHAR_VAL_BRIGHTNESS_CONTROL];
             s_handle_vehicle_profile_control = h[IDX_INFO_CHAR_VAL_VEHICLE_PROFILE_CONTROL];
             s_handle_odometer_config = h[IDX_INFO_CHAR_VAL_ODOMETER_CONFIG];
@@ -1392,7 +1411,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 const uint8_t *value = param->write.value;
                 uint16_t expected_crc = get_le16(value + 4);
                 bool supported = (value[1] == 1U && value[2] >= 10U && value[2] <= 100U) ||
-                                 (value[1] == 2U && value[2] <= 8U) ||
+                                 (value[1] == 2U && value[2] < GAUGE_PAGE_ID_LIMIT) ||
                                  (value[1] == 3U && value[2] <= 3U);
                 bool valid = value[0] == 1U && supported &&
                              value[3] == BRIGHTNESS_CONTROL_WIRE_SIZE &&
@@ -1553,6 +1572,7 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
             param->read.handle == s_handle_vehicle_state ||
             param->read.handle == s_handle_layout ||
             param->read.handle == s_handle_gauge_settings ||
+            param->read.handle == s_handle_gauge_settings_ext ||
             param->read.handle == s_handle_odometer_config ||
             param->read.handle == s_handle_refuel_meta ||
             param->read.handle == s_handle_refuel_data ||
@@ -1607,11 +1627,14 @@ static void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble
                 }
                 source = s_layout_wire;
                 source_len = sizeof(s_layout_wire);
-            } else if (param->read.handle == s_handle_gauge_settings) {
+            } else if (param->read.handle == s_handle_gauge_settings ||
+                       param->read.handle == s_handle_gauge_settings_ext) {
                 // Freeze one RAM-only snapshot across all ATT Read Blob fragments.
-                if (param->read.offset == 0) build_gauge_settings_wire();
-                source = s_gauge_settings_value;
-                source_len = sizeof(s_gauge_settings_value);
+                bool exact = param->read.handle == s_handle_gauge_settings_ext;
+                uint8_t *snapshot = exact ? s_gauge_settings_ext_value : s_gauge_settings_value;
+                if (param->read.offset == 0) build_gauge_settings_wire(snapshot, exact);
+                source = snapshot;
+                source_len = GAUGE_SETTINGS_WIRE_SIZE;
             } else if (param->read.handle == s_handle_odometer_config) {
                 if (param->read.offset == 0) build_odometer_config_wire();
                 source = s_odometer_config_value;

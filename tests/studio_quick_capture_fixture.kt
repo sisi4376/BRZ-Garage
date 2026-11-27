@@ -25,8 +25,8 @@ class Resolver(var failed:Boolean=false) {
 }
 class BleCapture(val context:QuickFixture,val journal:Journal,val cancelled:()->Boolean):AutoCloseable {
     fun connect(address:String){context.calls.add("connect:"+journal.profile)}
-    fun run(mode:String,extra:List<String>,duration:Double,interval:Long,strictDiscovery:Boolean,onStarted:()->Unit){
-        check(duration==300.0 && strictDiscovery && extra.isEmpty())
+    fun run(mode:String,extra:List<String>,duration:Double,interval:Long,probeAllStandardPids:Boolean,onStarted:()->Unit){
+        check(duration==300.0 && probeAllStandardPids==(mode=="all") && extra.isEmpty())
         context.calls.add("poll:"+mode);onStarted()
         StudioState.reply("010D","41 0D 3C\r>",1.0)
         journal.emit("reply",mapOf("command" to "010D","header" to "7E0","phase" to "poll","started" to 0,"hex" to "41 0D 3C\r>".toByteArray().hex(),"complete" to true))

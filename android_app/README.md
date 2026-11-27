@@ -1,6 +1,6 @@
-# BRZ Garage Android 4.6.7（179）Beta
+# BRZ Garage Android 4.6.8（201）Beta
 
-[安装 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.7/BRZ-Garage-v4.6.7-debug.apk.sha256)）。覆盖安装后在“仪表固件更新”中升级到 4.1.4-beta.6。支持 A/B 分组轮询和点火提前角，详见[本版说明](../docs/RELEASE_4_6_7.md)。
+[安装 APK](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk)（[SHA-256](https://github.com/sisi4376/BRZ-Garage/releases/download/v4.6.8/BRZ-Garage-v4.6.8-debug.apk.sha256)）。覆盖安装后可在“仪表页面设置”查看并编排表盘，在“仪表固件更新”中升级到 4.1.6-beta.1。详见[本版说明](../docs/RELEASE_4_6_8.md)。
 
 # BRZ Garage Android 4.6.6（177）Beta
 

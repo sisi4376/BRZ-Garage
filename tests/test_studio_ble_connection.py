@@ -37,6 +37,15 @@ class StudioBleConnectionTest(unittest.TestCase):
                 rows=[json.loads(s) for s in (folder/(name+'.jsonl')).read_text(encoding='utf-8').splitlines()]
                 self.assertEqual([r['probe'] for r in rows if r['kind']=='transport'],[1,2])
                 self.assertTrue(any(r.get('stage')=='handshake_failed' for r in rows))
+            rows=[json.loads(s) for s in (folder/'probe-all.jsonl').read_text(encoding='utf-8').splitlines()]
+            probe=[r for r in rows if r['kind']=='reply' and r['phase'] in ('probe','discovery')]
+            self.assertEqual([r['command'] for r in probe], [f'01{pid:02X}' for pid in range(256)])
+            self.assertTrue(all(r['complete'] for r in probe))
+            self.assertEqual(bytes.fromhex(probe[5]['hex']), b'NO DATA\r>')
+            result=next(r for r in rows if r['kind']=='pid_probe_end')
+            self.assertEqual(result['tested'], 256)
+            self.assertEqual(result['valid'], ['010C', '016D', '01FF'])
+            self.assertEqual(next(r for r in rows if r['kind']=='poll_plan')['commands'], result['valid'])
             rows=[json.loads(s) for s in (folder/'crashes/last-app-crash.jsonl').read_text(encoding='utf-8').splitlines()]
             self.assertEqual([r['kind'] for r in rows],['session','app_crash','end'])
             self.assertIn('IllegalArgumentException',rows[1]['stack'])
